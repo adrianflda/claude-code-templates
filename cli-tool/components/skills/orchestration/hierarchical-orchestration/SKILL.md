@@ -16,7 +16,7 @@ Each PM runs the looped pipeline for its subproject; the root runs the pipeline'
 project-orchestrator      Stage A: think-tank decompose (critique loop) → FROZEN CONTRACT + integration gate
   └─ subproject-pm × N     Stage B: SDD spec/plan/tasks (critique loop, via task-execution-engine)
        └─ swarm-worker × M  Stage C: TDD loop  (test → code → run → repair, cap 3, contract-anchored)
-     ↑                      Stage D: PM gate + review-repair loop (findings → fix → re-review, until 0 CRÍT/HIGH)
+     ↑                      Stage D: PM gate + review-repair loop (findings → fix → re-review, until 0 CRIT/HIGH)
   Stage E: integrate + integration gate (contract/e2e across seams)
 ```
 
