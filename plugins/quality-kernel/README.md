@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **WIP (v0.1.0).** The six agents, the `/forge` orchestrator and the
+> Status: **WIP (v0.2.0).** The six agents, the `/forge` orchestrator and the
 > two hooks are in place; the hooks ship in **log-mode** by design (measure
 > first, tighten later). Items still open are listed at the bottom.
 
@@ -72,7 +72,7 @@ Automatic, always on (no invocation needed):
   "done" claim can be checked against a real verification event newer than the
   last edit. v0 records; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.1.0)
+## Gate status — teeth vs. prose (v0.2.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
