@@ -101,11 +101,13 @@ class EvidenceGate(unittest.TestCase):
             self.assertEqual(rec["exit"], 0)
 
     def test_node_test_runner_is_recorded(self):
-        # regression: Node's built-in `node --test` runner must count as a verify command
+        # regression: Node's built-in `node --test` runner must count as a verify command.
+        # Uses a bare `node --test` (no `coverage`/`nyc`/other already-matched token) so the
+        # match can only come from the `node\s+--test` rule this test guards.
         with tempfile.TemporaryDirectory() as d:
             code, _ = run(
                 GATE,
-                {"tool_name": "Bash", "tool_input": {"command": "node --test --experimental-test-coverage"}, "tool_response": {"exit_code": 0}, "cwd": d},
+                {"tool_name": "Bash", "tool_input": {"command": "node --test"}, "tool_response": {"exit_code": 0}, "cwd": d},
                 cwd=d,
             )
             self.assertEqual(code, 0)
