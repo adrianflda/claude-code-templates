@@ -40,7 +40,7 @@ fi
 
 # --- project config (optional) ---
 if [ -n "$PROJECT_DIR" ] && [ ! -d "$PROJECT_DIR" ]; then
-  echo "Warning: project_dir '$PROJECT_DIR' not found, skipping project scan." >&2
+  echo "Warning: project_dir '$PROJECT_DIR' is not a directory, skipping project scan." >&2
 elif [ -n "$PROJECT_DIR" ]; then
   while IFS= read -r f; do emit "proj:CLAUDE.md" "$f"; done \
     < <(find "$PROJECT_DIR" -maxdepth 3 -name CLAUDE.md -type f 2>/dev/null)
