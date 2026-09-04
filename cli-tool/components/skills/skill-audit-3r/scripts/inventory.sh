@@ -39,12 +39,17 @@ if [ -d "$CLAUDE_HOME/hooks" ]; then
 fi
 
 # --- project config (optional) ---
-if [ -n "$PROJECT_DIR" ] && [ -d "$PROJECT_DIR" ]; then
+if [ -n "$PROJECT_DIR" ] && [ ! -d "$PROJECT_DIR" ]; then
+  echo "Warning: project_dir '$PROJECT_DIR' not found, skipping project scan." >&2
+elif [ -n "$PROJECT_DIR" ]; then
   while IFS= read -r f; do emit "proj:CLAUDE.md" "$f"; done \
     < <(find "$PROJECT_DIR" -maxdepth 3 -name CLAUDE.md -type f 2>/dev/null)
   [ -d "$PROJECT_DIR/.claude/skills" ]   && emit "proj:skill"   "$PROJECT_DIR"/.claude/skills/*/SKILL.md
   [ -d "$PROJECT_DIR/.claude/agents" ]   && emit "proj:agent"   "$PROJECT_DIR"/.claude/agents/*.md
   [ -d "$PROJECT_DIR/.claude/commands" ] && emit "proj:command" "$PROJECT_DIR"/.claude/commands/*.md
+  if [ -d "$PROJECT_DIR/.claude/hooks" ]; then
+    while IFS= read -r f; do emit "proj:hook" "$f"; done < <(find "$PROJECT_DIR/.claude/hooks" -type f 2>/dev/null)
+  fi
 fi
 
 if [ ! -s "$tmp" ]; then
