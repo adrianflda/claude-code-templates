@@ -1,0 +1,29 @@
+{
+  "$comment": "Replay fixture (M1 INV-R5). Extends the generic template with globs that catch two REAL past bugs the default set would have missed: the PHI/IDOR fix (a monitoring controller/service) and the inhaler #560 regression (realtime/brain/inhaler). This is the whole point of INV-R5 — proving the surface must be authored per repo from real incidents.",
+  "criticalGlobs": [
+    "**/auth/**",
+    "**/session/**",
+    "**/*tenant*/**",
+    "**/voice/**",
+    "**/telephony/**",
+    "**/migrations/**",
+    "**/*.sql",
+    "infra/**",
+    "**/contracts/**",
+    "**/*monitoring*",
+    "**/*session*",
+    "**/controllers/**",
+    "**/inhaler/**",
+    "realtime/brain/**"
+  ],
+  "safeGlobs": [
+    "**/*.md",
+    "docs/**",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/__tests__/**",
+    "**/*.css",
+    "**/*.stories.*",
+    "scripts/dev/**"
+  ]
+}
