@@ -75,3 +75,28 @@ test('sanity — the same base repo with a genuine green change still passes the
     assert.strictEqual(json(r).pass, true);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
+
+test('ATTACK B (M3) — neutering a test IN PLACE is caught by the trusted base-harness run', () => {
+  // A real guard test over code.mjs; the change breaks the code AND rewrites the test to assert(true).
+  const tmp = mkdtempSync(join(tmpdir(), 'qk-attackB-'));
+  const git = (...a) => spawnSync('git', ['-C', tmp, ...a], { encoding: 'utf8' });
+  git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  mkdirSync(join(tmp, '.quality-kernel'), { recursive: true });
+  writeFileSync(join(tmp, '.quality-kernel', 'tools.json'), JSON.stringify({ verify: 'node --test guard.test.mjs' }));
+  writeFileSync(join(tmp, 'code.mjs'), 'export const f = () => 1;');
+  writeFileSync(join(tmp, 'guard.test.mjs'),
+    "import { test } from 'node:test'; import a from 'node:assert'; import { f } from './code.mjs'; test('g', () => a.strictEqual(f(), 1));");
+  git('add', '-A'); git('commit', '-qm', 'base');
+  const base = git('rev-parse', 'HEAD').stdout.trim();
+  writeFileSync(join(tmp, 'code.mjs'), 'export const f = () => 999;');                 // break the code
+  writeFileSync(join(tmp, 'guard.test.mjs'),                                            // neuter the test in place
+    "import { test } from 'node:test'; import a from 'node:assert'; test('g', () => a.ok(true));");
+  git('add', '-A'); git('commit', '-qm', 'neuter test + break code');
+  try {
+    const r = spawnSync('node', [referee, '--repo', tmp, '--base', base], { encoding: 'utf8' });
+    const v = json(r);
+    assert.strictEqual(r.status, 1, 'base guard run against head code (f()=999) fails -> blocked');
+    assert.strictEqual(v.pass, false);
+    assert.strictEqual(v.evidence.trustedHarnessExit, 1);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});

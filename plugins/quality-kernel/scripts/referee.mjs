@@ -1,42 +1,45 @@
 #!/usr/bin/env node
-// Re-executing verification referee — M0.
-// Spec: docs/agentic-harness/spec-m0-referee.v1.md · Plan: plan-m0-referee.v1.md
+// Re-executing verification referee — M0 + M3 (trusted-harness).
+// Spec: docs/agentic-harness/spec-m0-referee.v1.md (+ v2) · M3: review-m0m1.v2.md
 //
-// It does NOT trust any agent's "done" claim. It re-executes the project's verify command
-// itself, reads the real exit status, and returns a typed verdict. Fail-closed.
+// It does NOT trust any agent's "done" claim. It re-executes the project's verify command and
+// reads the real exit status. Fail-closed. M3 adds oracle-integrity: when a base ref is given it
+// ALSO runs the verify command with the BASE test-harness overlaid on the HEAD code, so a change
+// that neuters/deletes its own tests (or weakens a verify script) cannot hide a real code bug.
 //
 // Usage:  referee.mjs --repo <dir> [--base <ref>]
-// Exit:   0 = PASS · 1 = real FAIL (suite ran and failed) · 2 = indeterminate (fail-closed)
+// Exit:   0 = PASS · 1 = real FAIL · 2 = indeterminate (fail-closed)
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync, existsSync, statSync, mkdirSync, appendFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, appendFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { globToRegExp } from './route.mjs';
 
-function emit(verdict) {
-  process.stdout.write(JSON.stringify(verdict) + '\n');
-}
+// Files that constitute the verification HARNESS (the oracle), restored from base in the trusted
+// run so the change under test cannot tamper with them: test files, package manifests/locks,
+// tool/CI config, shell verify scripts, and the quality-kernel config itself.
+const HARNESS_GLOBS = [
+  '**/*.test.*', '**/*.spec.*', '**/__tests__/**', '**/*_test.*', '**/test_*.*',
+  '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock',
+  '**/*.config.*', '**/.quality-kernel/**', '**/*.sh',
+];
+const isHarness = (p) => HARNESS_GLOBS.some((g) => globToRegExp(g).test(p));
 
-// The referee is the AUTHORITATIVE source of exit codes in the evidence ledger: it
-// re-executes and reads the real status, unlike the Bash PostToolUse hook (whose payload
-// carries no exit code). Append a typed record; never block on a ledger write.
+function emit(v) { process.stdout.write(JSON.stringify(v) + '\n'); }
 function ledgerAppend(repoDir, record) {
   try {
     const dir = join(repoDir, '.quality-kernel');
     mkdirSync(dir, { recursive: true });
-    const line = JSON.stringify({ ts: Math.round(Date.now()) / 1000, source: 'referee', ...record }) + '\n';
-    appendFileSync(join(dir, 'evidence-ledger.jsonl'), line);
+    appendFileSync(join(dir, 'evidence-ledger.jsonl'),
+      JSON.stringify({ ts: Math.round(Date.now()) / 1000, source: 'referee', ...record }) + '\n');
   } catch { /* audit write must never affect the verdict */ }
 }
-// Indeterminate → fail-closed (Constitution P5). Exit 2.
-function indeterminate(reason) {
-  emit({ pass: false, indeterminate: true, evidence: null, reason });
-  process.exit(2);
-}
+function indeterminate(reason) { emit({ pass: false, indeterminate: true, evidence: null, reason }); process.exit(2); }
 
 // --- args ---
 const args = process.argv.slice(2);
-let repo = null;
-let base = null;
+let repo = null, base = null;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--repo') repo = args[++i];
   else if (args[i] === '--base') base = args[++i];
@@ -44,11 +47,7 @@ for (let i = 0; i < args.length; i++) {
 if (!repo) indeterminate('missing --repo <dir>');
 if (!existsSync(repo) || !statSync(repo).isDirectory()) indeterminate(`repo not found or not a directory: ${repo}`);
 
-// --- load the project-declared verify command, PREFERRING the committed base/HEAD ref ---
-// Red-team finding: if the verify command is read from the working tree, the same change under
-// test can weaken it (e.g. `{"verify":"true"}`) and force a pass. Reading it from the committed
-// ref makes the oracle immutable to the change being judged. Falls back to the worktree only for
-// non-git dirs (fixtures) or a first-time setup with no committed config.
+// --- load the verify command, PREFERRING the committed base/HEAD ref (immutable to the change) ---
 function parseVerify(text, whence) {
   try {
     const j = JSON.parse(text);
@@ -58,53 +57,66 @@ function parseVerify(text, whence) {
 }
 function loadVerify(dir, ref) {
   const g = spawnSync('git', ['-C', dir, 'show', `${ref}:.quality-kernel/tools.json`], { encoding: 'utf8' });
-  if (g.status === 0) { const v = parseVerify(g.stdout, `git ${ref}`); if (v) return { verify: v, from: `git:${ref}` }; }
+  if (g.status === 0) { const v = parseVerify(g.stdout, `git ${ref}`); if (v) return v; }
   for (const p of [join(dir, '.quality-kernel', 'tools.json'), join(dir, 'tools.json')]) {
-    if (existsSync(p)) { const v = parseVerify(readFileSync(p, 'utf8'), p); if (v) return { verify: v, from: 'worktree' }; }
+    if (existsSync(p)) { const v = parseVerify(readFileSync(p, 'utf8'), p); if (v) return v; }
   }
   return null;
 }
-const loaded = loadVerify(repo, base || 'HEAD');
-if (!loaded) indeterminate('no verify command declared (.quality-kernel/tools.json "verify")');
-const verify = loaded.verify;
+const verify = loadVerify(repo, base || 'HEAD');
+if (!verify) indeterminate('no verify command declared (.quality-kernel/tools.json "verify")');
 
-// --- advisory diff (M0: not used to scope — DC2 runs the full suite; kept for evidence/future) ---
-let changed = null;
-if (base) {
-  const d = spawnSync('git', ['-C', repo, 'diff', '--name-only', `${base}...HEAD`], { encoding: 'utf8' });
-  if (d.status === 0) changed = d.stdout.split('\n').filter(Boolean);
-}
-
-// --- re-execute the verify command IN the repo, read the REAL exit status ---
-// Run in a CLEAN environment, independent of whoever invoked the referee. In particular
-// strip NODE_TEST_CONTEXT so a verify command that itself uses `node --test` behaves
-// identically whether the referee was called standalone or from inside another test run.
-// The referee's job is an independent re-execution; it must not inherit the caller's
-// test-runner state.
 const childEnv = { ...process.env };
-delete childEnv.NODE_TEST_CONTEXT;
-const r = spawnSync(verify, { cwd: repo, shell: true, encoding: 'utf8', env: childEnv, timeout: 300000 });
+delete childEnv.NODE_TEST_CONTEXT; // re-execution must not inherit the caller's test-runner state
 
-// Could-not-run cases → indeterminate (fail-closed), NOT a test failure:
-//  - spawn error (r.error), timeout (r.signal set), or no readable status (null/undefined)
-if (r.error || r.status === null || r.status === undefined) {
-  const why = r.signal ? `timed out (${r.signal})` : (r.error ? r.error.message : 'no exit status');
-  indeterminate(`verify command could not complete: "${verify}" (${why})`);
-}
-// 127/126 = shell "command not found / not executable" => could-not-run — UNLESS the suite
-// actually produced output, in which case honor the non-zero exit as a real failure.
-if ((r.status === 127 || r.status === 126) && !(r.stdout && r.stdout.trim())) {
-  indeterminate(`verify command not executable (exit ${r.status}): "${verify}"`);
+// Run the verify command in `cwd`, read the REAL exit status, fail-closed on could-not-run.
+function runVerify(cwd, label) {
+  const r = spawnSync(verify, { cwd, shell: true, encoding: 'utf8', env: childEnv, timeout: 300000 });
+  if (r.error || r.status === null || r.status === undefined) {
+    indeterminate(`verify (${label}) could not complete: "${verify}" (${r.signal ? `timed out (${r.signal})` : (r.error ? r.error.message : 'no exit status')})`);
+  }
+  if ((r.status === 127 || r.status === 126) && !(r.stdout && r.stdout.trim())) {
+    indeterminate(`verify (${label}) not executable (exit ${r.status}): "${verify}"`);
+  }
+  return r.status;
 }
 
-const exit = r.status;
-const pass = exit === 0;
-ledgerAppend(repo, { command: verify, exit_code: exit, pass });
+// Build HEAD code + BASE harness in a temp dir (oracle-integrity). Returns the dir, or null if
+// not a git repo / base missing (then the trusted run is skipped, e.g. for non-git fixtures).
+function buildTrustedTree(dir, ref) {
+  const isGit = spawnSync('git', ['-C', dir, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8' }).status === 0;
+  if (!isGit) return null;
+  if (spawnSync('git', ['-C', dir, 'rev-parse', '--verify', ref], { encoding: 'utf8' }).status !== 0) return null;
+  const tmp = mkdtempSync(join(tmpdir(), 'qk-trusted-'));
+  const arch = spawnSync('bash', ['-c', `git -C ${JSON.stringify(dir)} archive HEAD | tar -x -C ${JSON.stringify(tmp)}`], { encoding: 'utf8' });
+  if (arch.status !== 0) { rmSync(tmp, { recursive: true, force: true }); return null; }
+  const ls = spawnSync('git', ['-C', dir, 'ls-tree', '-r', '--name-only', ref], { encoding: 'utf8' });
+  if (ls.status !== 0) { rmSync(tmp, { recursive: true, force: true }); return null; }
+  for (const p of ls.stdout.split('\n').filter(Boolean).filter(isHarness)) {
+    const show = spawnSync('git', ['-C', dir, 'show', `${ref}:${p}`], { encoding: 'buffer' });
+    if (show.status === 0) { const d = join(tmp, p); mkdirSync(dirname(d), { recursive: true }); writeFileSync(d, show.stdout); }
+  }
+  return tmp;
+}
+
+// 1) HEAD as-is (catches head bugs / broken tests the change introduced).
+const headExit = runVerify(repo, 'head');
+// 2) HEAD code + BASE harness (catches a change that neutered/deleted its own tests to go green).
+let trustedExit = null;
+if (base) {
+  const tmp = buildTrustedTree(repo, base);
+  if (tmp) { try { trustedExit = runVerify(tmp, 'base-harness'); } finally { rmSync(tmp, { recursive: true, force: true }); } }
+}
+
+const pass = headExit === 0 && (trustedExit === null || trustedExit === 0);
+ledgerAppend(repo, { command: verify, exit_code: headExit, trusted_exit: trustedExit, pass });
 emit({
   pass,
-  evidence: { command: verify, exit_code: exit, changed },
+  evidence: { command: verify, exit_code: headExit, trustedHarnessExit: trustedExit },
   reason: pass
-    ? 'verify suite passed (re-executed by the referee)'
-    : `verify suite failed with exit ${exit} (re-executed by the referee)`,
+    ? `verify passed (head${trustedExit === null ? '' : ' + base-harness'}, re-executed)`
+    : headExit !== 0
+      ? `verify suite failed with exit ${headExit} (re-executed)`
+      : `verify passed on the change's own harness but FAILED (exit ${trustedExit}) under the base harness — the change likely neutered its tests`,
 });
 process.exit(pass ? 0 : 1);
