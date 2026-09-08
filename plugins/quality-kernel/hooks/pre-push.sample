@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# quality-kernel pre-push gate — THE INVOKER (closes the "nothing runs the gate" gap).
+# Runs the composed gate (route + referee) on the range being pushed and BLOCKS the push on a
+# non-zero gate. The gate's exit code now gates a real, irreversible action instead of relying on
+# an agent voluntarily running it and honoring the result (Constitution P1: if a rule matters, it
+# is code). A critical change (gate exit 3, breaker unenforced) is blocked until M2 or a human.
+#
+# Install (per repo):
+#   cp plugins/quality-kernel/hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# If qk-gate.mjs lives outside this repo, set QK_GATE=/abs/path/to/qk-gate.mjs
+set -uo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+GATE="${QK_GATE:-$ROOT/plugins/quality-kernel/scripts/qk-gate.mjs}"
+ZERO="0000000000000000000000000000000000000000"
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue                       # deleting a remote ref
+  base="$remote_sha"
+  if [ "$remote_sha" = "$ZERO" ]; then                         # new branch: pick a sensible base
+    base="$(git rev-parse "$local_sha^" 2>/dev/null || echo "$local_sha")"
+  fi
+  echo "[quality-kernel] gate: $ROOT @ base $base" >&2
+  node "$GATE" --repo "$ROOT" --base "$base" >&2 || status=1
+done
+if [ "$status" -ne 0 ]; then
+  echo "[quality-kernel] push BLOCKED by the gate. Fix, or override once with 'git push --no-verify' + a reason." >&2
+fi
+exit "$status"

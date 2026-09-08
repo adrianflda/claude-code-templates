@@ -36,20 +36,29 @@ const route = runJson('route.mjs');
 const ref = runJson('referee.mjs');
 
 const verdict = ref.json || { pass: false, indeterminate: true, reason: 'referee produced no verdict' };
-const pass = ref.code === 0;
+const refPass = ref.code === 0;
+const requiresBreaker = route.json ? !!route.json.requiresBreaker : true; // fail-safe if route errored
 const notes = [];
-if (route.json && route.json.requiresBreaker) {
-  notes.push('CRITICAL surface: the live breaker (M2) is required before merge and is not yet enforced by this gate.');
+if (requiresBreaker) {
+  notes.push('CRITICAL surface: the live breaker (M2) is required before merge and is NOT yet enforced. Exit 3 = do-not-merge until M2 lands.');
 }
 
+// The EXIT CODE is the gate (Constitution P1: "if a rule matters, it's code" — a prose note is not).
+//   1/2 = referee blocked (real fail / indeterminate)
+//   3   = referee passed BUT a required gate (the M2 breaker on a critical change) is unenforced
+//   0   = verified green with no unmet gate
+let code;
+if (!refPass) code = verdict.indeterminate ? 2 : 1;
+else if (requiresBreaker) code = 3;
+else code = 0;
+
 process.stdout.write(JSON.stringify({
-  pass,
-  tier: route.json ? route.json.tier : 'critical',       // fail-safe if route errored
-  requiresBreaker: route.json ? route.json.requiresBreaker : true,
+  gate: code === 0 ? 'pass' : code === 3 ? 'blocked-needs-breaker' : code === 2 ? 'indeterminate' : 'fail',
+  refereePass: refPass,
+  tier: route.json ? route.json.tier : 'critical',
+  requiresBreaker,
   referee: verdict,
   route: route.json,
   notes,
 }) + '\n');
-
-// Verdict comes from the referee (the gate). Route is advisory rigor context.
-process.exit(ref.code === 0 ? 0 : (verdict.indeterminate ? 2 : 1));
+process.exit(code);

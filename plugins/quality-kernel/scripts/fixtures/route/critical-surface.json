@@ -1,5 +1,5 @@
 {
-  "$comment": "Replay fixture (M1 INV-R5). Extends the generic template with globs that catch two REAL past bugs the default set would have missed: the PHI/IDOR fix (a monitoring controller/service) and the inhaler #560 regression (realtime/brain/inhaler). This is the whole point of INV-R5 — proving the surface must be authored per repo from real incidents.",
+  "$comment": "Replay fixture (M1 INV-R5). Globs are scoped to CODE extensions where a bare name would over-match docs (precision), while still catching two REAL past bugs the generic default missed (recall): the PHI/IDOR fix (a monitoring controller/service) and inhaler #560 (realtime/brain/inhaler). NOTE (honesty): INV-R5 proves a surface CAN be authored to catch KNOWN incidents; it does not prove it catches the NEXT unknown one. The disciplined validation is hold-out (author from incident A, validate against unseen incident B) + precision tests — see route.test.mjs.",
   "criticalGlobs": [
     "**/auth/**",
     "**/session/**",
@@ -10,11 +10,13 @@
     "**/*.sql",
     "infra/**",
     "**/contracts/**",
-    "**/*monitoring*",
-    "**/*session*",
     "**/controllers/**",
     "**/inhaler/**",
-    "realtime/brain/**"
+    "realtime/brain/**",
+    "**/*monitoring*.ts",
+    "**/*monitoring*.js",
+    "**/*session*.ts",
+    "**/*session*.js"
   ],
   "safeGlobs": [
     "**/*.md",

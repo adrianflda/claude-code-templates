@@ -134,6 +134,19 @@ class EvidenceGate(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(self._ledger(d), [])
 
+    def test_prose_with_metacharacters_in_a_quoted_body_is_NOT_recorded(self):
+        # RED-TEAM regression: the general 112-false-events class — a runner word together with a
+        # shell metachar (;, |, &&) inside a QUOTED body must not create/start a command segment.
+        for cmd in (
+            'gh pr comment 599 -b "ran the suite; pytest is green"',
+            'echo "results && pytest ok"',
+            'gh pr comment 599 -b "steps: npm i; pytest -q all green | vitest too"',
+        ):
+            with tempfile.TemporaryDirectory() as d:
+                code, _ = run(GATE, {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": d}, cwd=d)
+                self.assertEqual(code, 0)
+                self.assertEqual(self._ledger(d), [], f"should not record: {cmd}")
+
     def test_chained_verify_command_is_recorded(self):
         # `cd foo && pytest` — the runner starts the SECOND segment → still recorded.
         with tempfile.TemporaryDirectory() as d:

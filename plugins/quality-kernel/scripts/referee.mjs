@@ -44,21 +44,29 @@ for (let i = 0; i < args.length; i++) {
 if (!repo) indeterminate('missing --repo <dir>');
 if (!existsSync(repo) || !statSync(repo).isDirectory()) indeterminate(`repo not found or not a directory: ${repo}`);
 
-// --- load the project-declared verify command (DC1) ---
-function loadVerify(dir) {
+// --- load the project-declared verify command, PREFERRING the committed base/HEAD ref ---
+// Red-team finding: if the verify command is read from the working tree, the same change under
+// test can weaken it (e.g. `{"verify":"true"}`) and force a pass. Reading it from the committed
+// ref makes the oracle immutable to the change being judged. Falls back to the worktree only for
+// non-git dirs (fixtures) or a first-time setup with no committed config.
+function parseVerify(text, whence) {
+  try {
+    const j = JSON.parse(text);
+    if (j && typeof j.verify === 'string' && j.verify.trim()) return j.verify.trim();
+  } catch (e) { indeterminate(`unreadable tools.json (${whence}): ${e.message}`); }
+  return null;
+}
+function loadVerify(dir, ref) {
+  const g = spawnSync('git', ['-C', dir, 'show', `${ref}:.quality-kernel/tools.json`], { encoding: 'utf8' });
+  if (g.status === 0) { const v = parseVerify(g.stdout, `git ${ref}`); if (v) return { verify: v, from: `git:${ref}` }; }
   for (const p of [join(dir, '.quality-kernel', 'tools.json'), join(dir, 'tools.json')]) {
-    if (!existsSync(p)) continue;
-    try {
-      const j = JSON.parse(readFileSync(p, 'utf8'));
-      if (j && typeof j.verify === 'string' && j.verify.trim()) return j.verify.trim();
-    } catch (e) {
-      indeterminate(`unreadable config ${p}: ${e.message}`);
-    }
+    if (existsSync(p)) { const v = parseVerify(readFileSync(p, 'utf8'), p); if (v) return { verify: v, from: 'worktree' }; }
   }
   return null;
 }
-const verify = loadVerify(repo);
-if (!verify) indeterminate('no verify command declared (.quality-kernel/tools.json or tools.json → "verify")');
+const loaded = loadVerify(repo, base || 'HEAD');
+if (!loaded) indeterminate('no verify command declared (.quality-kernel/tools.json "verify")');
+const verify = loaded.verify;
 
 // --- advisory diff (M0: not used to scope — DC2 runs the full suite; kept for evidence/future) ---
 let changed = null;
@@ -75,15 +83,17 @@ if (base) {
 // test-runner state.
 const childEnv = { ...process.env };
 delete childEnv.NODE_TEST_CONTEXT;
-const r = spawnSync(verify, { cwd: repo, shell: true, encoding: 'utf8', env: childEnv });
+const r = spawnSync(verify, { cwd: repo, shell: true, encoding: 'utf8', env: childEnv, timeout: 300000 });
 
 // Could-not-run cases → indeterminate (fail-closed), NOT a test failure:
-//  - spawn error (r.error) or no readable status (null/undefined)
-//  - shell 127 (command not found) / 126 (not executable): the verify command could not be run
+//  - spawn error (r.error), timeout (r.signal set), or no readable status (null/undefined)
 if (r.error || r.status === null || r.status === undefined) {
-  indeterminate(`verify command could not run: "${verify}" (${r.error ? r.error.message : 'no exit status'})`);
+  const why = r.signal ? `timed out (${r.signal})` : (r.error ? r.error.message : 'no exit status');
+  indeterminate(`verify command could not complete: "${verify}" (${why})`);
 }
-if (r.status === 127 || r.status === 126) {
+// 127/126 = shell "command not found / not executable" => could-not-run — UNLESS the suite
+// actually produced output, in which case honor the non-zero exit as a real failure.
+if ((r.status === 127 || r.status === 126) && !(r.stdout && r.stdout.trim())) {
   indeterminate(`verify command not executable (exit ${r.status}): "${verify}"`);
 }
 

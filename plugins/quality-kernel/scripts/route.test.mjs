@@ -69,3 +69,20 @@ test('CLI — route.mjs --changed with QK_CRITICAL_SURFACE env classifies end-to
   const v = JSON.parse(r.stdout.trim().split('\n').pop());
   assert.strictEqual(v.tier, 'critical');
 });
+
+// --- hardening regressions (from the specialist red-team) ---
+
+test('RED-TEAM — deleting a test file is always critical (the "delete the red test" attack)', () => {
+  const v = classify(['src/util.ts'], cfg, null, ['src/util.test.ts']);
+  assert.strictEqual(v.tier, 'critical');
+  assert.deepStrictEqual(v.deletedTests, ['src/util.test.ts']);
+});
+
+test('RED-TEAM — touching .quality-kernel/** is always critical (the "weaken the gate config" attack)', () => {
+  assert.strictEqual(classify(['.quality-kernel/tools.json'], cfg, null).tier, 'critical');
+  assert.strictEqual(classify(['.quality-kernel/critical-surface.json'], cfg, null).tier, 'critical');
+});
+
+test('PRECISION — a docs file that merely mentions a critical word is NOT critical', () => {
+  assert.strictEqual(classify(['docs/monitoring-guide.md', 'README.md'], cfg, null).tier, 'trivial');
+});

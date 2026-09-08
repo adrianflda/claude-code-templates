@@ -34,11 +34,19 @@ _RUNNERS = (
 _PREFIX = r"(?:(?:npx|pnpm|yarn|bunx|poetry\s+run|python3?\s+-m)\s+)?"
 VERIFY_ANCHORED = re.compile(r"^\s*" + _PREFIX + _RUNNERS + r"\b", re.IGNORECASE)
 _SEGMENT_SPLIT = re.compile(r"&&|\|\||[;\n|]")
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 
 
 def is_verify_command(command: str) -> bool:
-    """True iff a shell segment STARTS with a verify runner (not merely mentions one)."""
-    for seg in _SEGMENT_SPLIT.split(command):
+    """True iff a shell segment STARTS with a verify runner (not merely mentions one).
+
+    Quoted substrings are removed first, so neither a runner word nor a shell metacharacter
+    inside a quoted BODY (e.g. a PR-comment message: `gh pr comment -b "...; pytest all green"`)
+    can create or start a command segment. This closes the 112-false-events class in the general
+    case, not just the exact forms in the tests.
+    """
+    stripped = _QUOTED.sub(" ", command)
+    for seg in _SEGMENT_SPLIT.split(stripped):
         if VERIFY_ANCHORED.match(seg.strip()):
             return True
     return False
