@@ -68,7 +68,7 @@ const HARNESS_DENYLIST = [
 ];
 // Base content that marks a file as an ORACLE component (imports a real test/assertion framework),
 // so a file NAMED like production but importing one is never overlaid (panel T-class, by content).
-const ORACLE_IMPORT_RE = /(?:from|require\(|import)\s*['"](?:node:test|node:assert(?:\/strict)?|assert|vitest|jest|mocha|chai|sinon|ava|tape|jasmine|power-assert|should|expect|@testing-library|@jest\/globals)/;
+const ORACLE_IMPORT_RE = /(?:from|require\s*\(|import\s*\(?)\s*['"](?:node:test|node:assert(?:\/strict)?|assert|vitest|jest|mocha|chai|sinon|ava|tape|jasmine|power-assert|should|expect|@testing-library|@jest\/globals)/;
 // A production file must not read from a declared-test root (panel S4).
 const TEST_ROOT_REF_RE = /['"`](?:\.\.?\/)*(?:tests?|__tests__)\//;
 // The NARROW, anchored set for the SEPARATE "which change is allowed unverified" decision (panel S1):
@@ -148,6 +148,18 @@ const isOutput = match(tools.outputGlobs);
 const isNeverOverlay = match([...TEST_GLOBS, ...HARNESS_DENYLIST, ...MANIFEST_GLOBS]);
 // A file is overlaid from head iff it is production AND not in the broad never-overlay set.
 const isProd = (p) => rawProd(p) && !isNeverOverlay(p);
+
+// H3 (enforcement, not convention): the ACCEPTANCE oracle is meant to be an INDEPENDENT,
+// human-approved check, immutable from base. If its command executes a file that is overlaid
+// production (head-controlled), the change controls its own acceptance oracle. Refuse. (A build step
+// inside verify/verifySetup running overlaid code is the DECLARED execution-trust limit; its concrete
+// file-manipulation forms are caught by the harness-integrity checks below.)
+if (tools.acceptance) {
+  for (const tok of tools.acceptance.match(/[\w@./-]+\.(?:mjs|cjs|js|jsx|ts|tsx|py|rb|go|sh)\b/g) || []) {
+    const p = tok.replace(/^\.\//, '');
+    if (isProd(p)) indeterminate(`the acceptance oracle executes "${p}", which is overlaid production code (head-controlled) — the change would control its own acceptance oracle. Move it out of productionGlobs (e.g. an acceptance/ dir declared in testGlobs).`);
+  }
+}
 
 const childEnv = { ...process.env };
 delete childEnv.NODE_TEST_CONTEXT;

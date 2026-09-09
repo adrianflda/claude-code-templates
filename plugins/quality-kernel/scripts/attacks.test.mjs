@@ -7,7 +7,7 @@ import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -409,6 +409,31 @@ test('ATTACK V6 (assertion helper importing a framework) — an oracle component
     { 'src/code.mjs': OK, 'src/check.mjs': "import a from 'node:assert'; export const expectEq = (x, y) => a.strictEqual(x, y);", 'tests/guard.test.mjs': guard },
     { 'src/code.mjs': BROKEN, 'src/check.mjs': 'export const expectEq = () => {};' });
   try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /oracle component|assertion framework/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('ATTACK H1 (dynamic-import oracle helper) — import("node:assert") is caught by the content net', () => {
+  const guard = "import { test } from 'node:test'; import { expectEq } from '../src/check.mjs'; import { f } from '../src/code.mjs'; test('g', async () => { await expectEq(f(), 1); });";
+  const helper = "export const expectEq = async (x, y) => { const a = await import('node:assert'); a.strictEqual(x, y); };";
+  const { tmp, base, head } = mk(TOOLS,
+    { 'src/code.mjs': OK, 'src/check.mjs': helper, 'tests/guard.test.mjs': guard },
+    { 'src/code.mjs': BROKEN, 'src/check.mjs': 'export const expectEq = async () => {};' });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /assertion framework|oracle component/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('H2 (self-defense) — the shipped tools.example.json does NOT put docs/**.md in productionGlobs', () => {
+  const ex = JSON.parse(readFileSync(join(here, '..', 'config', 'tools.example.json'), 'utf8'));
+  assert.ok(!ex.productionGlobs.includes('**/*.md'), '**/*.md in the example would make README a head-overlaid golden');
+  assert.ok(!ex.productionGlobs.includes('docs/**'), 'docs/** in the example would make docs head-overlaid goldens');
+});
+
+test('ATTACK H3 (acceptance oracle under productionGlobs) — indeterminate (the oracle must stay independent)', () => {
+  const accept = "import a from 'node:assert'; import { f } from '../code.mjs'; a.strictEqual(f(), 1);";
+  const { tmp, base, head } = mk({ verify: 'node --test tests/guard.test.mjs', productionGlobs: ['src/**'], acceptance: 'node src/acceptance/check.mjs' },
+    { 'src/code.mjs': OK, 'tests/guard.test.mjs': GUARD, 'src/acceptance/check.mjs': accept },
+    { 'src/code.mjs': BROKEN });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /acceptance oracle executes/); }
   finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 

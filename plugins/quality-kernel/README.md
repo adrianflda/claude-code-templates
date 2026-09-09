@@ -35,8 +35,10 @@ the agent's word** — it re-runs your tests itself, against committed history, 
   contract). So neutering a test is never a silent pass — it is **visible in the diff and gated by a
   human**, not mechanically impossible. An optional **acceptance oracle** (`acceptance` in
   `tools.json`, human-approved, distinct from the coder's tests — Constitution P3) runs against the
-  base-immutable tree. Fail-closed on any uncertainty (missing/ambiguous contract, symlink, stripped
-  tests, an undeclared changed path, a harness mutation, a case-collision, a command that can't run).
+  base-immutable tree — and the gate **refuses (indeterminate)** if the `acceptance` command executes
+  a file under `productionGlobs` (which head could overlay), keeping the oracle independent.
+  Fail-closed on any uncertainty (missing/ambiguous contract, symlink, stripped tests, an undeclared
+  changed path, a harness mutation, a case-collision, a command that can't run).
 - **Composed gate** (`scripts/qk-gate.mjs`) — `route` + `referee` in one verdict. Exit `0` pass ·
   `1` fail · `2` indeterminate · `3` green-but-critical-needs-breaker.
 - **Invoker** (`hooks/pre-push.sample`) — a git pre-push hook that gates the exact **pushed sha**
@@ -62,6 +64,10 @@ mechanism alone, defend against the change's own code **executing and being trus
 - **Test changes are human-reviewed, not mechanically certified** (Option B): a neutered test is
   routed to review (exit 3), where the diff is visible; the gate does not decide whether a test edit
   is legitimate — the human does.
+- **A client-side hook is not enforcement.** Locally, exit 3 blocks the push, but a determined
+  developer can `git push --no-verify`; the "human review" is a workflow, not a mechanical lock. Real
+  enforcement is server-side (a protected branch / required check), which is out of this local-first
+  tool's scope. Read "gated" as "surfaced for review," not "impossible to bypass."
 
 Closing the first three in general needs a **black-box probe in an environment indistinguishable from
 production** — the **M2 live breaker**. Until M2, treat a green as "the committed suite and acceptance

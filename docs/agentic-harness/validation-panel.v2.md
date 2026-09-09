@@ -10,9 +10,11 @@
 ## Outcome in one paragraph
 
 The M0 gate was rebuilt from a design an independent panel broke (v1, score 25/100 — fooled 9 ways by
-one-liners) into a commit-anchored, base-authoritative gate hardened across ~10 adversarial rounds.
-Every reproduced attack is now a permanent regression test (**82 node + 17 python, all green**). The
-**entire static file-tampering surface is closed** (or fail-closed to indeterminate). What remains is
+one-liners) into a commit-anchored, base-authoritative gate hardened across ~12 adversarial rounds
+(breaker score 25 → 70, then the final items closed). Every reproduced attack is now a permanent
+regression test (**87 node + 17 python, all green**). The breaker's final pass found no static exit-0
+class outside the declared family; the **entire static file-tampering surface is closed** (or
+fail-closed to indeterminate). What remains is
 (a) the **execution-trust / in-process class** — the change's own code executing and being trusted —
 which by the plan's design is the **M2 live-breaker's** job, and (b) an accepted **trust model**: test
 changes are surfaced for **human review**, not mechanically certified. The plan itself was validated as
@@ -32,7 +34,9 @@ sound and kept.
 | v2.6 | 63 | same class re-manifests (`.md`/docs/`changelog-parser`/`spec/`) | **structural: eliminate the path-name allow-list** |
 | v2.7 | 58 | ATTACK B regression (nested tests overlaid); test-named production | **two-set separation** (overlay-broad vs allow-narrow) |
 | v2.8 | 64 | oracle helpers under productionGlobs (T); S4 bootstrap; **U2 usability** | never-overlay oracle components; S4 ref-scan; **Option B** |
-| v2.9 | — | Option B verification (usable + neutering human-gated) | final |
+| v2.9 | 66 | Option B usable ✔; but decoupled testGlobs (V4) + oracle-by-content gaps (V6/V7) | — |
+| v3.0 | 70 | V4/V6 closed ✔; V7 declared; 3 items in "oracle content under productionGlobs" (H1/H2/H3) | overlaidTests single-source-of-truth; content-net; H1 regex; H2 example; H3 acceptance enforcement |
+| v3.0.1 | — | **converged** — no static exit-0 class outside the declared family | H1/H2/H3 closed |
 
 The score plateaued at 58–64 because each late round found a one-degree variant of the same shrinking
 static class, until the **structural** fixes (v2.6 no-allow-list, v2.7 two-set separation, v2.8 Option B)

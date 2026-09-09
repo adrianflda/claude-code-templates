@@ -3,7 +3,8 @@
 
   "$refereeContract": "The referee verifies a committed base..head. It rebuilds the FULL BASE TREE and overlays ONLY the files matching productionGlobs from head, then runs verify (and acceptance if set) against that tree — so tests/fixtures/helpers/runners cannot be tampered by the change to force a green. Every changed path must be production (overlaid+verified), a declared test (executed), or a manifest (field-checked); anything else => indeterminate. Declare docs/prompts/config/assets in productionGlobs so anything read at runtime is verified (overlaying prose is harmless).",
   "verify": "node --test",
-  "productionGlobs": ["src/**", "lib/**", "app/**", "docs/**", "**/*.md", "templates/**", "prompts/**", "assets/**", "config/**"],
+  "productionGlobs": ["src/**", "lib/**", "app/**", "templates/**", "prompts/**", "assets/**", "config/**"],
+  "$docsNote": "Declare docs/**, **/*.md here ONLY if production reads them at runtime AND no test reads their content as an expected value. If your tests assert on README/docs content (doctests, 'the examples are tested'), those files are ORACLE, not production — declaring them in productionGlobs would let a change re-golden them from head. Keep such files out of productionGlobs, or declare them in testGlobs.",
   "testGlobs": ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "tests/**", "test/**"],
   "$testGlobsHelp": "The immutable suite THIS repo declares — stays at base (never overlaid) and is executed. Kept separate from route's broad tier heuristic so a production file merely NAMED like a test (lib/spec/**, *-test.*) is not silently treated as harness.",
   "acceptance": null,
