@@ -5,6 +5,31 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-08
+
+### Added
+- **The deterministic quality gate** — the reusable core, red-team-hardened:
+  - `scripts/referee.mjs` — re-executes the project's `verify` command in its own subprocess and
+    reads the real exit status (never trusts a "done" claim); fail-closed. Loads the verify command
+    from the **committed base ref**, and re-runs the **base test-harness against the head code**
+    (trusted-harness), so a change cannot pass by weakening/neutering/deleting its own tests.
+  - `scripts/route.mjs` — deterministic blast-radius/tier classifier from `critical-surface.json`
+    globs. Deleted tests and `.quality-kernel/**` changes are always critical; requires `--base`
+    (else fail-closed); fail-safe: no config => critical.
+  - `scripts/qk-gate.mjs` — composed gate (route + referee); exit `0`/`1`/`2`/`3`.
+  - `commands/gate.md` — the **`/gate`** slash command.
+  - `hooks/pre-push.sample` — a git pre-push invoker that blocks a push on a non-zero gate.
+- A specialist panel red-teamed the gate and broke it; every attack (lie about the result, weaken
+  `tools.json`, delete or neuter a test, invoke without a base) is now a permanent regression test
+  (`scripts/{referee,route,qk-gate,attacks,pre-push}.test.mjs`). Design + review chain frozen under
+  `docs/agentic-harness/`.
+
+### Changed
+- **evidence-gate**: stop fabricating exit codes — Claude Code's Bash `tool_response` has no exit
+  code (verified); the referee is now the authoritative exit-code source in the ledger. Verify
+  detection is anchored at the command start and quote-aware, so prose in a quoted body (e.g. a PR
+  comment) is no longer a false verification event.
+
 ## [0.2.0] - 2026-09-03
 
 ### Fixed

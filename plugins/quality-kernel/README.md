@@ -6,9 +6,39 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **WIP (v0.2.0).** The six agents, the `/forge` orchestrator and the
-> two hooks are in place; the hooks ship in **log-mode** by design (measure
-> first, tighten later). Items still open are listed at the bottom.
+> Status: **v0.3.0.** The deterministic **quality gate** (`/gate`) is built and
+> red-team-hardened (see below). The six agents, the `/forge` orchestrator and the
+> two hooks are in place; the epistemic hook ships in **log-mode** by design. The
+> live breaker (M2) is the next milestone. Design chain: `docs/agentic-harness/`.
+
+## The Quality Gate (`/gate`) — the deterministic teeth
+
+The reusable core. It answers "is this change actually done?" **by mechanism, not by trusting
+the agent's word** — it re-runs your tests itself and reads the real result.
+
+- **Router** (`scripts/route.mjs`) — deterministic blast-radius/tier from `.quality-kernel/critical-surface.json`.
+  A change touching the critical surface (or deleting a test, or touching `.quality-kernel/**`) is
+  forced critical; fail-safe: no config => critical.
+- **Referee** (`scripts/referee.mjs`) — re-executes your `verify` command in its own subprocess,
+  reads the real exit status, fail-closed. Reads the verify command from the **committed base ref**
+  and re-runs the **base test-harness against the head code**, so a change cannot pass by
+  weakening, neutering, or deleting its own tests.
+- **Composed gate** (`scripts/qk-gate.mjs`) — `route` + `referee` in one verdict. Exit `0` pass ·
+  `1` fail · `2` indeterminate · `3` green-but-critical-needs-breaker.
+- **Invoker** (`hooks/pre-push.sample`) — a git pre-push hook that blocks a push on a non-zero gate.
+
+Every red-team attack that broke it (lie about the result, weaken `tools.json`, delete or neuter a
+test, invoke without a base) is now a permanent regression test (`scripts/*.test.mjs`).
+
+### Use it
+Per repo, once, create `.quality-kernel/tools.json` (`{ "verify": "npm test" }` — or `pytest -q`,
+`node --test`, ...) and `.quality-kernel/critical-surface.json` (copy `config/critical-surface.example.json`
+and author its globs from the repo's own past incidents). Then:
+- In Claude Code (plugin enabled): **`/gate`** — runs the gate on the current change and reports.
+- CLI: `node scripts/qk-gate.mjs --repo . --base HEAD~1`
+- Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
+
+Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
 
 ## The idea
 
