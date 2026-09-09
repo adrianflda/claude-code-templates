@@ -3,7 +3,7 @@
 // re-execution (referee.mjs), in one command. This is the usable entry for the two teeth
 // built so far. Spec chain: docs/agentic-harness/{spec,plan,tasks}-m{0,1}-*.v1.md
 //
-// Usage: qk-gate.mjs --repo <dir> [--base <ref>]
+// Usage: qk-gate.mjs --repo <dir> --base <ref> [--head <ref>]
 // Exit:  0 = verified pass · 1 = verified fail · 2 = indeterminate (fail-closed)
 //
 // NOTE (honest limitation): when route flags a CRITICAL change, the live "breaker" oracle is
@@ -18,7 +18,8 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const repoIdx = argv.indexOf('--repo');
-const passthrough = argv; // route + referee accept the same --repo/--base flags
+const baseIdx = argv.indexOf('--base');
+const passthrough = argv; // route + referee accept the same --repo/--base/--head flags
 
 function runJson(script) {
   const r = spawnSync('node', [join(here, script), ...passthrough], { encoding: 'utf8' });
@@ -27,8 +28,8 @@ function runJson(script) {
   return { code: r.status, json };
 }
 
-if (repoIdx === -1) {
-  process.stdout.write(JSON.stringify({ pass: false, error: 'need --repo <dir> [--base <ref>]' }) + '\n');
+if (repoIdx === -1 || baseIdx === -1) {
+  process.stdout.write(JSON.stringify({ pass: false, error: 'need --repo <dir> --base <ref> [--head <ref>]' }) + '\n');
   process.exit(2);
 }
 

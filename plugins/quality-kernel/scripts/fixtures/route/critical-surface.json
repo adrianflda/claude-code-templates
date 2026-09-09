@@ -1,31 +1,22 @@
 {
-  "$comment": "Replay fixture (M1 INV-R5). Globs are scoped to CODE extensions where a bare name would over-match docs (precision), while still catching two REAL past bugs the generic default missed (recall): the PHI/IDOR fix (a monitoring controller/service) and inhaler #560 (realtime/brain/inhaler). NOTE (honesty): INV-R5 proves a surface CAN be authored to catch KNOWN incidents; it does not prove it catches the NEXT unknown one. The disciplined validation is hold-out (author from incident A, validate against unseen incident B) + precision tests — see route.test.mjs.",
+  "$comment": "Domain-agnostic replay fixture for route tests. Globs are GENERIC risk classes (access-control, money, data-migration, infrastructure, request entrypoints) — no application- or domain-specific names. Recall tests below prove a change touching any declared risk class is forced critical; precision tests prove a docs file merely mentioning a risk word is NOT. HONESTY: authoring a surface that catches known risk families is not proof it catches the NEXT unknown incident; per-repo surfaces must be authored from that repo's own incidents and validated hold-out. Real past-bug fixtures live PRIVATELY per repo, never committed to this domain-agnostic tool.",
   "criticalGlobs": [
     "**/auth/**",
     "**/session/**",
     "**/*tenant*/**",
-    "**/voice/**",
-    "**/telephony/**",
+    "**/payments/**",
+    "**/billing/**",
     "**/migrations/**",
     "**/*.sql",
     "infra/**",
-    "**/contracts/**",
+    "**/*.tf",
     "**/controllers/**",
-    "**/inhaler/**",
-    "realtime/brain/**",
-    "**/*monitoring*.ts",
-    "**/*monitoring*.js",
-    "**/*session*.ts",
-    "**/*session*.js"
+    "**/contracts/**"
   ],
   "safeGlobs": [
     "**/*.md",
     "docs/**",
-    "**/*.test.*",
-    "**/*.spec.*",
-    "**/__tests__/**",
     "**/*.css",
-    "**/*.stories.*",
-    "scripts/dev/**"
+    "**/*.stories.*"
   ]
 }

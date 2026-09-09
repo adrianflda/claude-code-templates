@@ -1,3 +1,0 @@
-{
-  "verify": "node --test red.test.mjs"
-}

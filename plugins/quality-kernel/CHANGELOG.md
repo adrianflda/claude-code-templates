@@ -5,6 +5,38 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-09
+
+### Changed — the gate was reworked after an independent red-team panel broke v1
+An independent 4-expert panel re-validated the plan and the built gate **by execution** and refuted
+the v0.3.0 claim that "a change cannot pass by weakening, neutering, or deleting its own tests." The
+v1 trusted-harness only restored a whitelist of `**/*.sh` among verify runners and read state from the
+worktree, so a change could still go green on broken code (non-`.sh` runner swap, helper/golden
+neuter, symlink, non-ASCII path, worktree/HEAD divergence, forged base). Full record and every
+reproduced attack: `docs/agentic-harness/validation-panel.v1.md` (+ `.v2.md`). The referee and router
+were rebuilt:
+- **Commit-anchored, base-authoritative.** The gate verifies a committed `base..head` (never the
+  worktree). The verify contract (`tools.json`) and the critical surface are read from the **base ref**;
+  an absent/invalid contract or an unverifiable ref is **indeterminate**, never a worktree fallback.
+- **Inverted trusted tree + a mandatory second run.** Run 1 = the full BASE tree with only the head's
+  `productionGlobs` overlaid (an immutable harness denylist — tests, runners, manifests, configs —
+  always stays at base). Run 2 = the full head as-is. Both must be green. This closes the whole
+  file-tampering class and also executes code outside `productionGlobs` and the head's own new tests.
+- **Acceptance oracle (Constitution P3).** Optional `acceptance` command, distinct from the coder's
+  tests, run against the immutable tree — an independent, human-approved check.
+- **Fail-closed hardening.** Committed symlinks, degenerate `productionGlobs`, and tests stripped by
+  `.gitattributes export-ignore` are indeterminate. `linkPaths` is now opt-in (default `[]`); prefer
+  `verifySetup` (e.g. `npm ci --ignore-scripts`) to install deps from the base lockfile. The pre-push
+  hook gates the exact pushed sha against a **remote-anchored** base (`git ls-remote`), never a
+  forgeable local ref.
+
+### Known limit (declared, not fixed — this is the M2 breaker's job)
+The referee is an in-process test oracle, so production code can still self-declare green by
+subverting the oracle in-process (monkeypatching `node:assert`, `process.exit(0)`, or fingerprinting
+the gate environment), and a baseline with no real tests cannot be rescued. These are **not** covered
+by M0+M1 and are not claimed to be; only the M2 live breaker (a black-box probe in a
+prod-indistinguishable environment) closes them.
+
 ## [0.3.0] - 2026-09-08
 
 ### Added

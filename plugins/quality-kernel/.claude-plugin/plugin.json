@@ -1,7 +1,7 @@
 {
   "name": "quality-kernel",
-  "version": "0.3.0",
-  "description": "A quality-assurance kernel for agentic development. Ships a deterministic, red-team-hardened quality GATE (/gate): a risk router (blast-radius tiering from a critical-surface config) + a re-executing referee that RE-RUNS your tests itself (never trusts a 'done' claim), with trusted-base-harness verification so a change cannot pass by neutering or deleting its own tests. Composes with the six-agent SwarmForge engine (Specifier -> Coder -> Cleaner -> Architect -> Hardener -> QA), deterministic tools (CRAP, mutation, DRY), a blind live-oracle, and epistemic-discipline hooks. From a one-line issue to a large feature.",
+  "version": "0.4.0",
+  "description": "A quality-assurance kernel for agentic development. Ships a deterministic quality GATE (/gate): a risk router (blast-radius tiering from a critical-surface config, read from the base ref) + a commit-anchored re-executing referee that verifies a committed base..head with an INVERTED trusted tree (the immutable base harness — tests, runners, configs — run against the head's production code) PLUS a mandatory head-as-is run, so file-tampering (neuter/delete/rename/re-golden/runner-swap/symlink) cannot force a green; an optional human-approved acceptance oracle adds an independent check. Rebuilt after an independent red-team panel broke v1 (see docs/agentic-harness/validation-panel). Honest limit: an in-process test oracle cannot stop production code that subverts it in-process — that is the M2 live breaker's job. Composes with the six-agent SwarmForge engine, deterministic tools (CRAP, mutation, DRY), and epistemic-discipline hooks.",
   "author": {
     "name": "Adrian"
   },

@@ -16,7 +16,7 @@ function mkRepo(change, criticalGlobs = ['**/auth/**']) {
   const git = (...a) => spawnSync('git', ['-C', tmp, ...a], { encoding: 'utf8' });
   git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
   mkdirSync(join(tmp, '.quality-kernel'), { recursive: true });
-  writeFileSync(join(tmp, '.quality-kernel', 'tools.json'), JSON.stringify({ verify: 'node --test x.test.mjs' }));
+  writeFileSync(join(tmp, '.quality-kernel', 'tools.json'), JSON.stringify({ verify: 'node --test x.test.mjs', productionGlobs: ['src/**', '**/*.md'] }));
   writeFileSync(join(tmp, '.quality-kernel', 'critical-surface.json'), JSON.stringify({ criticalGlobs, safeGlobs: ['**/*.md'] }));
   writeFileSync(join(tmp, 'x.test.mjs'),
     "import { test } from 'node:test'; import a from 'node:assert'; test('ok', () => a.ok(true));");
