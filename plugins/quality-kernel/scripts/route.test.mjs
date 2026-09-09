@@ -72,9 +72,10 @@ test('RED-TEAM — deleting a test file is always critical', () => {
   assert.deepStrictEqual(v.deletedTests, ['src/util.test.ts']);
 });
 
-test('RED-TEAM — EDITING a test is never trivial (floor >= standard)', () => {
+test('RED-TEAM — EDITING a test is a contract change -> critical (human review; Option B)', () => {
   const v = classify(['src/util.test.ts'], cfg, null);
-  assert.strictEqual(v.tier, 'standard');
+  assert.strictEqual(v.tier, 'critical');
+  assert.strictEqual(v.requiresBreaker, true);
   assert.deepStrictEqual(v.changedTests, ['src/util.test.ts']);
 });
 

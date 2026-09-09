@@ -38,10 +38,17 @@ const ref = runJson('referee.mjs');
 
 const verdict = ref.json || { pass: false, indeterminate: true, reason: 'referee produced no verdict' };
 const refPass = ref.code === 0;
-const requiresBreaker = route.json ? !!route.json.requiresBreaker : true; // fail-safe if route errored
+// The referee is the single source of truth for "were any tests overlaid from head?" — it forces
+// human review regardless of route's (independently-globbed) tier, closing the custom-testGlobs gap
+// where route would not recognize a repo's own test root (panel V4).
+const overlaidTests = (verdict.evidence && Array.isArray(verdict.evidence.overlaidTests)) ? verdict.evidence.overlaidTests : [];
+const requiresBreaker = (route.json ? !!route.json.requiresBreaker : true) || overlaidTests.length > 0; // fail-safe if route errored
 const notes = [];
-if (requiresBreaker) {
+if (route.json ? !!route.json.requiresBreaker : true) {
   notes.push('CRITICAL surface: the live breaker (M2) is required before merge and is NOT yet enforced. Exit 3 = do-not-merge until M2 lands.');
+}
+if (overlaidTests.length) {
+  notes.push(`Test file(s) modified and overlaid from head (${overlaidTests.join(', ')}) — a test change is a contract change: human review required before merge (Option B). Exit 3.`);
 }
 
 // The EXIT CODE is the gate (Constitution P1: "if a rule matters, it's code" — a prose note is not).

@@ -24,14 +24,19 @@ the agent's word** — it re-runs your tests itself, against committed history, 
   deleting a test, or touching `.quality-kernel/**`, is forced critical; editing a test is never trivial.
   Fail-safe: no config => critical.
 - **Referee** (`scripts/referee.mjs`) — verifies a committed `base..head` (never the worktree) with
-  **two mandatory runs** that must both be green: (1) the **immutable base harness** (tests, fixtures,
-  helpers, runners, manifests, configs — all from base) run against the head's **production code only**
-  (paths in `productionGlobs`), so a change cannot pass by weakening/neutering/deleting/re-goldening
-  its tests, swapping a runner, or hiding logic in a helper; and (2) the **head as-is**, so genuine
-  bugs outside `productionGlobs` and the head's own new tests are executed too. An optional
-  **acceptance oracle** (a human-approved suite, `acceptance` in `tools.json`, distinct from the
-  coder's tests — Constitution P3) runs against the immutable tree. Fail-closed on any uncertainty
-  (missing contract, symlink in the tree, stripped tests, a command that can't run).
+  **two mandatory runs** that must both be green: (1) the base harness run against the head's
+  **production code only** (paths in `productionGlobs`) — tests/fixtures/helpers/runners/manifests/
+  configs the PR did NOT touch stay at base, so **breaking covered code without editing its test is
+  mechanically blocked**, and neither a swapped runner nor a hidden helper can force a green; plus
+  (2) the **head as-is**, so bugs outside `productionGlobs` and the head's own new tests run too.
+  **Test evolution (Option B):** the tests the PR *modifies* are taken from head (so a legitimate
+  behavior change — code + its test updated together — verifies green), and the router forces any
+  test change to **critical → human review** (a test edit is a contract change; the human owns the
+  contract). So neutering a test is never a silent pass — it is **visible in the diff and gated by a
+  human**, not mechanically impossible. An optional **acceptance oracle** (`acceptance` in
+  `tools.json`, human-approved, distinct from the coder's tests — Constitution P3) runs against the
+  base-immutable tree. Fail-closed on any uncertainty (missing/ambiguous contract, symlink, stripped
+  tests, an undeclared changed path, a harness mutation, a case-collision, a command that can't run).
 - **Composed gate** (`scripts/qk-gate.mjs`) — `route` + `referee` in one verdict. Exit `0` pass ·
   `1` fail · `2` indeterminate · `3` green-but-critical-needs-breaker.
 - **Invoker** (`hooks/pre-push.sample`) — a git pre-push hook that gates the exact **pushed sha**
@@ -44,16 +49,24 @@ divergence, co-located test overlay, bug outside `productionGlobs`, export-ignor
 untracked config/tools fallback, pushed-sha-vs-worktree, forged base ref — is now a permanent
 regression test (`scripts/attacks.test.mjs`, `route.test.mjs`, `pre-push.test.mjs`).
 
-### Honest limit (what M0+M1 do NOT cover)
-The referee is an **in-process test oracle**: the head's production code runs in the same process as
-the (immutable) tests. Production code can therefore still declare itself green by **subverting the
-oracle in-process** — monkeypatching the assertion library, calling `process.exit(0)` before
-assertions report, or **fingerprinting the gate environment** and behaving only when observed — and a
-baseline that genuinely ships **no tests** cannot be rescued by any re-execution. These are NOT
-closed by M0+M1 and are not claimed to be; closing them is exactly the job of the **M2 live breaker**
-— a black-box probe that exercises the built artifact in an environment indistinguishable from
-production. Until M2, treat a green as "the committed suite and acceptance oracle re-executed clean",
-not "the code cannot be malicious."
+### Honest limits (what M0+M1 do NOT cover — the M2 live-breaker's job)
+The referee is an **in-process test oracle** that re-executes the committed change. It cannot, by
+mechanism alone, defend against the change's own code **executing and being trusted**:
+- **In-process oracle subversion** — production code the tests import can monkeypatch the assertion
+  library or call `process.exit(0)` before assertions report.
+- **Gate-environment fingerprinting** — code that behaves correctly only when it detects the gate.
+- **Execution-trust** — a build/`verifySetup`/codegen step (overlaid head code) that fabricates or
+  vendors what the tests then consume; keep such scripts as immutable harness (outside
+  `productionGlobs`) and provision deps hermetically.
+- **A baseline with genuinely no tests** — the gate verifies the suite you have; it cannot invent one.
+- **Test changes are human-reviewed, not mechanically certified** (Option B): a neutered test is
+  routed to review (exit 3), where the diff is visible; the gate does not decide whether a test edit
+  is legitimate — the human does.
+
+Closing the first three in general needs a **black-box probe in an environment indistinguishable from
+production** — the **M2 live breaker**. Until M2, treat a green as "the committed suite and acceptance
+oracle re-executed clean, and any test change was surfaced for human review", not "the code cannot be
+malicious." Every attack above is reproduced and tracked in `docs/agentic-harness/validation-panel.*`.
 
 ### Use it
 Per repo, once, create and **commit** `.quality-kernel/tools.json` (copy `config/tools.example.json`):

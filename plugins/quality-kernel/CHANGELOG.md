@@ -24,11 +24,24 @@ were rebuilt:
   file-tampering class and also executes code outside `productionGlobs` and the head's own new tests.
 - **Acceptance oracle (Constitution P3).** Optional `acceptance` command, distinct from the coder's
   tests, run against the immutable tree — an independent, human-approved check.
-- **Fail-closed hardening.** Committed symlinks, degenerate `productionGlobs`, and tests stripped by
-  `.gitattributes export-ignore` are indeterminate. `linkPaths` is now opt-in (default `[]`); prefer
-  `verifySetup` (e.g. `npm ci --ignore-scripts`) to install deps from the base lockfile. The pre-push
-  hook gates the exact pushed sha against a **remote-anchored** base (`git ls-remote`), never a
-  forgeable local ref.
+- **Fail-closed hardening.** Committed symlinks, degenerate `productionGlobs`/`outputGlobs`, tests
+  stripped by `.gitattributes export-ignore`, harness mutation (ctime + path-set + created-symlink
+  detection), case/normalization-colliding paths, and any changed path that is neither production nor
+  a declared test nor a benign manifest change are all **indeterminate**. `linkPaths` is opt-in
+  (default `[]`); prefer `verifySetup` (e.g. `npm ci --ignore-scripts`) from the base lockfile. The
+  pre-push hook gates the exact pushed sha against a **remote-anchored** base (`git ls-remote`).
+- **No path-name allow-list.** Every changed/removed path gets an explicit disposition —
+  production (overlaid+verified), declared test (`testGlobs`), manifest (production-field-checked),
+  else indeterminate. Docs/prompts/assets/config are declared in `productionGlobs` so anything read
+  at runtime is verified (overlaying prose is harmless). "Overlay" and "allowed-unverified" use
+  separate sets so a nested test under `productionGlobs` is never overlaid.
+- **Option B — test evolution with human review.** The tests a PR modifies are taken from head (so a
+  legitimate behavior change verifies green), and any test change is routed **critical → exit 3
+  (human review)**. This replaces the earlier "immutable base tests" model, which — as the panel's
+  usability probe showed — rejected every legitimate behavior change and would have been disabled in
+  practice. The honest guarantee is now: **breaking covered code without touching its test is
+  mechanically blocked; a test change is forced to human review** (the human owns the contract);
+  neutering is visible-and-gated, not mechanically impossible.
 
 ### Known limit (declared, not fixed — this is the M2 breaker's job)
 The referee is an in-process test oracle, so production code can still self-declare green by

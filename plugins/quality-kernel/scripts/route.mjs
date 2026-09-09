@@ -68,8 +68,10 @@ export function classify(changed, config, proposed, deleted = []) {
     if (!changed.length && !deleted.length) return 'trivial';  // truly nothing changed
     if (!config) return 'critical';                            // fail-safe (P5)
     if (criticalFiles.length || deletedCritical.length) return 'critical';
-    // A change that touches (edits/adds) a test file is never trivial: it moves coverage.
-    if (changedTests.length) return 'standard';
+    // A change that edits/adds a test is a CONTRACT change: the referee will run the head version
+    // (so legitimate updates work), so the router forces human review (Constitution: the human owns
+    // the contract). This is what makes "neutering a test" visible-and-gated rather than silent.
+    if (changedTests.length) return 'critical';
     if (changed.every((p) => matchesAny(safeGlobs, p)) && deleted.every((p) => matchesAny(safeGlobs, p))) return 'trivial';
     return 'standard';
   })();
@@ -86,8 +88,8 @@ export function classify(changed, config, proposed, deleted = []) {
     reason:
       deletedTests.length ? `test file(s) removed: ${deletedTests.join(', ')}`
         : floorName === 'critical' && !config ? 'no critical-surface config -> fail-safe critical'
-          : floorName === 'critical' ? `critical surface touched: ${[...criticalFiles, ...deletedCritical].join(', ')}`
-            : changedTests.length && floorName === 'standard' ? `test file(s) modified: ${changedTests.join(', ')}`
+          : changedTests.length ? `test file(s) modified (contract change -> human review): ${changedTests.join(', ')}`
+            : floorName === 'critical' ? `critical surface touched: ${[...criticalFiles, ...deletedCritical].join(', ')}`
               : floorName === 'trivial' ? 'all changed paths are on the safe surface'
                 : 'no critical paths, but not all safe',
   };

@@ -68,7 +68,7 @@ const HARNESS_DENYLIST = [
 ];
 // Base content that marks a file as an ORACLE component (imports a real test/assertion framework),
 // so a file NAMED like production but importing one is never overlaid (panel T-class, by content).
-const ORACLE_IMPORT_RE = /(?:from|require\(|import)\s*['"](?:node:test|vitest|jest|mocha|chai|sinon|ava|tape|jasmine|@testing-library|@jest\/globals)/;
+const ORACLE_IMPORT_RE = /(?:from|require\(|import)\s*['"](?:node:test|node:assert(?:\/strict)?|assert|vitest|jest|mocha|chai|sinon|ava|tape|jasmine|power-assert|should|expect|@testing-library|@jest\/globals)/;
 // A production file must not read from a declared-test root (panel S4).
 const TEST_ROOT_REF_RE = /['"`](?:\.\.?\/)*(?:tests?|__tests__)\//;
 // The NARROW, anchored set for the SEPARATE "which change is allowed unverified" decision (panel S1):
@@ -180,6 +180,11 @@ function manifestChangeIsBenign(p) {
 // skipped (panel v2.6 root cause). production=overlaid+verified · test=executed · manifest=field-check
 // · anything else => indeterminate ("declare it in productionGlobs"). ---
 const diff = diffPaths();
+// Option B (panel U2): tests the PR MODIFIED are overlaid from head so a legitimate behavior change
+// (code + its test updated together) verifies green; the router forces such a change to human review
+// (a test edit is a contract change). Tests the PR did NOT touch stay at base, so breaking covered
+// code without editing its test is still mechanically blocked.
+const changedTest = new Set(diff.changed.filter(isDeclaredTest));
 const dispose = (p, removed) => {
   const prod = rawProd(p), nover = isNeverOverlay(p), t = isDeclaredTest(p), m = isManifest(p);
   // (1) production glob that also matches a test/harness/manifest pattern -> would not be overlaid,
@@ -277,7 +282,8 @@ function buildTrustedTree() {
     if (!d || !existsSync(d)) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`base file "${e.path}" was stripped from the archive (e.g. .gitattributes export-ignore) — cannot trust an incomplete harness`); }
   }
   const headPaths = new Set(headEntries.map((e) => e.path));
-  for (const e of headEntries.filter((x) => isProd(x.path))) {
+  const overlay = (p) => isProd(p) || changedTest.has(p); // production + the PR's own modified tests
+  for (const e of headEntries.filter((x) => overlay(x.path))) {
     const dest = safeJoin(tmp, e.path);
     if (!dest) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`unsafe path in head tree: ${e.path}`); }
     const blob = show(head, e.path, 'buffer');
@@ -339,7 +345,7 @@ const pass = trustedExit === 0 && headExit === 0 && (acceptanceExit === null || 
 ledgerAppend(repo, { verify: tools.verify, acceptance: tools.acceptance, base, head, trusted_exit: trustedExit, head_exit: headExit, acceptance_exit: acceptanceExit, pass });
 emit({
   pass,
-  evidence: { verify: tools.verify, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head },
+  evidence: { verify: tools.verify, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head, overlaidTests: [...changedTest] },
   reason: pass
     ? `verified: base harness × head production green + head-as-is green${acceptanceExit === null ? '' : ' + acceptance oracle green'} (re-executed)`
     : trustedExit !== 0

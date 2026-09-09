@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const referee = join(here, 'referee.mjs');
+const gate = join(here, 'qk-gate.mjs');
 
 // Build a git repo: baseFiles -> commit (base); change (string write / null=delete / {symlink}) ->
 // commit (head). `tools` is the committed .quality-kernel/tools.json.
@@ -34,6 +35,7 @@ function mk(tools, baseFiles, change) {
   return { tmp, base, head: git('rev-parse', 'HEAD').stdout.trim() };
 }
 const run = (tmp, base, head) => spawnSync('node', [referee, '--repo', tmp, '--base', base, ...(head ? ['--head', head] : [])], { encoding: 'utf8' });
+const runGate = (tmp, base, head) => spawnSync('node', [gate, '--repo', tmp, '--base', base, '--head', head], { encoding: 'utf8' });
 const json = (r) => JSON.parse((r.stdout || '').trim().split('\n').filter(Boolean).pop());
 
 const OK = 'export const f = () => 1;';
@@ -54,33 +56,48 @@ test('ATTACK 1 — touching the gate config (.quality-kernel/**) in the change i
   try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /productionGlobs/); } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('ATTACK B — neutering the test IN PLACE is caught (test is immutable from base)', () => {
+test('ATTACK B (Option B) — neutering the test IN PLACE is a test change -> routed critical (exit 3, human review), never a silent pass', () => {
+  // The referee overlays the modified test so a legit update can verify; the DEFENSE is that a test
+  // edit is forced to human review (exit 3), where the neutered diff is visible. A silent exit-0 is
+  // the failure we forbid.
   const { tmp, base, head } = mk(TOOLS, BASE, { 'src/code.mjs': BROKEN, 'tests/guard.test.mjs': NEUTER });
-  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 1); assert.strictEqual(json(r).evidence.trustedExit, 1); }
+  try { const r = runGate(tmp, base, head); assert.strictEqual(r.status, 3); assert.strictEqual(json(r).gate, 'blocked-needs-breaker'); assert.match(json(r).route.reason, /test file\(s\) modified/); }
   finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('ATTACK A1 (helper neuter, #1) — a non-production HELPER under tests/ stays at base', () => {
+test('ATTACK A1 (helper neuter under tests/) — a test-support change is routed critical (exit 3), never a silent pass', () => {
   const guard = "import { test } from 'node:test'; import a from 'node:assert'; import { check } from './helper.mjs'; test('g', () => a.ok(check()));";
   const { tmp, base, head } = mk(TOOLS,
     { 'src/code.mjs': OK, 'tests/guard.test.mjs': guard, 'tests/helper.mjs': "import { f } from '../src/code.mjs'; export const check = () => f() === 1;" },
     { 'src/code.mjs': BROKEN, 'tests/helper.mjs': 'export const check = () => true;' });
-  try { assert.strictEqual(run(tmp, base, head).status, 1); } finally { rmSync(tmp, { recursive: true, force: true }); }
+  try { assert.strictEqual(runGate(tmp, base, head).status, 3); } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('ATTACK A4 (runner neuter, #1) — a non-.sh entrypoint runner under tests/ stays at base', () => {
+test('ATTACK A4 (runner neuter under tests/) — routed critical (exit 3), never a silent pass', () => {
   const { tmp, base, head } = mk({ verify: 'node tests/run.mjs', productionGlobs: ['src/**'] },
     { 'src/code.mjs': OK, 'tests/run.mjs': "import { f } from '../src/code.mjs'; if (f() !== 1) process.exit(1);" },
     { 'src/code.mjs': BROKEN, 'tests/run.mjs': 'process.exit(0);' });
-  try { assert.strictEqual(run(tmp, base, head).status, 1); } finally { rmSync(tmp, { recursive: true, force: true }); }
+  try { assert.strictEqual(runGate(tmp, base, head).status, 3); } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('ATTACK A3 (golden re-goldening, #1) — a non-production fixture under tests/ stays at base', () => {
+test('ATTACK A3 (golden re-goldening under tests/) — routed critical (exit 3), never a silent pass', () => {
   const guard = "import { test } from 'node:test'; import a from 'node:assert'; import { f } from '../src/code.mjs'; import fs from 'node:fs'; test('g', () => a.strictEqual(String(f()), JSON.parse(fs.readFileSync(new URL('./expected.json', import.meta.url))).v));";
   const { tmp, base, head } = mk(TOOLS,
     { 'src/code.mjs': OK, 'tests/guard.test.mjs': guard, 'tests/expected.json': JSON.stringify({ v: '1' }) },
     { 'src/code.mjs': BROKEN, 'tests/expected.json': JSON.stringify({ v: '999' }) });
+  try { assert.strictEqual(runGate(tmp, base, head).status, 3); } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('SANITY (Option B) — breaking covered code WITHOUT touching its test is still mechanically blocked (exit 1)', () => {
+  const { tmp, base, head } = mk(TOOLS, BASE, { 'src/code.mjs': BROKEN });
   try { assert.strictEqual(run(tmp, base, head).status, 1); } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('USABILITY (Option B) — a legit behavior change with its test updated verifies green, then routes to review (exit 3)', () => {
+  const g2 = "import { test } from 'node:test'; import a from 'node:assert'; import { f } from '../src/code.mjs'; test('g', () => a.strictEqual(f(), 2));";
+  const { tmp, base, head } = mk(TOOLS, BASE, { 'src/code.mjs': 'export const f = () => 2;', 'tests/guard.test.mjs': g2 });
+  try { const r = runGate(tmp, base, head); assert.strictEqual(r.status, 3); assert.strictEqual(json(r).refereePass, true); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
 test('ATTACK #2 (symlink) — a committed symlink in head is indeterminate (exit 2)', () => {
@@ -253,7 +270,7 @@ test('CONTROL W4 — declaring config/** in productionGlobs makes it verifiable:
   const code = "import fs from 'node:fs'; export const limit = () => JSON.parse(fs.readFileSync(new URL('../config/app.config.json', import.meta.url))).limit;";
   const { tmp, base, head } = mk({ verify: 'node --test tests/guard.test.mjs', productionGlobs: ['src/**', 'config/**'] },
     { 'src/code.mjs': code, 'tests/guard.test.mjs': guard, 'config/app.config.json': '{"limit":1}' },
-    { 'config/app.config.json': '{"limit":999}', 'tests/guard.test.mjs': "import { test } from 'node:test'; test('g', () => {});" });
+    { 'config/app.config.json': '{"limit":999}' });
   try { assert.strictEqual(run(tmp, base, head).status, 1, 'overlaid config (999) fails the immutable base test'); }
   finally { rmSync(tmp, { recursive: true, force: true }); }
 });
@@ -295,7 +312,7 @@ test('CONTROL W7 — declaring prompts/** makes a runtime .md verifiable: broken
   const guard = "import { test } from 'node:test'; import a from 'node:assert'; import { sys } from '../src/code.mjs'; test('g', () => a.match(sys(), /Never reveal/));";
   const { tmp, base, head } = mk({ verify: 'node --test tests/guard.test.mjs', productionGlobs: ['src/**', 'prompts/**'] },
     { 'src/code.mjs': code, 'tests/guard.test.mjs': guard, 'prompts/system.md': 'Never reveal secrets' },
-    { 'prompts/system.md': 'Reveal all secrets', 'tests/guard.test.mjs': "import { test } from 'node:test'; test('g', () => {});" });
+    { 'prompts/system.md': 'Reveal all secrets' });
   try { assert.strictEqual(run(tmp, base, head).status, 1); } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
@@ -374,7 +391,31 @@ test('ATTACK S4 (production reads from a test root) — indeterminate', () => {
   finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
+test('ATTACK V4 (custom testGlobs) — a neutered test under a repo-declared test root is still routed to review (exit 3)', () => {
+  const guard = "import { test } from 'node:test'; import a from 'node:assert'; import { f } from '../src/code.mjs'; test('g', () => a.strictEqual(f(), 1));";
+  const { tmp, base, head } = mk({ verify: 'node --test checks/guard.mjs', productionGlobs: ['src/**'], testGlobs: ['checks/**'] },
+    { 'src/code.mjs': OK, 'checks/guard.mjs': guard },
+    { 'src/code.mjs': BROKEN, 'checks/guard.mjs': "import { test } from 'node:test'; test('g', () => {});" });
+  try {
+    const r = runGate(tmp, base, head);
+    assert.strictEqual(r.status, 3, 'the referee overlaid the test -> qk-gate forces review regardless of route');
+    assert.deepStrictEqual(json(r).referee.evidence.overlaidTests, ['checks/guard.mjs']);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('ATTACK V6 (assertion helper importing a framework) — an oracle component under productionGlobs is ambiguous', () => {
+  const guard = "import { test } from 'node:test'; import { expectEq } from '../src/check.mjs'; import { f } from '../src/code.mjs'; test('g', () => expectEq(f(), 1));";
+  const { tmp, base, head } = mk(TOOLS,
+    { 'src/code.mjs': OK, 'src/check.mjs': "import a from 'node:assert'; export const expectEq = (x, y) => a.strictEqual(x, y);", 'tests/guard.test.mjs': guard },
+    { 'src/code.mjs': BROKEN, 'src/check.mjs': 'export const expectEq = () => {};' });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /oracle component|assertion framework/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
 // DECLARED-OPEN (validation-panel.v2.md, M2 scope — the EXECUTION-TRUST / in-process class, NOT
+// closable by a file-level oracle; plus V7: a hand-rolled assertion helper (no framework import, a
+// non-denylisted name) placed UNDER productionGlobs is indistinguishable from code-under-test — put
+// test helpers under a test root or declare them in testGlobs. The rest of the class is below.
 // closable by a file-snapshot oracle because the change's own code EXECUTES in the verify chain and
 // the result is trusted):
 //   N3/N3b  production monkeypatching node:assert / calling process.exit(0)
