@@ -57,9 +57,14 @@ running overlaid code), no-baseline-tests, opt-in `linkPaths` write-through. See
   Its GREEN criterion (the gate blocks a forged/gamed pass, demonstrated by execution) holds for the
   static class; the residual is M2's domain and is declared.
 - **M1 — done** (route.mjs deterministic; domain-agnostic fixtures; recall/precision + hold-out framing).
-- **M2 — NOT started; now the critical next step.** It is BOTH the independent live breaker (the only
-  thing that closes the declared in-process/execution-trust limits) AND the "dogfood the spine on one
-  real issue, measure cost" prove-or-kill milestone. Pull basic cost measurement into it (was M3).
+- **M2 — REORIENTED (plan-with-teeth + agentic QA P2·P4·P5) and its MECHANISMS BUILT + tested.** SDD chain
+  frozen: `spec/plan/tasks-m2-plan-qa.v1.md`. Built + unit-tested (100 node tests total): `contract-lint.mjs`
+  (invariant↔assertion lockstep), `breaker-invoke.mjs` (blind P5 boundary — Contract only, never the diff),
+  `breaker-gate.mjs` (enforced breaker on the critical surface), `run-ledger.mjs` (cost). The Contract format
+  + a runnable example live under `scripts/fixtures/m2/`. **Remaining: the dogfood run (T10 / INV-M2-6)** —
+  one real issue end-to-end with the LIVE `pipeline-breaker` and a measured cost (prove-or-kill). It is the
+  designed human checkpoint and spends real tokens / invokes live agents, so it is **greenlit by the human**;
+  recommendation stands to dogfood on THIS repo (self-hosting).
 - **M3–M6 — not started.**
 
 ## 6. Immediate next steps

@@ -88,6 +88,31 @@ Then:
 
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
 
+## M2 — plan-with-teeth + agentic QA (P2·P4·P5)
+
+The gate above makes *re-execution* trustworthy (qa-paradigms **P2**). M2 adds the two stages with the
+most leverage and the least prior mechanism: a **plan that produces a machine-checkable Contract**, and
+**QA that ends green by mechanism** anchored to it. Design chain: `docs/agentic-harness/{spec,plan,tasks}-m2-plan-qa.v1.md`.
+
+- **The Contract** — two coupled files: a human-approved `.quality-kernel/contracts/<id>.md` (EARS ·
+  Gherkin · an invariants table of **exact** expected values · a QA procedure) and its executable
+  `.quality-kernel/acceptance/<id>.test.mjs` (one assertion per invariant — qa-paradigms **P4**, assert
+  the value, not the agent's paraphrase). `scripts/contract-lint.mjs` proves the two stay in lockstep
+  (no invariant without a check, no check without an invariant). The referee runs the acceptance suite
+  via `tools.json "acceptance"` (immutable-from-base).
+- **The blind breaker** (qa-paradigms **P5**; constitution P3) — `scripts/breaker-invoke.mjs` builds the
+  breaker's input from the **Contract only** (QA procedure + invariants + a live probe + the system URL)
+  and **never** the diff, the coder's tests, or any reasoning; it shells to a breaker command (in
+  production the host `pipeline-breaker` agent; a stub for tests) and reads a typed verdict.
+  `scripts/breaker-gate.mjs` = the composed gate + the enforced breaker: on the critical surface a green
+  referee is not enough — the breaker must **PASS**.
+- **Cost** — `scripts/run-ledger.mjs` records tokens/$/wall-clock/human-interventions per dogfood run,
+  so M2's prove-or-kill economics are measurable.
+
+Status: the M2 **mechanisms are built and unit-tested** (contract-lint, breaker-invoke's blind
+boundary, breaker-gate PASS/FAIL, run-ledger). The **dogfood run** (one real issue end-to-end with the
+live `pipeline-breaker` and a measured cost — the prove-or-kill) is the human-greenlit final step.
+
 ## The idea
 
 Quality is lost in the *seams between agents*, not inside them. quality-kernel
