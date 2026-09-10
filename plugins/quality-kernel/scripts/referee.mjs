@@ -33,7 +33,7 @@ import { existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSy
 import { join, dirname, isAbsolute, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
-import { globToRegExp, TEST_GLOBS } from './route.mjs';
+import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
 
 // CONVERGENCE FIX (panel v2.6 root cause): there is NO silent "inert" / "harness-by-name" allow-list
 // of changes the gate skips — that path-name allow-list always leaked a real runtime input (a prompt
@@ -192,6 +192,9 @@ function manifestChangeIsBenign(p) {
 // skipped (panel v2.6 root cause). production=overlaid+verified · test=executed · manifest=field-check
 // · anything else => indeterminate ("declare it in productionGlobs"). ---
 const diff = diffPaths();
+// ignore the tool's own append-only audit ledgers (a committed evidence/run ledger must not trip the gate)
+diff.changed = diff.changed.filter((p) => !isLedger(p));
+diff.deleted = diff.deleted.filter((p) => !isLedger(p));
 // Option B (panel U2): tests the PR MODIFIED are overlaid from head so a legitimate behavior change
 // (code + its test updated together) verifies green; the router forces such a change to human review
 // (a test edit is a contract change). Tests the PR did NOT touch stay at base, so breaking covered

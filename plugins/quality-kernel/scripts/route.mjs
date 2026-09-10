@@ -54,6 +54,9 @@ export function globToRegExp(glob) {
 }
 const matchesAny = (globs, path) => globs.some((g) => globToRegExp(g).test(path));
 const isTest = (p) => matchesAny(TEST_GLOBS, p);
+// The tool's OWN append-only audit ledgers under .quality-kernel/ are runtime artifacts, not config
+// or code the gate reads — never let them trip the gate if a user commits them (gitignore is advised).
+export const isLedger = (p) => /(^|\/)\.quality-kernel\/[^/]+\.jsonl$/.test(p);
 
 export function classify(changed, config, proposed, deleted = []) {
   const criticalGlobs = [...ALWAYS_CRITICAL_GLOBS, ...((config && config.criticalGlobs) || [])];
@@ -162,6 +165,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
     if (d.status !== 0) opError(`git diff failed in ${repo}: ${(d.stderr || '').trim() || 'non-zero exit'}`);
     ({ changed, deleted } = parseDiffZ(d.stdout));
   }
+
+  // ignore the tool's own audit ledgers (see isLedger)
+  changed = changed.filter((p) => !isLedger(p));
+  deleted = deleted.filter((p) => !isLedger(p));
 
   // critical-surface.json comes from the BASE REF (immutable), never the worktree or env.
   let config = null;

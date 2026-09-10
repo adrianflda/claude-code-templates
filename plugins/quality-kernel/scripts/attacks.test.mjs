@@ -456,6 +456,13 @@ test('ATTACK H3 (acceptance oracle under productionGlobs) — indeterminate (the
 // the base lockfile), and run the gate against SOURCE tests. Closing it in general needs a hermetic
 // black-box environment indistinguishable from prod — the M2 live breaker.
 
+test('USABILITY — a committed .quality-kernel/*.jsonl ledger does NOT trip the gate (it is a runtime artifact)', () => {
+  const { tmp, base, head } = mk(TOOLS, BASE,
+    { 'src/code.mjs': 'export const f = () => 1; export const g = () => 2;', '.quality-kernel/evidence-ledger.jsonl': '{"source":"referee","pass":true}\n' });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 0, 'the ledger is ignored; the additive code change verifies green'); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
 test('ACCEPTANCE ORACLE (P3) — a weak coder suite passes but the human acceptance criterion catches the bug', () => {
   const weak = "import { test } from 'node:test'; test('weak', () => {});";
   const accept = "import { test } from 'node:test'; import a from 'node:assert'; import { f } from '../src/code.mjs'; test('accept', () => a.strictEqual(f(), 1));";
