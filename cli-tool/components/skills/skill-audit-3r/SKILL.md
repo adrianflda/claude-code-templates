@@ -10,8 +10,6 @@ Premise (validated by Anthropic engineering + Boris Cherny): capable models need
 attention budget ("context rot") and can *hobble* it. Prune aggressively; keep only what the
 model genuinely cannot infer.
 
-Always answer the user in Spanish (their global rule), but keep this file's logic in English.
-
 ## Step 1 — Inventory (deterministic, cheap)
 
 Run the inventory script to list every config artifact with its word count, biggest first:
