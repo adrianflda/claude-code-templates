@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-09-10T03:15:43.497390+00:00",
-  "totalJobs": 104,
+  "lastUpdated": "2026-09-10T03:08:15.469701+00:00",
+  "totalJobs": 105,
   "sources": [
     "Anthropic",
     "HackerNews",
@@ -574,6 +574,27 @@
         "Cursor"
       ],
       "companyIcon": ""
+    },
+    {
+      "id": "anth-5390877008",
+      "company": "Anthropic",
+      "position": "Applied AI Architect, Public Sector (National Security)",
+      "location": "Washington, DC",
+      "remote": false,
+      "salary": "",
+      "description": "As an Applied AI team member at Anthropic, you will be a Pre-Sales architect focused on becoming a trusted technical advisor helping national security and defense agencies understand the value of Claude and paint the vision on how they can successfully integrate and deploy Claude into their...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5390877008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5390877008",
+      "postedAt": "2026-08-18T13:00:45-04:00",
+      "tags": [
+        "Python",
+        "Rust",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
       "id": "wwr-collaboration-ai-senior-software-ai-engineer",
