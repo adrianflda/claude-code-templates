@@ -56,3 +56,18 @@ test('qk-gate — TRIVIAL change (a .md), referee green -> exit 0 pass', () => {
     assert.strictEqual(v.requiresBreaker, false);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
+
+// --- review regression (#25): a failed risk classification is NOT "a breaker is required" ---
+test('qk-gate (RED) — route failing closed (malformed config) yields indeterminate, not exit 3', () => {
+  // criticalGlobs as a STRING: route's opError still emits requiresBreaker:true, so reading only
+  // route.json would downgrade this to exit 3 and let a later BREAKER_PASS green the change.
+  const { tmp } = mkRepo((t) => writeFileSync(join(t, 'src', 'auth', 'thing.ts'), 'export const x = 2;'), 'auth/**');
+  const base = spawnSync('git', ['-C', tmp, 'rev-parse', 'HEAD~1'], { encoding: 'utf8' }).stdout.trim();
+  try {
+    const r = spawnSync('node', [gate, '--repo', tmp, '--base', base], { encoding: 'utf8' });
+    const v = JSON.parse(r.stdout.trim().split('\n').pop());
+    assert.strictEqual(r.status, 2, 'exit 2: blast radius was never established');
+    assert.strictEqual(v.gate, 'indeterminate');
+    assert.ok(v.notes.some((n) => /risk classification failed closed/i.test(n)));
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});

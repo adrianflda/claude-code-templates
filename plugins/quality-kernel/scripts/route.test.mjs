@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { globToRegExp, classify, parseDiffZ } from './route.mjs';
+import { globToRegExp, classify, parseDiffZ, isLedger, configError } from './route.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const routeCli = join(here, 'route.mjs');
@@ -159,4 +159,33 @@ test('CLI — unverifiable base ref fails closed (exit 2, critical)', () => {
     assert.strictEqual(r.status, 2);
     assert.strictEqual(json(r).tier, 'critical');
   } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+// --- review regression (#25): only the tool's OWN ledgers are exempt from routing ---
+test('isLedger — exempts only the exact generated ledger names', () => {
+  assert.strictEqual(isLedger('.quality-kernel/evidence-ledger.jsonl'), true);
+  assert.strictEqual(isLedger('.quality-kernel/run-ledger.jsonl'), true);
+  assert.strictEqual(isLedger('repo/.quality-kernel/run-ledger.jsonl'), true);
+});
+test('isLedger (RED) — a project-specific .quality-kernel/*.jsonl is NOT exempt', () => {
+  assert.strictEqual(isLedger('.quality-kernel/contract-data.jsonl'), false);
+  assert.strictEqual(isLedger('.quality-kernel/attacker.jsonl'), false);
+  assert.strictEqual(isLedger('.quality-kernel/critical-surface.json'), false);
+});
+
+// --- review regression (#25): a parseable-but-malformed config must fail closed ---
+test('configError — accepts a well-formed config and null', () => {
+  assert.strictEqual(configError(null), null);
+  assert.strictEqual(configError({ criticalGlobs: ['a/**'], safeGlobs: ['**/*.md'] }), null);
+});
+test('configError (RED) — rejects non-array / non-string globs', () => {
+  assert.ok(configError({ criticalGlobs: 'auth/**' }));
+  assert.ok(configError({ safeGlobs: { a: 1 } }));
+  assert.ok(configError({ criticalGlobs: ['ok', 7] }));
+});
+test('classify (RED) — a string criticalGlobs is not spread into characters; stays critical', () => {
+  // Before the fix this spread to ['a','u','t','h','/','*','*'] and auth/x.ts fell below critical.
+  const r = classify(['auth/x.ts'], { criticalGlobs: 'auth/**' }, null, []);
+  assert.strictEqual(r.tier, 'critical');
+  assert.match(r.reason, /invalid critical-surface\.json/);
 });

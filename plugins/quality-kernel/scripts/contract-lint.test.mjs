@@ -43,3 +43,16 @@ test('CLI (RED) — an acceptance suite missing one invariant fails (exit 1)', (
     assert.deepStrictEqual(JSON.parse(r.stdout).missingAssertion, ['INV-B']);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
+
+// --- review regression (#25): ids in COMMENTS are documentation, not assertions ---
+test('acceptanceIds (RED) — a bare `// INV-X` comment does NOT satisfy the lockstep', () => {
+  assert.deepStrictEqual([...acceptanceIds('// INV-A\n/* INV-B */\n')], []);
+});
+test('acceptanceIds — executable references still count, and a URL is not read as a comment', () => {
+  const src = "test('INV-A works', () => {});\ntest('INV-B at http://x/y', () => {});";
+  assert.deepStrictEqual([...acceptanceIds(src)].sort(), ['INV-A', 'INV-B']);
+});
+test('diff (RED) — an invariant only mentioned in a comment is reported as missing', () => {
+  const md = '## Invariants\n| INV-A | x | y |\n';
+  assert.deepStrictEqual(diff(md, '// INV-A\n').missingAssertion, ['INV-A']);
+});

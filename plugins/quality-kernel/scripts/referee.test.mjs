@@ -80,3 +80,25 @@ test('INV5a — the referee appends the REAL verify exit code to the ledger', ()
     assert.strictEqual(rec.pass, true);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
+
+// --- review regression (#25): package.json "scripts" is part of the oracle ---
+test('manifest (RED) — swapping scripts.test for a no-op is NOT a benign manifest change', () => {
+  const PKG = (t) => JSON.stringify({ name: 'x', version: '1.0.0', scripts: { test: t } }, null, 2);
+  const { tmp, base, head } = mk(TOOLS,
+    { 'src/code.mjs': CODE_OK, 'guard.test.mjs': GUARD, 'package.json': PKG('node --test guard.test.mjs') },
+    { 'package.json': PKG('true') });          // the classic "replace your own test command" move
+  try {
+    const { code, verdict } = runOn(tmp, base, head);
+    assert.strictEqual(code, 2);               // indeterminate, NOT a pass
+    assert.strictEqual(verdict.pass, false);
+    assert.match(verdict.reason, /manifest/i);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+test('manifest — a non-runtime field (description) stays benign and does not block', () => {
+  const PKG = (d) => JSON.stringify({ name: 'x', version: '1.0.0', description: d, scripts: { test: 'node --test guard.test.mjs' } }, null, 2);
+  const { tmp, base, head } = mk(TOOLS,
+    { 'src/code.mjs': CODE_OK, 'guard.test.mjs': GUARD, 'package.json': PKG('before') },
+    { 'package.json': PKG('after') });
+  try { assert.strictEqual(runOn(tmp, base, head).code, 0); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});

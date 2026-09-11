@@ -47,12 +47,20 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     else if (args[i] === '--breaker') breaker = args[++i];
   }
   const bail = (reason) => { process.stdout.write(JSON.stringify({ verdict: 'BREAKER_INDETERMINATE', reason }) + '\n'); process.exit(2); };
-  if (!contract || !breaker) bail('need --contract <md> --breaker "<cmd>"');
+  const given = (v) => typeof v === 'string' && v.trim() !== '';
+  if (!given(contract) || !given(breaker)) bail('need --contract <md> --breaker "<cmd>"');
+  // A breaker with no live target is not a breaker: without a probe and a system URL it can only
+  // reason about the contract text, yet a BREAKER_PASS would still close the critical path. Both are
+  // REQUIRED (P5: the verdict must come from executing against live external state).
+  if (!given(probe) || !given(url)) bail('need --probe "<cmd>" and --url <systemUrl>: the breaker verdict must come from executing against the live system');
   if (!existsSync(contract)) bail(`contract not found: ${contract}`);
 
   const input = buildBlindInput(readFileSync(contract, 'utf8'), { probeCmd: probe, systemUrl: url });
   const r = spawnSync(breaker, { input: JSON.stringify(input), shell: true, encoding: 'utf8', timeout: 600000 });
   if (r.error || r.status === null) bail(`breaker could not run: ${r.error ? r.error.message : 'no exit'}`);
+  // A breaker that printed BREAKER_PASS but exited non-zero did not complete cleanly; trusting the
+  // text over the exit status would let a crashed/killed breaker green the gate. Fail closed.
+  if (r.status !== 0) bail(`breaker exited ${r.status} — a verdict from a failed breaker process is not trusted`);
   let verdict;
   try { verdict = JSON.parse((r.stdout || '').trim().split('\n').filter(Boolean).pop()); } catch { bail('breaker produced no JSON verdict'); }
   process.stdout.write(JSON.stringify({ ...verdict, blindInputKeys: Object.keys(input) }) + '\n');

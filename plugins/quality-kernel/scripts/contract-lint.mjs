@@ -24,9 +24,34 @@ export function contractIds(md) {
   }
   return ids;
 }
-// Invariant ids REFERENCED by the acceptance suite (in test names / comments).
+// Strip // line and /* block */ comments while preserving string/template literals, so a URL such as
+// 'http://x' inside a test name is not mistaken for a comment. Regex literals are not tracked; the
+// approximation only affects where an id is *found*, never correctness of the lockstep rule itself.
+export function stripComments(src) {
+  let out = '', i = 0, state = 'code';
+  while (i < src.length) {
+    const c = src[i], d = src[i + 1];
+    if (state === 'code') {
+      if (c === '/' && d === '/') { state = 'line'; i += 2; continue; }
+      if (c === '/' && d === '*') { state = 'block'; i += 2; continue; }
+      if (c === "'" || c === '"' || c === '`') { state = c; out += c; i++; continue; }
+      out += c; i++; continue;
+    }
+    if (state === 'line') { if (c === '\n') { state = 'code'; out += c; } i++; continue; }
+    if (state === 'block') { if (c === '*' && d === '/') { state = 'code'; i += 2; } else i++; continue; }
+    if (c === '\\') { out += c + (d ?? ''); i += 2; continue; }   // escape inside a string
+    if (c === state) { state = 'code'; out += c; i++; continue; } // closing quote
+    out += c; i++;
+  }
+  return out;
+}
+
+// Invariant ids REFERENCED by the acceptance suite, read from EXECUTABLE source only (test names,
+// assertion messages, identifiers). Comments are stripped first: a bare `// INV-A` is documentation,
+// not a check, and counting it would let a file satisfy the lockstep with no assertion at all —
+// exactly the guarantee ("one assertion per invariant") this lint exists to prove.
 export function acceptanceIds(src) {
-  return new Set(src.match(ID_RE) || []);
+  return new Set(stripComments(src).match(ID_RE) || []);
 }
 export function diff(md, src) {
   const declared = contractIds(md), checked = acceptanceIds(src);

@@ -49,3 +49,22 @@ test('CLI — a breaker that cannot run -> exit 2 (fail-closed)', () => {
   const r = spawnSync('node', [cli, '--contract', exampleMd, '--breaker', 'this-cmd-does-not-exist-xyz'], { encoding: 'utf8' });
   assert.strictEqual(r.status, 2);
 });
+
+// --- review regression (#25): a breaker with no live target, or a failed process, cannot green ---
+test('CLI (RED) — missing --probe/--url fails closed (exit 2) even with a PASSing breaker', () => {
+  const { tmp, cmd } = stub('BREAKER_PASS');
+  try {
+    const r = spawnSync('node', [cli, '--contract', exampleMd, '--breaker', cmd], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 2);
+    assert.match(JSON.parse(r.stdout.trim()).reason, /--probe/);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+test('CLI (RED) — a breaker printing BREAKER_PASS but exiting non-zero does not green the gate', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'qk-brk-'));
+  try {
+    const p = join(tmp, 'crash.mjs');
+    writeFileSync(p, "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({verdict:'BREAKER_PASS'}));process.exit(7);});");
+    const r = spawnSync('node', [cli, '--contract', exampleMd, '--probe', 'true', '--url', 'http://x', '--breaker', `node ${p}`], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 2);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});

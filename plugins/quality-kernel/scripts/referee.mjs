@@ -77,7 +77,11 @@ const TEST_ROOT_REF_RE = /['"`](?:\.\.?\/)*(?:tests?|__tests__)\//;
 const DEFAULT_TEST_GLOBS = ['**/*.test.*', '**/*.spec.*', '**/__tests__/**', 'tests/**', 'test/**'];
 const DEGENERATE_GLOBS = new Set(['**', '**/*', '**/**', '*']);
 // package.json fields that drive runtime resolution / the dependency (supply-chain) surface.
-const PKG_PROD_FIELDS = ['name', 'main', 'module', 'browser', 'exports', 'imports', 'type', 'bin', 'dependencies', 'peerDependencies', 'optionalDependencies', 'bundledDependencies', 'overrides', 'resolutions', 'workspaces', 'files', 'packageManager', 'pnpm', 'engines'];
+// "scripts" is in this set because the verify command itself is usually a script entry
+// (the documented default is `npm test`): if scripts.test is swapped for a no-op, the trusted
+// base run and the head-as-is run stop meaning the same thing and the referee would PASS a
+// change that replaced its own oracle.
+const PKG_PROD_FIELDS = ['name', 'main', 'module', 'browser', 'exports', 'imports', 'type', 'bin', 'scripts', 'dependencies', 'peerDependencies', 'optionalDependencies', 'bundledDependencies', 'overrides', 'resolutions', 'workspaces', 'files', 'packageManager', 'pnpm', 'engines'];
 const DEFAULT_LINK_PATHS = []; // opt-in: linking worktree dirs is a trust assumption (panel N6). Prefer verifySetup.
 
 function emit(v) { process.stdout.write(JSON.stringify(v) + '\n'); }
@@ -251,8 +255,20 @@ if (sym) indeterminate(`symlink in a committed tree is not allowed under the gat
 // --- tree building ---
 function tmpDir() { return mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); }
 function safeJoin(root, p) { const d = normalize(join(root, p)); return (d === root || d.startsWith(root + '/')) ? d : null; }
+// No shell. The previous `bash -c` form interpolated repo/ref/into with JSON.stringify, which only
+// adds double quotes — command substitution ($(…), backticks) still executes inside them, so a ref or
+// directory containing $(…) ran arbitrary code during the gate. Both legs are argv-only spawns, with
+// the archive staged through a temp file so a large repo is not buffered in memory.
 function archive(ref, into) {
-  return spawnSync('bash', ['-c', `git -C ${JSON.stringify(repo)} archive ${JSON.stringify(ref)} | tar -x -C ${JSON.stringify(into)}`], { encoding: 'utf8' }).status === 0;
+  const tar = join(tmpdir(), `qk-${randomBytes(8).toString('hex')}.tar`);
+  try {
+    const a = spawnSync('git', ['-C', repo, 'archive', '--output', tar, ref], { encoding: 'utf8' });
+    if (a.status !== 0) return false;
+    const x = spawnSync('tar', ['-x', '-f', tar, '-C', into], { encoding: 'utf8' });
+    return x.status === 0;
+  } finally {
+    try { rmSync(tar, { force: true }); } catch { /* temp cleanup is best-effort */ }
+  }
 }
 function linkDeps(root) {
   for (const lp of tools.linkPaths) {

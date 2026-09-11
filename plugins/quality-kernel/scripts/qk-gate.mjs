@@ -34,6 +34,25 @@ if (repoIdx === -1 || baseIdx === -1) {
 }
 
 const route = runJson('route.mjs');
+
+// Risk classification failing closed is NOT "a breaker is required". route's operational error path
+// (opError) still emits a JSON body with requiresBreaker:true, so reading only route.json would
+// downgrade an exit-2 classification failure into a mere breaker requirement — and a later
+// BREAKER_PASS could then green a change whose blast radius was never established. Block here.
+if (route.code !== 0) {
+  process.stdout.write(JSON.stringify({
+    gate: 'indeterminate',
+    refereePass: null,
+    tier: route.json ? route.json.tier : 'critical',
+    requiresBreaker: true,
+    requiresHumanReview: false,
+    referee: null,
+    route: route.json,
+    notes: [`risk classification failed closed (route exit ${route.code}): ${route.json && route.json.error ? route.json.error : 'no route verdict'}`],
+  }) + '\n');
+  process.exit(2);
+}
+
 const ref = runJson('referee.mjs');
 
 const verdict = ref.json || { pass: false, indeterminate: true, reason: 'referee produced no verdict' };
@@ -43,6 +62,10 @@ const refPass = ref.code === 0;
 // where route would not recognize a repo's own test root (panel V4).
 const overlaidTests = (verdict.evidence && Array.isArray(verdict.evidence.overlaidTests)) ? verdict.evidence.overlaidTests : [];
 const requiresBreaker = (route.json ? !!route.json.requiresBreaker : true) || overlaidTests.length > 0; // fail-safe if route errored
+// A test change is a CONTRACT change: no breaker verdict can stand in for the human who owns the
+// contract. Exported so breaker-gate can tell the two exit-3 causes apart (a passing breaker closes
+// the critical-surface cause, never this one).
+const requiresHumanReview = overlaidTests.length > 0;
 const notes = [];
 if (route.json ? !!route.json.requiresBreaker : true) {
   notes.push('CRITICAL surface: the live breaker (M2) is required before merge and is NOT yet enforced. Exit 3 = do-not-merge until M2 lands.');
@@ -65,6 +88,7 @@ process.stdout.write(JSON.stringify({
   refereePass: refPass,
   tier: route.json ? route.json.tier : 'critical',
   requiresBreaker,
+  requiresHumanReview,
   referee: verdict,
   route: route.json,
   notes,

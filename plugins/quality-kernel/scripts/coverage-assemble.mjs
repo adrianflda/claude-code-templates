@@ -10,7 +10,7 @@
 //               check?:{command, cwd?}, actions?:[] }]
 // Exit: 0 = assembled clean · 1 = structural/consistency problem or a read-only violation.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, readlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -24,8 +24,12 @@ export function hashDir(root) {
   const walk = (d, rel) => {
     let ents; try { ents = readdirSync(d, { withFileTypes: true }); } catch { return; }
     for (const e of ents.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (skip.has(e.name) || e.isSymbolicLink()) continue;
+      if (skip.has(e.name)) continue;
       const r = rel ? `${rel}/${e.name}` : e.name, abs = join(d, e.name);
+      // Symlinks are hashed by their TARGET, not followed. Skipping them entirely (as before) left a
+      // hole in the read-only proof: a check could create or repoint a symlink and the before/after
+      // hashes still matched, so the write violation went unreported.
+      if (e.isSymbolicLink()) { try { parts.push(`${r}:symlink:${readlinkSync(abs)}`); } catch { parts.push(`${r}:symlink:<unreadable>`); } continue; }
       if (e.isDirectory()) walk(abs, r);
       else if (e.isFile()) { try { parts.push(`${r}:${createHash('sha256').update(readFileSync(abs)).digest('hex')}`); } catch { /* skip */ } }
     }

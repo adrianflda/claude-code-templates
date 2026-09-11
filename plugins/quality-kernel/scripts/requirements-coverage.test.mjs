@@ -1,7 +1,7 @@
 // Acceptance suite for the requirements-coverage skill's deterministic core (the Contract COV-0..8).
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalize } from './req-normalize.mjs';
@@ -89,4 +89,25 @@ test('report — renders the summary and one row per requirement', () => {
   assert.match(md, /cumple.*parcial.*falta/);
   for (const r of reqs) assert.ok(md.includes(r.id), `report includes ${r.id}`);
   assert.match(md, /## Backlog/);
+});
+
+// --- review regression (#25): the read-only proof must see SYMLINK writes too ---
+test('hashDir (RED) — creating a symlink changes the hash (write violation is detectable)', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'qk-hash-'));
+  try {
+    writeFileSync(join(tmp, 'a.txt'), 'x');
+    const before = hashDir(tmp);
+    symlinkSync(join(tmp, 'a.txt'), join(tmp, 'link'));   // a check "writes" only a symlink
+    assert.notStrictEqual(hashDir(tmp), before);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+test('hashDir (RED) — repointing an existing symlink changes the hash', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'qk-hash-'));
+  try {
+    writeFileSync(join(tmp, 'a.txt'), 'x'); writeFileSync(join(tmp, 'b.txt'), 'y');
+    symlinkSync(join(tmp, 'a.txt'), join(tmp, 'link'));
+    const before = hashDir(tmp);
+    unlinkSync(join(tmp, 'link')); symlinkSync(join(tmp, 'b.txt'), join(tmp, 'link'));
+    assert.notStrictEqual(hashDir(tmp), before);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
