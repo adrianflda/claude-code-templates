@@ -87,69 +87,93 @@ class EvidenceGate(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(self._ledger(d), [])
 
-    def test_verify_command_records_exit_code(self):
+    def test_verify_command_is_recorded_without_a_fake_exit_code(self):
+        # v1: Claude Code's Bash tool_response has NO exit-code field (verified by execution).
+        # The hook records that a verify-shaped command RAN (source="bash-hook") + honest signals,
+        # never a guessed exit code. The real exit code comes from the referee (source="referee").
         with tempfile.TemporaryDirectory() as d:
             code, _ = run(
                 GATE,
-                {"tool_name": "Bash", "tool_input": {"command": "pytest -q"}, "tool_response": {"exit_code": 0}, "cwd": d},
+                {"tool_name": "Bash", "tool_input": {"command": "pytest -q"},
+                 "tool_response": {"stdout": "ok", "stderr": "", "interrupted": False}, "cwd": d},
                 cwd=d,
             )
             self.assertEqual(code, 0)
             lines = self._ledger(d)
             self.assertEqual(len(lines), 1)
             rec = json.loads(lines[0])
-            self.assertEqual(rec["exit"], 0)
+            self.assertEqual(rec["source"], "bash-hook")
+            self.assertNotIn("exit", rec)  # never a fabricated exit code
+            self.assertIs(rec["interrupted"], False)
+            self.assertIs(rec["stderr_nonempty"], False)
 
     def test_node_test_runner_is_recorded(self):
-        # regression: Node's built-in `node --test` runner must count as a verify command.
-        # Uses a bare `node --test` (no `coverage`/`nyc`/other already-matched token) so the
-        # match can only come from the `node\s+--test` rule this test guards.
         with tempfile.TemporaryDirectory() as d:
             code, _ = run(
                 GATE,
-                {"tool_name": "Bash", "tool_input": {"command": "node --test"}, "tool_response": {"exit_code": 0}, "cwd": d},
+                {"tool_name": "Bash", "tool_input": {"command": "node --test"},
+                 "tool_response": {"stdout": "", "stderr": "", "interrupted": False}, "cwd": d},
                 cwd=d,
             )
             self.assertEqual(code, 0)
-            lines = self._ledger(d)
-            self.assertEqual(len(lines), 1)
-            self.assertEqual(json.loads(lines[0])["exit"], 0)
+            self.assertEqual(len(self._ledger(d)), 1)
+            self.assertEqual(json.loads(self._ledger(d)[0])["source"], "bash-hook")
 
-    def test_unknown_schema_sentinel(self):
+    def test_prose_in_a_non_verify_command_is_NOT_recorded(self):
+        # The exact regression that produced 112 false "verification events": a runner word
+        # inside a quoted BODY (a PR comment) must NOT count as a verify command (INV5b).
         with tempfile.TemporaryDirectory() as d:
-            code, err = run(
+            cmd = 'gh pr comment 599 -b "ran pytest and vitest, coverage green, all tests pass"'
+            code, _ = run(GATE, {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": d}, cwd=d)
+            self.assertEqual(code, 0)
+            self.assertEqual(self._ledger(d), [])
+
+    def test_echo_mentioning_a_runner_is_NOT_recorded(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, _ = run(GATE, {"tool_name": "Bash", "tool_input": {"command": 'echo "run pytest first"'}, "cwd": d}, cwd=d)
+            self.assertEqual(code, 0)
+            self.assertEqual(self._ledger(d), [])
+
+    def test_prose_with_metacharacters_in_a_quoted_body_is_NOT_recorded(self):
+        # RED-TEAM regression: the general 112-false-events class — a runner word together with a
+        # shell metachar (;, |, &&) inside a QUOTED body must not create/start a command segment.
+        for cmd in (
+            'gh pr comment 599 -b "ran the suite; pytest is green"',
+            'echo "results && pytest ok"',
+            'gh pr comment 599 -b "steps: npm i; pytest -q all green | vitest too"',
+        ):
+            with tempfile.TemporaryDirectory() as d:
+                code, _ = run(GATE, {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": d}, cwd=d)
+                self.assertEqual(code, 0)
+                self.assertEqual(self._ledger(d), [], f"should not record: {cmd}")
+
+    def test_chained_verify_command_is_recorded(self):
+        # `cd foo && pytest` — the runner starts the SECOND segment → still recorded.
+        with tempfile.TemporaryDirectory() as d:
+            code, _ = run(
                 GATE,
-                {"tool_name": "Bash", "tool_input": {"command": "npm run build"}, "tool_response": {"weird": 1}, "cwd": d},
+                {"tool_name": "Bash", "tool_input": {"command": "cd foo && pytest -q"},
+                 "tool_response": {"stdout": "", "stderr": "", "interrupted": False}, "cwd": d},
                 cwd=d,
             )
             self.assertEqual(code, 0)
-            rec = json.loads(self._ledger(d)[0])
-            self.assertEqual(rec["exit"], "unknown-schema")
-            self.assertIn("unknown-schema", err)
+            self.assertEqual(len(self._ledger(d)), 1)
 
-    def test_present_but_null_exit_code_is_sentinel(self):
+    def test_non_dict_response_is_recorded_with_null_signals(self):
+        # A non-dict tool_response is still recorded (the command ran) but with null signals —
+        # and never a fabricated exit code.
         with tempfile.TemporaryDirectory() as d:
-            code, err = run(
-                GATE,
-                {"tool_name": "Bash", "tool_input": {"command": "pytest -q"}, "tool_response": {"exit_code": None}, "cwd": d},
-                cwd=d,
-            )
-            self.assertEqual(code, 0)
-            rec = json.loads(self._ledger(d)[0])
-            self.assertEqual(rec["exit"], "unknown-schema")
-            self.assertIn("unknown-schema", err)
-
-    def test_non_dict_response_warns(self):
-        with tempfile.TemporaryDirectory() as d:
-            code, err = run(
+            code, _ = run(
                 GATE,
                 {"tool_name": "Bash", "tool_input": {"command": "pytest -q"}, "tool_response": "weird string", "cwd": d},
                 cwd=d,
             )
             self.assertEqual(code, 0)
             rec = json.loads(self._ledger(d)[0])
-            self.assertEqual(rec["exit"], "unknown-schema")
-            self.assertIn("not a dict", err)
+            self.assertEqual(rec["source"], "bash-hook")
+            self.assertNotIn("exit", rec)
+            self.assertIsNone(rec["interrupted"])
+            self.assertIsNone(rec["stderr_nonempty"])
 
     def test_recorder_error_is_fail_open(self):
         # Point cwd at a *file* so mkdir('.quality-kernel') raises inside the try block.

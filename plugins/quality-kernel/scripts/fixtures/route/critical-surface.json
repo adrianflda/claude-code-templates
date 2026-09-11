@@ -1,0 +1,22 @@
+{
+  "$comment": "Domain-agnostic replay fixture for route tests. Globs are GENERIC risk classes (access-control, money, data-migration, infrastructure, request entrypoints) — no application- or domain-specific names. Recall tests below prove a change touching any declared risk class is forced critical; precision tests prove a docs file merely mentioning a risk word is NOT. HONESTY: authoring a surface that catches known risk families is not proof it catches the NEXT unknown incident; per-repo surfaces must be authored from that repo's own incidents and validated hold-out. Real past-bug fixtures live PRIVATELY per repo, never committed to this domain-agnostic tool.",
+  "criticalGlobs": [
+    "**/auth/**",
+    "**/session/**",
+    "**/*tenant*/**",
+    "**/payments/**",
+    "**/billing/**",
+    "**/migrations/**",
+    "**/*.sql",
+    "infra/**",
+    "**/*.tf",
+    "**/controllers/**",
+    "**/contracts/**"
+  ],
+  "safeGlobs": [
+    "**/*.md",
+    "docs/**",
+    "**/*.css",
+    "**/*.stories.*"
+  ]
+}

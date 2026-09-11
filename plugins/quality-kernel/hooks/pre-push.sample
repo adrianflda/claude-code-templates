@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# quality-kernel pre-push gate — THE INVOKER (closes the "nothing runs the gate" gap).
+# It gates the EXACT commit being pushed (local_sha) against a REMOTE-anchored base, and BLOCKS the
+# push on a non-zero gate (Constitution P1: if a rule matters, it is code).
+#
+# v2 hardening (validation-panel.v1.md §2, RC2): the gate verifies `--head <local_sha>` (the sha
+# that will land on the remote), not the worktree; the base is the remote's sha (or, for a brand-new
+# branch, the merge-base with the remote's default branch). We NEVER fall back to `local_sha^`
+# (which would trust every prior commit) — an unresolvable base BLOCKS and asks for a human.
+#
+# NOTE: a client-side hook is a guardrail for honest workflows, not a boundary against an adversary
+# with a shell (they can `--no-verify` or unset QK_GATE). Real enforcement is server-side (a
+# protected branch / required check), which is out of this local-first tool's scope.
+#
+# Install (per repo):
+#   cp plugins/quality-kernel/hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# If qk-gate.mjs lives outside this repo, set QK_GATE=/abs/path/to/qk-gate.mjs
+set -uo pipefail
+REMOTE_NAME="${1:-origin}"          # git passes <remote-name> <remote-url> as $1 $2
+ROOT="$(git rev-parse --show-toplevel)"
+GATE="${QK_GATE:-$ROOT/plugins/quality-kernel/scripts/qk-gate.mjs}"
+ZERO="0000000000000000000000000000000000000000"
+status=0
+
+# For a brand-new branch there is no remote_sha on stdin. Resolve the base from the ACTUAL remote
+# (git ls-remote — network truth), never from local refs/remotes/* (which `git update-ref` can
+# forge; panel P8f). The remote default's sha must already exist locally to merge-base against it;
+# if the remote is unreachable or the object is missing, we return failure and the caller BLOCKS.
+resolve_new_branch_base() {
+  local head="$1" line sha ref mb
+  while read -r sha ref; do
+    case "$ref" in HEAD|refs/heads/main|refs/heads/master)
+      if git rev-parse --verify -q "${sha}^{commit}" >/dev/null 2>&1; then
+        mb="$(git merge-base "$head" "$sha" 2>/dev/null)" && [ -n "$mb" ] && { echo "$mb"; return 0; }
+      fi ;;
+    esac
+  done < <(git ls-remote "$REMOTE_NAME" HEAD refs/heads/main refs/heads/master 2>/dev/null)
+  return 1
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue                       # deleting a remote ref
+  if [ "$remote_sha" != "$ZERO" ]; then
+    base="$remote_sha"
+  else
+    if ! base="$(resolve_new_branch_base "$local_sha")"; then
+      echo "[quality-kernel] new branch and no remote base could be resolved — BLOCKING (a human must review). Push once with '--no-verify' after review if intended." >&2
+      status=1; continue
+    fi
+  fi
+  echo "[quality-kernel] gate: $ROOT  base=$base  head=$local_sha" >&2
+  node "$GATE" --repo "$ROOT" --base "$base" --head "$local_sha" >&2 || status=1
+done
+
+if [ "$status" -ne 0 ]; then
+  echo "[quality-kernel] push BLOCKED by the gate. Fix, or override once with 'git push --no-verify' + a reason." >&2
+fi
+exit "$status"

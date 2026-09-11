@@ -24,11 +24,9 @@
   "safeGlobs": [
     "**/*.md",
     "docs/**",
-    "**/*.test.*",
-    "**/*.spec.*",
-    "**/__tests__/**",
     "**/*.css",
     "**/*.stories.*",
     "scripts/dev/**"
-  ]
+  ],
+  "$safeGlobsNote": "Test files are deliberately NOT safe: editing a test moves coverage, so route floors any test change at 'standard' (and a test DELETION is always critical). Keep only truly inert paths here."
 }

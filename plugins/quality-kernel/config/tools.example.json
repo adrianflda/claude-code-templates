@@ -1,5 +1,19 @@
 {
-  "$comment": "Per-language deterministic quality tools for the quality-kernel engine. Copy to .quality-kernel/tools.json in your project and adjust. The cleaner and hardener resolve their tools from here. Default stack order: typescript -> node -> python. For Go/Java, Uncle Bob's own tools (mutate4go, crap4java, ...) are faithful and preferred.",
+  "$comment": "Copy to .quality-kernel/tools.json in your project and adjust. Two consumers: (1) the REFEREE reads the top-level verify/productionGlobs/acceptance/linkPaths; (2) the forge cleaner/hardener read the per-language tools below. COMMIT this file — the referee reads it from the base ref (it is never trusted from the worktree).",
+
+  "$refereeContract": "The referee verifies a committed base..head. It rebuilds the FULL BASE TREE and overlays ONLY the files matching productionGlobs from head, then runs verify (and acceptance if set) against that tree — so tests/fixtures/helpers/runners cannot be tampered by the change to force a green. Every changed path must be production (overlaid+verified), a declared test (executed), or a manifest (field-checked); anything else => indeterminate. Declare docs/prompts/config/assets in productionGlobs so anything read at runtime is verified (overlaying prose is harmless).",
+  "verify": "node --test",
+  "productionGlobs": ["src/**", "lib/**", "app/**", "templates/**", "prompts/**", "assets/**", "config/**"],
+  "$docsNote": "Declare docs/**, **/*.md here ONLY if production reads them at runtime AND no test reads their content as an expected value. If your tests assert on README/docs content (doctests, 'the examples are tested'), those files are ORACLE, not production — declaring them in productionGlobs would let a change re-golden them from head. Keep such files out of productionGlobs, or declare them in testGlobs.",
+  "testGlobs": ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "tests/**", "test/**"],
+  "$testGlobsHelp": "The immutable suite THIS repo declares — stays at base (never overlaid) and is executed. Kept separate from route's broad tier heuristic so a production file merely NAMED like a test (lib/spec/**, *-test.*) is not silently treated as harness.",
+  "acceptance": null,
+  "$acceptanceHelp": "Optional. A human-approved, machine-checkable criteria command DISTINCT from the coder's own tests (Constitution P3). Lives outside productionGlobs so it stays immutable-from-base. Example: \"node --test acceptance/*.mjs\".",
+  "linkPaths": [],
+  "$linkPathsHelp": "Opt-in (default []). Dependency dirs symlinked from the worktree into the trusted tree. This is a TRUST HOLE: a build in the verify chain could write THROUGH the symlink into your real worktree, and a tampered dep is not audited. Prefer verifySetup (e.g. 'npm ci --ignore-scripts') to provision deps hermetically from the base lockfile.",
+  "outputGlobs": [],
+  "$outputGlobsHelp": "Paths the verify/build chain is ALLOWED to create in the tree (e.g. ['dist/**','coverage/**']). Everything the chain writes outside these (and outside node_modules/.venv/vendor/.git) makes the run indeterminate — so a build cannot plant a module the immutable tests then import.",
+
   "defaultLanguageOrder": ["typescript", "javascript", "python"],
   "languages": {
     "typescript": {
