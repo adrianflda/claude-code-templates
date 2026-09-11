@@ -21,7 +21,10 @@ const DEFAULT_RULES: Rule[] = [
   // and a root/home/cwd target, optionally quoted or with a trailing slash ("~/", "$HOME/", "/").
   { pattern: /\brm\s+(?=(?:\S+\s+)*?(?:-[a-z]*r[a-z]*|--recursive)\b)(?:\S+\s+)*?["']?(?:\/|~|\$HOME|\$\{HOME\}|\.\.?)\/?["']?(?:\s|$|;|&|\|)/i, reason: "recursive delete of a root, home or working directory" },
   { pattern: /\brm\s+.*--no-preserve-root\b/i, reason: "rm with --no-preserve-root" },
-  { pattern: /\bgit\s+push\b(?!.*--force-with-lease).*(--force\b|\s-f\b)/, reason: "force push" },
+  // Match an explicit --force (but not --force-with-lease) or -f, anywhere in the args,
+  // so `git push --force-with-lease --force` is still caught while a standalone
+  // `git push --force-with-lease` is allowed.
+  { pattern: /\bgit\s+push\b.*(--force(?![-\w])|\s-f\b)/, reason: "force push" },
   { pattern: /\bgit\s+(reset\s+--hard|clean\s+-[a-z]*f)/, reason: "history or working-tree destruction" },
   { pattern: /\b(DROP|TRUNCATE)\s+(TABLE|DATABASE|SCHEMA)\b/i, reason: "destructive SQL" },
   { pattern: /\bmkfs(\.|\s)/, reason: "filesystem format" },
