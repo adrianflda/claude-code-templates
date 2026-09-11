@@ -22,9 +22,25 @@ const MAX_FIELD = 200;
 
 // Field names whose value is almost always a credential or personal datum.
 const SENSITIVE_KEY = /(pass(word|wd)?|secret|token|api[_-]?key|auth(orization)?|credential|cookie|session|bearer|private[_-]?key)/i;
-// Secret-shaped values: bearer/authorization headers, sk-/ghp_-style keys,
-// AWS access keys, and connection strings that embed a password.
-const SENSITIVE_VALUE = /(bearer\s+\S+|\b(sk|ghp|gho|xox[baprs])[-_][A-Za-z0-9]{8,}|\bAKIA[0-9A-Z]{12,}\b|:\/\/[^\s:@/]+:[^\s@/]+@)/i;
+// Secret-shaped values. Kept in lockstep with the security/secret-redactor
+// hook's PATTERNS so both recognise the same credential shapes (notably the
+// hyphenated sk-ant-api…/sk-proj… keys a naive [A-Za-z0-9]+ run misses).
+const SENSITIVE_VALUE = new RegExp(
+  [
+    /bearer\s+\S+/.source,
+    /\bAKIA[0-9A-Z]{16}\b/.source,
+    /\bsk-ant-api\d{2}-[A-Za-z0-9_-]{20,}\b/.source,
+    /\bsk-[A-Za-z0-9-]{20,}\b/.source,
+    /\bgh[pousr]_[A-Za-z0-9]{36,}\b/.source,
+    /\bAIza[0-9A-Za-z_-]{35}\b/.source,
+    /\b[sr]k_(live|test)_[0-9A-Za-z]{24,}\b/.source,
+    /\bxox[abpr]-[0-9A-Za-z-]{10,}\b/.source,
+    /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/.source,
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/.source,
+    /\b(postgres(ql)?|mysql|mongodb(\+srv)?|redis):\/\/[^:\s]+:[^@\s]+@/.source,
+  ].join("|"),
+  "i",
+);
 const REDACTED = "[redacted]";
 
 function redactString(v: string): string {
