@@ -16427,6 +16427,27 @@
       }
     },
     {
+      "name": "orcareplay",
+      "path": "devtools/orcareplay.json",
+      "category": "devtools",
+      "type": "mcp",
+      "description": "Record, replay and fork debugger for coding agents. Exposes recorded runs to Claude Code: list runs, read a run's timeline, inspect the causal graph of what caused what, and replay a run offline byte-for-byte or fork it from a checkpoint onto a different model. Requires Node.js 20+.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      }
+    },
+    {
       "name": "postman",
       "path": "devtools/postman.json",
       "category": "devtools",
@@ -16705,6 +16726,27 @@
       "category": "integration",
       "type": "mcp",
       "description": "Trading platform MCP server enabling stock, ETF, crypto, and options trading via Alpaca's API. Supports market data, portfolio management, and order execution.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      }
+    },
+    {
+      "name": "alphai",
+      "path": "integration/alphai.json",
+      "category": "integration",
+      "type": "mcp",
+      "description": "Pre-analyzed financial news via REST API and MCP. Per-ticker impact, category, and a 1-10 relevance score on every story, plus SEC Form 4 insider data. Free tier, no card.",
       "author": "",
       "repo": "",
       "version": "",
@@ -18744,6 +18786,27 @@
       "category": "statusline",
       "type": "setting",
       "description": "Watch your code garden grow with each session. Plants evolve from seeds to trees based on your activity, with dynamic weather effects. Displays: Plant stages (🌱 seed 0-9, 🌿 sprout 10-19, 🍃 sapling 20-29, 🌳 tree 30-39, 🌺 flower 40+), Weather (🌧️ rainy every 7 growth points, ☀️ sunny every 5 points, ⛅ cloudy default), Garden Level (stage number), Growth counter (total session interactions).",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      }
+    },
+    {
+      "name": "worktree-context-statusline",
+      "path": "statusline/worktree-context-statusline.json",
+      "category": "statusline",
+      "type": "setting",
+      "description": "Minimal worktree-aware status line showing project name, git branch, model, and accurate context usage. In a linked git worktree it shows the main project name instead of the worktree folder and marks the branch with ⑂. Context percentage and window size (200k or 1M) come directly from Claude Code's context_window data, so it stays correct for extended-context models. The context segment is hidden until the first API response and right after /compact.",
       "author": "",
       "repo": "",
       "version": "",
@@ -46379,6 +46442,228 @@
         "warningCount": 0,
         "lastValidated": null
       }
+    }
+  ],
+  "function-hooks": [
+    {
+      "name": "admin-capability-lockdown",
+      "path": "enterprise/admin-capability-lockdown.json",
+      "category": "enterprise",
+      "type": "function-hook",
+      "description": "Organization control plugin: withholds the http and process nouns from $ so no plugin beneath it can reach the network or spawn processes, allowlists which plugins may register, and withholds the Bash tool (shellPolicy \"deny\", default) or, in \"guardrail\" mode, denies well-known network clients as a bypassable speed bump. Function hooks on engine.create, plugin.register and tool.call.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "admin-capability-lockdown.ts"
+    },
+    {
+      "name": "websearch-to-exa",
+      "path": "integrations/websearch-to-exa.json",
+      "category": "integrations",
+      "type": "function-hook",
+      "description": "Overrides the built-in WebSearch tool and routes queries to the Exa search API through the network primitive, with automatic fallback to the built-in search. Function hook on tool.call that replaces a core tool.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "websearch-to-exa.ts"
+    },
+    {
+      "name": "universal-audit-log",
+      "path": "observability/universal-audit-log.json",
+      "category": "observability",
+      "type": "function-hook",
+      "description": "One hook on * that records every event on $ (tool calls, prompts, renders, other plugins' side effects) as JSON lines with origin, duration and outcome, including denials. The audit trail from the proposal in a single function.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "universal-audit-log.ts"
+    },
+    {
+      "name": "npm-to-pnpm-rewriter",
+      "path": "productivity/npm-to-pnpm-rewriter.json",
+      "category": "productivity",
+      "type": "function-hook",
+      "description": "Rewrites npm and npx invocations to pnpm (or yarn / bun) before the Bash tool runs them. Function hook on tool.call that forwards a modified event.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "npm-to-pnpm-rewriter.ts"
+    },
+    {
+      "name": "webfetch-cache",
+      "path": "productivity/webfetch-cache.json",
+      "category": "productivity",
+      "type": "function-hook",
+      "description": "Short-circuits repeated WebFetch calls for the same URL and prompt within a session, returning the cached result without a network round trip. Function hook on tool.call with TTL and size limits.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "webfetch-cache.ts"
+    },
+    {
+      "name": "block-destructive-commands",
+      "path": "security/block-destructive-commands.json",
+      "category": "security",
+      "type": "function-hook",
+      "description": "Denies Bash commands that match destructive patterns (recursive rm on roots, force push, hard reset, destructive SQL, disk formatting) before they run. Function hook on tool.call with a Bash matcher.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "block-destructive-commands.ts"
+    },
+    {
+      "name": "large-edit-confirmation",
+      "path": "security/large-edit-confirmation.json",
+      "category": "security",
+      "type": "function-hook",
+      "description": "Asks the user for confirmation before Claude edits or overwrites a file larger than a configurable line count. Function hook on tool.call using the files and permissions primitives.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "large-edit-confirmation.ts"
+    },
+    {
+      "name": "protected-paths-guard",
+      "path": "security/protected-paths-guard.json",
+      "category": "security",
+      "type": "function-hook",
+      "description": "Denies Edit, Write, MultiEdit and NotebookEdit calls on sensitive paths (.env files, lockfiles, CI workflows, git internals, private keys) with a glob allowlist override. Function hook on tool.call with an array matcher.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "protected-paths-guard.ts"
+    },
+    {
+      "name": "secret-redactor",
+      "path": "security/secret-redactor.json",
+      "category": "security",
+      "type": "function-hook",
+      "description": "Redacts API keys, tokens, JWTs, private keys and connection strings from every tool result before the model reads them, and refuses to echo a redacted placeholder back into a Bash command. Function hook on tool.call.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "secret-redactor.ts"
+    },
+    {
+      "name": "tool-timing-badge",
+      "path": "ui/tool-timing-badge.json",
+      "category": "ui",
+      "type": "function-hook",
+      "description": "Times every tool call and wraps the engine's ToolUse rendering with a colored duration badge, on the terminal and on Desktop. Function hooks on tool.call and ui.render using JSX.",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      },
+      "module": "tool-timing-badge.tsx"
     }
   ],
   "templates": [
