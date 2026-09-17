@@ -1,1 +1,4 @@
 .quality-kernel/evidence-ledger.jsonl
+
+# F1 live-oracle: gstack $B browser daemon runtime state/logs
+.gstack/
