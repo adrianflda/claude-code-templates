@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { mkdtempSync, writeFileSync, rmSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extractValue, assertInvariant, runProbe } from './gstack-probe.mjs';
+import { isLocalTarget } from './resolvers/gstack-browse.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, 'gstack-probe.mjs');
@@ -30,6 +31,15 @@ test('assertInvariant — value/is/text, HOLDS and VIOLATED', () => {
   assert.strictEqual(assertInvariant({ mode: 'is', expected: 'true', actual: 'TRUE' }), 'HOLDS');
   assert.strictEqual(assertInvariant({ mode: 'text', expected: 'sum', actual: 'the sum is 5' }), 'HOLDS');
   assert.strictEqual(assertInvariant({ mode: 'text', expected: 'zzz', actual: 'the sum is 5' }), 'VIOLATED');
+});
+
+// ── Pure: consent gate (both catch branches are fail-closed) ────────────────
+test('isLocalTarget — local hosts pass, remote fails, and both catch branches return false', () => {
+  assert.strictEqual(isLocalTarget('http://localhost:5173/'), true);
+  assert.strictEqual(isLocalTarget('http://127.0.0.1/'), true);
+  assert.strictEqual(isLocalTarget('https://app.production.com/'), false);
+  assert.strictEqual(isLocalTarget('not a url'), false);            // URL parse throws → false
+  assert.strictEqual(isLocalTarget('http://localhost/', '('), false); // invalid regex → false
 });
 
 // ── A deterministic stub $B modelling the REAL binary: truth is the EXIT CODE ─

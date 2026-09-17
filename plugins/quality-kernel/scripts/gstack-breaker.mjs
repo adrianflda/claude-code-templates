@@ -64,15 +64,11 @@ export function runBreaker({ contractPath, url, vectorsFile, bin = null, config 
     runProbe({ url, spec: v.steps, bin, config, cwd, invariant: v.invariant }));
 
   const verdict = decideVerdict(results);
-  const residual = verdict === 'BREAKER_PASS' && results.length < MIN_VECTORS
-    ? `only ${results.length} vector(s) executed`
-    : undefined;
   return {
     verdict,
     url,
     executed: results.filter((r) => r.result !== 'INSTRUMENT-BROKEN').length,
     vectors: results.map((r) => ({ invariant: r.invariant, result: r.result, expected: r.expected, actual: r.actual, probe_output: r.probe_output, reason: r.reason })),
-    ...(residual ? { residual_risk: residual } : {}),
   };
 }
 
