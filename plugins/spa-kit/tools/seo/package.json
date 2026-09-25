@@ -1,0 +1,20 @@
+{
+  "name": "@kit/seo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Executable SEO/AEO oracles: indexability, structured data, and agentic-crawler visibility probes that exit non-zero on violation.",
+  "bin": { "kit-seo": "./src/cli.ts" },
+  "scripts": {
+    "seo": "tsx src/cli.ts",
+    "seo:agentic": "tsx src/cli.ts --only=agentic",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "node-html-parser": "^9.0.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3"
+  }
+}

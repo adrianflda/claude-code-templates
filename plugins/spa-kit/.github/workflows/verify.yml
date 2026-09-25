@@ -1,0 +1,97 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Visual baselines are platform-specific (Playwright suffixes them with the OS).
+  # A macOS baseline does not serve Linux CI, so run this once from the Actions
+  # tab to produce the Linux baselines, then download and commit the artifact.
+  workflow_dispatch:
+    inputs:
+      update_snapshots:
+        description: "Regenerate visual baselines on this runner"
+        type: boolean
+        default: false
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: typecheck · lint · unit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+
+  e2e:
+    name: build · seo/aeo · e2e · breaker
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # Visual baselines are generated on this image; running them elsewhere
+      # produces false diffs from font and rasterisation differences.
+      - run: npm run e2e:install
+
+      - name: SEO / AEO gate
+        run: npx start-server-and-test "npm start" http://localhost:4321 "npm run seo"
+
+      - name: Blind breaker
+        run: npx start-server-and-test "npm start" http://localhost:4321 "npm run breaker -- --contract=tools/breaker/contract.example.json"
+
+      # Playwright starts the server itself (see playwright.config.ts webServer).
+      - name: End-to-end suite
+        if: ${{ inputs.update_snapshots != true }}
+        run: npm run e2e
+        env:
+          KIT_BASE_URL: http://localhost:4321
+
+      - name: Regenerate visual baselines
+        if: ${{ inputs.update_snapshots == true }}
+        run: npm run e2e:update-snapshots
+        env:
+          KIT_BASE_URL: http://localhost:4321
+
+      - name: Upload regenerated baselines
+        if: ${{ inputs.update_snapshots == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines-linux
+          path: tools/e2e/tests/**/*-snapshots/**
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: tools/e2e/playwright-report
+          retention-days: 7
+
+  lighthouse:
+    name: lighthouse budgets
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lh

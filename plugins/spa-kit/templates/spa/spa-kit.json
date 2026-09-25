@@ -1,0 +1,11 @@
+{
+  "$schema": "https://spa-kit.local/project.schema.json",
+  "name": "__SPA_NAME__",
+  "slug": "__SPA_SLUG__",
+  "url": "__SPA_URL__",
+  "port": __SPA_PORT__,
+  "locale": "__SPA_LOCALE__",
+  "indexableRoutes": ["/"],
+  "createdAt": "__SPA_CREATED__",
+  "generatedBy": "spa-kit __SPA_KIT_VERSION__"
+}

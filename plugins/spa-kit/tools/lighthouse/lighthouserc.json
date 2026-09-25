@@ -1,0 +1,41 @@
+{
+  "ci": {
+    "collect": {
+      "startServerCommand": "npm run start --workspace apps/fixture",
+      "startServerReadyPattern": "Ready|started server|Local:",
+      "startServerReadyTimeout": 120000,
+      "url": ["http://localhost:4321/"],
+      "numberOfRuns": 3,
+      "settings": {
+        "preset": "desktop",
+        "skipAudits": ["uses-http2", "canonical"]
+      }
+    },
+    "assert": {
+      "assertions": {
+        "categories:performance": ["error", { "minScore": 0.9 }],
+        "categories:accessibility": ["error", { "minScore": 1 }],
+        "categories:best-practices": ["error", { "minScore": 0.95 }],
+        "categories:seo": ["error", { "minScore": 1 }],
+
+        "largest-contentful-paint": ["error", { "maxNumericValue": 2000 }],
+        "cumulative-layout-shift": ["error", { "maxNumericValue": 0.1 }],
+        "total-blocking-time": ["error", { "maxNumericValue": 200 }],
+        "speed-index": ["warn", { "maxNumericValue": 2500 }],
+
+        "total-byte-weight": ["warn", { "maxNumericValue": 1600000 }],
+        "unused-javascript": ["warn", { "maxNumericValue": 100000 }],
+        "prefers-color-scheme": "off",
+
+        "meta-description": "error",
+        "document-title": "error",
+        "hreflang": "error",
+        "http-status-code": "error",
+        "is-crawlable": "error",
+        "robots-txt": "error",
+        "structured-data": "off"
+      }
+    },
+    "upload": { "target": "filesystem", "outputDir": ".lighthouseci" }
+  }
+}

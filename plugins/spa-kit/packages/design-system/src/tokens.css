@@ -1,0 +1,97 @@
+/*
+ * Design tokens — "serious sci-fi".
+ *
+ * Rules this file encodes:
+ *  1. Color lives in OKLCH so lightness steps are perceptually even and a hue
+ *     rotation never changes apparent brightness.
+ *  2. The palette is low-chroma by default. Saturation is a signal, not a
+ *     background: only interactive and live elements are allowed to be vivid.
+ *  3. Depth comes from emitted light (glow, rim, gradient) rather than drop
+ *     shadows, which is what reads as "instrument panel" instead of "card UI".
+ *  4. Every duration and easing used in the product must come from here, so a
+ *     visual-regression baseline can freeze motion by overriding two variables.
+ */
+
+@layer kit.tokens {
+  :root {
+    /* ---- surfaces: cold near-black, never pure #000 ---- */
+    --kit-void: oklch(12% 0.018 258);
+    --kit-abyss: oklch(16% 0.021 258);
+    --kit-hull: oklch(21% 0.023 256);
+    --kit-plate: oklch(27% 0.024 254);
+    --kit-rim: oklch(38% 0.028 252);
+
+    /* ---- text: stepped down, never pure white ---- */
+    --kit-text-primary: oklch(96% 0.006 250);
+    --kit-text-secondary: oklch(78% 0.012 250);
+    --kit-text-muted: oklch(62% 0.014 252);
+
+    /* ---- signal accents: the only high-chroma values ---- */
+    --kit-signal: oklch(78% 0.152 205);        /* ice cyan — primary action */
+    --kit-signal-dim: oklch(62% 0.118 205);
+    --kit-flux: oklch(68% 0.164 285);          /* deep violet — secondary */
+    --kit-warn: oklch(80% 0.148 78);           /* amber — caution */
+    --kit-critical: oklch(64% 0.196 22);       /* red — failure */
+    --kit-nominal: oklch(76% 0.142 158);       /* green — healthy */
+
+    /* ---- emitted light, used instead of shadows ---- */
+    --kit-glow-signal: 0 0 0 1px oklch(78% 0.152 205 / 0.28),
+                       0 0 24px -6px oklch(78% 0.152 205 / 0.55);
+    --kit-glow-soft: 0 0 32px -12px oklch(78% 0.152 205 / 0.35);
+    --kit-rim-light: inset 0 1px 0 0 oklch(100% 0 0 / 0.06);
+
+    /* ---- typography ---- */
+    --kit-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --kit-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+    --kit-tracking-display: -0.02em;
+    --kit-tracking-label: 0.14em;
+
+    /* ---- spacing / geometry ---- */
+    --kit-radius-sm: 4px;
+    --kit-radius-md: 8px;
+    --kit-radius-lg: 14px;
+    --kit-hairline: 1px;
+
+    /* ---- motion: durations ---- */
+    --kit-dur-instant: 80ms;
+    --kit-dur-fast: 160ms;
+    --kit-dur-base: 240ms;
+    --kit-dur-slow: 420ms;
+    --kit-dur-cinematic: 900ms;
+
+    /* ---- motion: easing ----
+     * glide  : the Linear/Vercel feel — leaves fast, lands soft.
+     * expo   : long decelerations for entrances.
+     * snap   : emphasized, for state changes that must feel mechanical.
+     * spring : overshoot, reserved for direct manipulation only.
+     */
+    --kit-ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
+    --kit-ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --kit-ease-snap: cubic-bezier(0.2, 0, 0, 1);
+    --kit-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /*
+   * Accessibility contract, also relied on by the visual-regression suite:
+   * with reduced motion requested, every token-driven duration collapses to
+   * zero. Components must read durations from these variables for this to hold.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --kit-dur-instant: 0ms;
+      --kit-dur-fast: 0ms;
+      --kit-dur-base: 0ms;
+      --kit-dur-slow: 0ms;
+      --kit-dur-cinematic: 0ms;
+    }
+  }
+
+  /* Escape hatch for screenshot determinism: [data-motion="frozen"] on <html>. */
+  :root[data-motion="frozen"] {
+    --kit-dur-instant: 0ms;
+    --kit-dur-fast: 0ms;
+    --kit-dur-base: 0ms;
+    --kit-dur-slow: 0ms;
+    --kit-dur-cinematic: 0ms;
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@kit/design-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Design tokens and motion primitives: serious sci-fi surfaces, deterministic easing, reduced-motion by contract.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css",
+    "./motion": "./src/motion.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "motion": "^13.0.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "motion": "^13.4.3",
+    "react": "^19.3.0",
+    "typescript": "~5.9.3"
+  }
+}

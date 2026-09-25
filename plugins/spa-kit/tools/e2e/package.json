@@ -1,0 +1,24 @@
+{
+  "name": "@kit/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Playwright end-to-end suite: smoke, deterministic visual regression, accessibility, motion contract and web-vitals budgets.",
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:visual": "playwright test --project=visual",
+    "e2e:a11y": "playwright test --project=a11y",
+    "e2e:motion": "playwright test --project=motion",
+    "e2e:perf": "playwright test --project=perf",
+    "e2e:ui": "playwright test --ui",
+    "e2e:update-snapshots": "playwright test --project=visual --update-snapshots",
+    "e2e:install": "playwright install --with-deps chromium",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3"
+  }
+}

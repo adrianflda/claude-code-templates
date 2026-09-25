@@ -1,0 +1,23 @@
+{
+  "name": "spa-kit",
+  "version": "0.1.0",
+  "description": "A factory for client SPAs that classic search crawlers and AI answer engines can both read. Generates a standalone Next.js site from a declarative brief — deriving the whole OKLCH colour ramp from one brand hex with enforced contrast targets — then verifies it with three independent oracles: an SEO/AEO probe that fetches every route as GPTBot, ClaudeBot and PerplexityBot with no JavaScript engine at all; a blind breaker that receives only the contract and a live URL and attacks it with falsifying request vectors; and a Playwright suite covering smoke, deterministic visual regression, WCAG 2.2 accessibility, a two-way reduced-motion contract and web-vitals budgets. The generated site has no dependency on this plugin and deploys anywhere. Includes the /spa-kit skill, which turns the whole thing into an interview.",
+  "author": {
+    "name": "Adrian"
+  },
+  "keywords": [
+    "spa",
+    "nextjs",
+    "seo",
+    "aeo",
+    "geo",
+    "answer-engine-optimization",
+    "accessibility",
+    "visual-regression",
+    "playwright",
+    "design-tokens",
+    "site-generator"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/adrianflda/claude-code-templates/tree/main/plugins/spa-kit"
+}

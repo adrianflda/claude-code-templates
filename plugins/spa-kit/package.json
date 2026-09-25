@@ -1,0 +1,53 @@
+{
+  "name": "spa-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Toolchain for designing, implementing and end-to-end testing a modern SPA with SEO and agentic-search (AEO/GEO) guarantees.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tools/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace apps/fixture",
+    "build": "npm run build --workspace apps/fixture",
+    "start": "npm run start --workspace apps/fixture",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "test": "npm run test --workspaces --if-present",
+    "e2e": "playwright test --config=tools/e2e/playwright.config.ts",
+    "e2e:visual": "playwright test --config=tools/e2e/playwright.config.ts --project=visual",
+    "e2e:a11y": "playwright test --config=tools/e2e/playwright.config.ts --project=a11y",
+    "e2e:motion": "playwright test --config=tools/e2e/playwright.config.ts --project=motion",
+    "e2e:update-snapshots": "playwright test --config=tools/e2e/playwright.config.ts --project=visual --update-snapshots",
+    "seo": "tsx tools/seo/src/cli.ts",
+    "seo:agentic": "tsx tools/seo/src/cli.ts --only=agentic",
+    "breaker": "tsx tools/breaker/src/breaker.ts",
+    "lh": "lhci autorun --config=tools/lighthouse/lighthouserc.json",
+    "kit:add": "node scripts/kit-add.mjs",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run build && npm run verify:live && npm run e2e",
+    "e2e:perf": "playwright test --config=tools/e2e/playwright.config.ts --project=perf",
+    "e2e:install": "playwright install --with-deps chromium webkit",
+    "verify:live": "start-server-and-test start http://localhost:4321 \"npm run seo && npm run breaker -- --contract=tools/breaker/contract.example.json\"",
+    "new": "node bin/spa-kit.mjs new",
+    "verify:project": "node bin/spa-kit.mjs verify",
+    "projects": "node bin/spa-kit.mjs list",
+    "skill:install": "rm -rf ~/.claude/skills/spa-kit && cp -R skills/spa-kit ~/.claude/skills/spa-kit && echo 'skill installed at ~/.claude/skills/spa-kit'"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@lhci/cli": "^0.15.1",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.0",
+    "start-server-and-test": "^3.0.12",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.70.1"
+  },
+  "bin": {
+    "spa-kit": "./bin/spa-kit.mjs"
+  }
+}

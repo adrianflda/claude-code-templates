@@ -1,0 +1,68 @@
+@import "tailwindcss";
+@import "@kit/design-system/tokens.css";
+
+/* Expose the design tokens as Tailwind utilities (v4 CSS-first config). */
+@theme inline {
+  --color-void: var(--kit-void);
+  --color-abyss: var(--kit-abyss);
+  --color-hull: var(--kit-hull);
+  --color-plate: var(--kit-plate);
+  --color-rim: var(--kit-rim);
+
+  --color-fg: var(--kit-text-primary);
+  --color-fg-secondary: var(--kit-text-secondary);
+  --color-fg-muted: var(--kit-text-muted);
+
+  --color-signal: var(--kit-signal);
+  --color-signal-dim: var(--kit-signal-dim);
+  --color-flux: var(--kit-flux);
+  --color-warn: var(--kit-warn);
+  --color-critical: var(--kit-critical);
+  --color-nominal: var(--kit-nominal);
+
+  --font-sans: var(--kit-font-sans);
+  --font-mono: var(--kit-font-mono);
+
+  --radius-sm: var(--kit-radius-sm);
+  --radius-md: var(--kit-radius-md);
+  --radius-lg: var(--kit-radius-lg);
+
+  --ease-glide: var(--kit-ease-glide);
+  --ease-expo: var(--kit-ease-expo);
+  --ease-snap: var(--kit-ease-snap);
+}
+
+html {
+  color-scheme: dark;
+  background-color: var(--kit-void);
+}
+
+body {
+  background-color: var(--kit-void);
+  color: var(--kit-text-primary);
+  font-family: var(--kit-font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard focus is a first-class visual state, not an afterthought. */
+:focus-visible {
+  outline: 2px solid var(--kit-signal);
+  outline-offset: 2px;
+}
+
+/* A hairline grid, the cheapest way to read as "instrument surface". */
+.kit-grid-field {
+  background-image:
+    linear-gradient(to right, oklch(100% 0 0 / 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(100% 0 0 / 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 75%);
+}
+
+.kit-label {
+  font-family: var(--kit-font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: var(--kit-tracking-label);
+  text-transform: uppercase;
+  color: var(--kit-text-muted);
+}
