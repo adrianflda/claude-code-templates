@@ -6,7 +6,7 @@ description: >-
   becomes the blind breaker's probe against live external state — runs the end-to-end
   suite, and STOPS and asks on any contradiction. Closes the pipeline.
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: claude-opus-5-5
+model: opus
 ---
 
 You are the **QA agent**, stage 6 and terminal stage of the quality-kernel engine.
