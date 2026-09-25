@@ -1,10 +1,10 @@
+import { hermeticGitEnv } from './hermetic-git.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, chmodSync } from 'node:fs';
 import { tmpdir, devNull } from 'node:os';
-import { join } from 'node:path';
-import { hermeticGitEnv } from './hermetic-git.mjs';
+import { join, dirname } from 'node:path';
 
 // Each hostile case is a real developer/hook environment the suite must be immune to. Every case
 // runs its probe twice: the control (hostile env as-is) must show the effect — proving the setup is
@@ -18,9 +18,11 @@ function developerEnv(root) {
   const home = join(root, 'home'), xdg = join(root, 'xdg');
   mkdirSync(home, { recursive: true }); mkdirSync(join(xdg, 'git'), { recursive: true });
   const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg };
-  delete env.GIT_CONFIG_GLOBAL; delete env.GIT_CONFIG_NOSYSTEM;
+  delete env.GIT_CONFIG_GLOBAL; delete env.GIT_CONFIG_NOSYSTEM; delete env.GIT_ATTR_NOSYSTEM;
   return { env, home, xdg };
 }
+let repoSeq = 0;
+const repoName = () => `r${++repoSeq}`;
 
 function freshRepo(env, root, name = 'repo') {
   const repo = join(root, name);
@@ -42,7 +44,7 @@ function markerHook(root) {
 // probe(env) -> true when the hostile effect happened
 function ignoresToolsJson(root) {
   return (env) => {
-    const repo = freshRepo(env, root, `r${Math.random().toString(16).slice(2)}`);
+    const repo = freshRepo(env, root, repoName());
     mkdirSync(join(repo, '.quality-kernel'));
     writeFileSync(join(repo, '.quality-kernel', 'tools.json'), '{}');
     const r = git(env, repo, 'check-ignore', '-q', '.quality-kernel/tools.json');
@@ -53,7 +55,7 @@ function ignoresToolsJson(root) {
 function runsHook(root, marker) {
   return (env) => {
     rmSync(marker, { force: true });
-    const repo = freshRepo(env, root, `r${Math.random().toString(16).slice(2)}`);
+    const repo = freshRepo(env, root, repoName());
     writeFileSync(join(repo, 'f'), 'x');
     ok(git(env, repo, 'add', 'f'), 'add');
     ok(git(env, repo, 'commit', '-qm', 'c'), 'commit');
@@ -95,7 +97,7 @@ const HOSTILE = {
     return {
       env,
       probe: (e) => {
-        const repo = freshRepo(e, root, `r${Math.random().toString(16).slice(2)}`);
+        const repo = freshRepo(e, root, repoName());
         writeFileSync(join(repo, 'f'), 'x');
         ok(git(e, repo, 'add', 'f'), 'add');
         return git(e, repo, 'commit', '-qm', 'c').status !== 0;
@@ -116,7 +118,7 @@ const HOSTILE = {
       env,
       probe: (e) => {
         const before = count();
-        const fixture = join(root, `fx${Math.random().toString(16).slice(2)}`);
+        const fixture = join(root, `fx${++repoSeq}`);
         mkdirSync(fixture);
         git(e, fixture, 'init', '-q');
         git(e, fixture, 'config', 'user.email', 't@t'); git(e, fixture, 'config', 'user.name', 't');
@@ -126,6 +128,28 @@ const HOSTILE = {
         return count() !== before;
       },
     };
+  },
+  'XDG git/attributes rewrites archived bytes (export-subst)': (root) => {
+    const { env, xdg } = developerEnv(root);
+    writeFileSync(join(xdg, 'git', 'attributes'), 'stamp.txt export-subst\n');
+    return {
+      env,
+      probe: (e) => {
+        const repo = freshRepo(e, root, repoName());
+        writeFileSync(join(repo, 'stamp.txt'), '$Format:%H$');
+        ok(git(e, repo, 'add', 'stamp.txt'), 'add'); ok(git(e, repo, 'commit', '-qm', 'c'), 'commit');
+        return !ok(git(e, repo, 'archive', 'HEAD', 'stamp.txt'), 'archive').stdout.includes('$Format:%H$');
+      },
+    };
+  },
+  'GIT_TEMPLATE_DIR installs hooks into every git init': (root) => {
+    const { env } = developerEnv(root);
+    const template = join(root, 'template');
+    const { hooks, marker } = markerHook(root);
+    mkdirSync(template);
+    ok(spawnSync('cp', ['-R', hooks, join(template, 'hooks')], { encoding: 'utf8' }), 'template hooks');
+    env.GIT_TEMPLATE_DIR = template;
+    return { env, probe: runsHook(root, marker) };
   },
 };
 
@@ -163,23 +187,33 @@ test('hermeticGitEnv drops inherited git variables and does not mutate its input
     GIT_ALTERNATE_OBJECT_DIRECTORIES: '/x', GIT_COMMON_DIR: '/x', GIT_NAMESPACE: 'n',
     GIT_CONFIG: '/x', GIT_CONFIG_PARAMETERS: "'a.b'='c'",
     GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'a.b', GIT_CONFIG_VALUE_0: 'c',
+    GIT_TEMPLATE_DIR: '/x', GIT_CEILING_DIRECTORIES: '/x', GIT_EXEC_PATH: '/x',
   };
   const snapshot = { ...base };
   const env = hermeticGitEnv(base);
   assert.deepStrictEqual(base, snapshot, 'input must not be mutated');
   assert.deepStrictEqual(
     Object.keys(env).filter((k) => k.startsWith('GIT_')).sort(),
-    ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'],
+    ['GIT_ATTR_NOSYSTEM', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'],
   );
   assert.strictEqual(env.KEEP, 'yes');
   assert.strictEqual(env.GIT_CONFIG_NOSYSTEM, '1');
+  assert.strictEqual(env.GIT_ATTR_NOSYSTEM, '1');
   assert.strictEqual(readFileSync(env.GIT_CONFIG_GLOBAL, 'utf8'),
     `[core]\n\texcludesFile = ${devNull}\n\tattributesFile = ${devNull}\n`);
 });
 
-test('importing the module makes this process hermetic', () => {
-  assert.strictEqual(process.env.GIT_CONFIG_GLOBAL, hermeticGitEnv().GIT_CONFIG_GLOBAL);
-  assert.strictEqual(process.env.GIT_CONFIG_NOSYSTEM, '1');
-  assert.strictEqual(process.env.GIT_DIR, undefined);
-  assert.strictEqual(process.env.GIT_CONFIG_PARAMETERS, undefined);
+// The in-place rewrite of process.env is what protects every other test file; it only shows when the
+// parent really exports git variables, so run a child process that does.
+test('importing the module rewrites an inherited env and removes its temp config on exit', () => {
+  const moduleUrl = new URL('./hermetic-git.mjs', import.meta.url).href;
+  const script = `await import(${JSON.stringify(moduleUrl)}); process.stdout.write(JSON.stringify(process.env));`;
+  const inherited = { ...process.env, GIT_DIR: '/nonexistent-qk', GIT_CONFIG_PARAMETERS: "'core.hookspath'='/x'", GIT_TEMPLATE_DIR: '/x' };
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: inherited, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const childEnv = JSON.parse(r.stdout);
+  for (const k of ['GIT_DIR', 'GIT_CONFIG_PARAMETERS', 'GIT_TEMPLATE_DIR']) assert.strictEqual(childEnv[k], undefined, k);
+  assert.strictEqual(childEnv.GIT_CONFIG_NOSYSTEM, '1');
+  assert.ok(childEnv.GIT_CONFIG_GLOBAL && childEnv.GIT_CONFIG_GLOBAL !== process.env.GIT_CONFIG_GLOBAL, 'child pins its own config');
+  assert.ok(!existsSync(dirname(childEnv.GIT_CONFIG_GLOBAL)), 'the pinned config dir is removed when the process exits');
 });

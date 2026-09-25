@@ -11,13 +11,9 @@ import { devNull, tmpdir } from 'node:os';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Variables through which an outer git (hook, `git -c`, worktree) redirects or configures
-// child git processes. All are dropped; the pinned global config replaces them.
-const INHERITED_GIT_VARS = [
-  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
-  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE',
-  'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT',
-];
+// Every inherited GIT_* variable is dropped: an outer git (hook, `git -c`, worktree) redirects or
+// configures child processes through many of them (GIT_DIR, GIT_CONFIG_PARAMETERS, GIT_TEMPLATE_DIR,
+// ...), and an allowlist of what to keep is shorter and safer than a list of what to remove.
 
 // excludesFile/attributesFile must be set explicitly: with no global value git falls back
 // to $XDG_CONFIG_HOME/git/{ignore,attributes}.
@@ -36,11 +32,10 @@ function pinnedGlobalConfig() {
 
 export function hermeticGitEnv(base = process.env) {
   const env = { ...base };
-  for (const k of Object.keys(env)) {
-    if (INHERITED_GIT_VARS.includes(k) || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(k)) delete env[k];
-  }
+  for (const k of Object.keys(env)) if (k.startsWith('GIT_')) delete env[k];
   env.GIT_CONFIG_GLOBAL = pinnedGlobalConfig();
   env.GIT_CONFIG_NOSYSTEM = '1';
+  env.GIT_ATTR_NOSYSTEM = '1';
   return env;
 }
 

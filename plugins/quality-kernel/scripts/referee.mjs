@@ -29,7 +29,7 @@
 // Exit:   0 = PASS · 1 = real FAIL · 2 = indeterminate (fail-closed)
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync } from 'node:fs';
+import { existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync, openSync, closeSync, readSync } from 'node:fs';
 import { join, dirname, isAbsolute, normalize } from 'node:path';
 import { tmpdir, devNull } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
@@ -119,11 +119,17 @@ const show = (ref, path, enc = 'utf8') => spawnSync('git', ['-C', repo, 'show', 
 // --- contract from the BASE ref (immutable to the change) ---
 // A contract missing at base is often one the user's own ignore rules kept out of `git add`
 // (a global excludesfile listing .quality-kernel/ is common, since the ledger lives there).
+// Only the rule's location is reported, never its pattern text: an ignore file is worktree state the
+// change controls, and the reason may be read by an agent. fsmonitor is disabled so local config
+// cannot run a command through this probe (check-ignore is the only call here that consults it).
 function ignoreHint(path) {
   if (!existsSync(join(repo, path))) return '';
-  const r = spawnSync('git', ['-C', repo, 'check-ignore', '-v', '--', path], { encoding: 'utf8' });
-  const m = r.status === 0 && r.stdout.match(/^(.*):(\d+):(.*)\t/);
-  return m ? ` — it exists in the worktree but is ignored by git (${m[1]}:${m[2]}: "${m[3]}"); commit it with \`git add -f ${path}\`` : '';
+  const r = spawnSync('git', ['-C', repo, '-c', 'core.fsmonitor=false', 'check-ignore', '--no-index', '-v', '-z', '--stdin'], { input: `${path}\0`, encoding: 'utf8' });
+  if (r.status !== 0) return '';
+  const [source, line, pattern] = r.stdout.split('\0');
+  if (!pattern || pattern.startsWith('!')) return ''; // a negation rule means the file is NOT ignored
+  const where = `${source}:${line}`.replace(/[\x00-\x1f\x7f]/g, '?');
+  return ` — it exists in the worktree but an ignore rule excludes it (${where}); commit it with \`git add -f ${path}\``;
 }
 function loadToolsAtBase() {
   const raw = show(base, '.quality-kernel/tools.json');
@@ -240,7 +246,12 @@ function lsTree(ref) {
   const r = spawnSync('git', ['-C', repo, 'ls-tree', '-r', '-z', ref], { encoding: 'utf8' });
   if (r.status !== 0) return null;
   const out = [];
-  for (const chunk of r.stdout.split('\0')) { if (!chunk) continue; const t = chunk.indexOf('\t'); if (t < 0) continue; out.push({ mode: chunk.slice(0, t).split(' ')[0], path: chunk.slice(t + 1) }); }
+  for (const chunk of r.stdout.split('\0')) {
+    if (!chunk) continue;
+    const t = chunk.indexOf('\t'); if (t < 0) continue;
+    const [mode, type, oid] = chunk.slice(0, t).split(' ');
+    out.push({ mode, type, oid, path: chunk.slice(t + 1) });
+  }
   return out;
 }
 const baseEntries = lsTree(base), headEntries = lsTree(head);
@@ -248,7 +259,7 @@ if (!baseEntries || !headEntries) indeterminate('could not list base/head tree')
 const sym = [...baseEntries, ...headEntries].find((e) => e.mode === '120000');
 if (sym) indeterminate(`symlink in a committed tree is not allowed under the gate: ${sym.path}`);
 // W6: on a case-insensitive / normalization-insensitive filesystem, two distinct committed paths
-// collapse to one inode when archived (last-writer-wins), so the tree the gate runs is not the tree
+// collapse to one inode when materialized (last-writer-wins), so the tree the gate runs is not the tree
 // git records and the verdict is platform-dependent. Refuse rather than verify a lie.
 {
   const seen = new Map();
@@ -259,30 +270,77 @@ if (sym) indeterminate(`symlink in a committed tree is not allowed under the gat
     seen.set(key, e.path);
   }
 }
+// Trees are materialized from raw blobs (below), so checkout-time conversions are never applied: a
+// path whose COMMITTED attributes declare a filter (e.g. Git LFS) would be verified as its pointer
+// file. Refuse rather than verify content the project never runs.
+function filteredPath(ref, entries) {
+  const paths = entries.filter((e) => e.type === 'blob').map((e) => e.path);
+  if (paths.length === 0) return null;
+  const r = spawnSync('git', ['-C', repo, '-c', `core.attributesFile=${devNull}`, 'check-attr', '--source', ref, '-z', '--stdin', 'filter'],
+    { input: paths.join('\0') + '\0', encoding: 'utf8', env: { ...process.env, GIT_ATTR_NOSYSTEM: '1' } });
+  if (r.status !== 0) indeterminate(`cannot read committed attributes at ${ref} (git check-attr --source needs git >= 2.40): ${(r.stderr || '').trim()}`);
+  const f = r.stdout.split('\0');
+  for (let i = 0; i + 2 < f.length; i += 3) if (f[i + 2] !== 'unspecified' && f[i + 2] !== 'unset') return f[i];
+  return null;
+}
+for (const [ref, entries] of [[base, baseEntries], [head, headEntries]]) {
+  const p = filteredPath(ref, entries);
+  if (p) indeterminate(`"${p}" has a filter attribute at ${ref} (e.g. Git LFS): the gate verifies committed bytes and would run the filter's placeholder, not the file the project uses`);
+}
 
 // --- tree building ---
 // indeterminate() ends the process with process.exit, which skips `finally` blocks, so temp
 // trees are also removed from an exit handler.
 const tempTrees = new Set();
-process.on('exit', () => { for (const d of tempTrees) rmSync(d, { recursive: true, force: true }); });
+process.on('exit', () => {
+  for (const d of tempTrees) { try { rmSync(d, { recursive: true, force: true }); } catch { /* best-effort; keep cleaning the rest */ } }
+});
 function tmpDir() { const d = mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); tempTrees.add(d); return d; }
 function safeJoin(root, p) { const d = normalize(join(root, p)); return (d === root || d.startsWith(root + '/')) ? d : null; }
-// No shell. The previous `bash -c` form interpolated repo/ref/into with JSON.stringify, which only
-// adds double quotes — command substitution ($(…), backticks) still executes inside them, so a ref or
-// directory containing $(…) ran arbitrary code during the gate. Both legs are argv-only spawns, with
-// the archive staged through a temp file so a large repo is not buffered in memory.
-// core.attributesFile is pinned so the user's own attributes (export-subst, eol, filters) cannot
-// rewrite the committed bytes being verified; the repo's committed .gitattributes still applies.
-function archive(ref, into) {
-  const tar = join(tmpdir(), `qk-${randomBytes(8).toString('hex')}.tar`);
+function readFully(fd, buf, pos) {
+  let off = 0;
+  while (off < buf.length) { const n = readSync(fd, buf, off, buf.length - off, pos + off); if (n === 0) break; off += n; }
+  return off;
+}
+// Write a committed tree from raw blobs (`git cat-file --batch`, no shell, no conversion). `git archive`
+// applied checkout conversions driven by uncommitted state — $GIT_DIR/info/attributes, filter drivers
+// in local/global config, core.autocrlf — which could flip the verdict either way (a smudge filter
+// neutering the base harness turned a real FAIL into PASS). The batch output is staged through a temp
+// file and copied one blob at a time, so a large repo is not buffered in memory.
+// Returns null on success, or the reason the tree could not be materialized.
+function materialize(entries, into) {
+  const blobs = entries.filter((e) => e.type === 'blob');
+  const batch = join(tmpdir(), `qk-${randomBytes(8).toString('hex')}.batch`);
+  const fd = openSync(batch, 'w+');
   try {
-    const a = spawnSync('git', ['-C', repo, '-c', `core.attributesFile=${devNull}`, 'archive', '--output', tar, ref], { encoding: 'utf8' });
-    if (a.status !== 0) return false;
-    const x = spawnSync('tar', ['-x', '-f', tar, '-C', into], { encoding: 'utf8' });
-    return x.status === 0;
+    const r = spawnSync('git', ['-C', repo, 'cat-file', '--batch'], { input: blobs.map((e) => e.oid).join('\n') + '\n', stdio: ['pipe', fd, 'pipe'] });
+    if (r.status !== 0) return `git cat-file --batch failed: ${(r.stderr || '').toString().trim()}`;
+    const header = Buffer.alloc(256);
+    let pos = 0;
+    for (const e of blobs) {
+      const nl = header.subarray(0, readFully(fd, header, pos)).indexOf(10);
+      if (nl < 0) return `unreadable object header for ${e.path}`;
+      const [oid, type, size] = header.subarray(0, nl).toString('latin1').split(' ');
+      if (oid !== e.oid || type !== 'blob') return `object for ${e.path} is not the committed blob`;
+      pos += nl + 1;
+      const dest = safeJoin(into, e.path);
+      if (!dest) return `unsafe path in committed tree: ${e.path}`;
+      const body = Buffer.alloc(Number(size));
+      if (readFully(fd, body, pos) !== body.length) return `truncated blob for ${e.path}`;
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, body, { mode: e.mode === '100755' ? 0o755 : 0o644 });
+      pos += body.length + 1;
+    }
   } finally {
-    try { rmSync(tar, { force: true }); } catch { /* temp cleanup is best-effort */ }
+    closeSync(fd);
+    try { rmSync(batch, { force: true }); } catch { /* temp cleanup is best-effort */ }
   }
+  for (const e of entries.filter((x) => x.type === 'commit')) { // submodule gitlink: empty dir, like a checkout
+    const d = safeJoin(into, e.path);
+    if (!d) return `unsafe path in committed tree: ${e.path}`;
+    mkdirSync(d, { recursive: true });
+  }
+  return null;
 }
 function linkDeps(root) {
   for (const lp of tools.linkPaths) {
@@ -320,30 +378,30 @@ function snapshot(root) {
 
 function buildTrustedTree() {
   const tmp = tmpDir();
-  if (!archive(base, tmp)) { rmSync(tmp, { recursive: true, force: true }); indeterminate('git archive of base failed'); }
-  // full archive-strip detection: every committed base file must have materialized (export-ignore).
+  const baseErr = materialize(baseEntries, tmp);
+  if (baseErr) indeterminate(`could not materialize base: ${baseErr}`);
+  // defence in depth: every committed base file must exist in the harness tree.
   for (const e of baseEntries) {
     const d = safeJoin(tmp, e.path);
-    if (!d || !existsSync(d)) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`base file "${e.path}" was stripped from the archive (e.g. .gitattributes export-ignore) — cannot trust an incomplete harness`); }
+    if (!d || !existsSync(d)) indeterminate(`base file "${e.path}" did not materialize — cannot trust an incomplete harness`);
   }
   const headPaths = new Set(headEntries.map((e) => e.path));
   const overlay = (p) => isProd(p) || changedTest.has(p); // production + the PR's own modified tests
-  for (const e of headEntries.filter((x) => overlay(x.path))) {
+  const overlaid = headEntries.filter((x) => overlay(x.path));
+  for (const e of overlaid) {
     const dest = safeJoin(tmp, e.path);
-    if (!dest) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`unsafe path in head tree: ${e.path}`); }
-    const blob = show(head, e.path, 'buffer');
-    if (blob.status !== 0) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`could not read head:${e.path}`); }
-    mkdirSync(dirname(dest), { recursive: true });
-    if (existsSync(dest) && lstatSync(dest).isSymbolicLink()) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`overlay target is a symlink: ${e.path}`); }
-    writeFileSync(dest, blob.stdout);
+    if (dest && existsSync(dest) && lstatSync(dest).isSymbolicLink()) indeterminate(`overlay target is a symlink: ${e.path}`);
   }
+  const overlayErr = materialize(overlaid, tmp);
+  if (overlayErr) indeterminate(`could not overlay head: ${overlayErr}`);
   for (const e of baseEntries.filter((x) => isProd(x.path))) { if (!headPaths.has(e.path)) { const d = safeJoin(tmp, e.path); if (d) rmSync(d, { force: true }); } }
   linkDeps(tmp);
   return tmp;
 }
 function buildHeadTree() {
   const tmp = tmpDir();
-  if (!archive(head, tmp)) { rmSync(tmp, { recursive: true, force: true }); indeterminate('git archive of head failed'); }
+  const headErr = materialize(headEntries, tmp);
+  if (headErr) indeterminate(`could not materialize head: ${headErr}`);
   linkDeps(tmp);
   return tmp;
 }
