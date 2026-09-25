@@ -87,6 +87,10 @@ Then:
 - Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
 
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
+Tests that spawn git import `scripts/hermetic-git.mjs` first, so your global/system git config
+(excludesfile, XDG ignore, hooksPath) cannot change their result — do the same in new ones.
+`scripts/manifest-consistency.test.mjs` fails the suite if versions (plugin.json, marketplace.json,
+README, CHANGELOG) disagree or an agent declares a literal model ID instead of its alias.
 
 ## M2 — plan-with-teeth + agentic QA (P2·P4·P5)
 

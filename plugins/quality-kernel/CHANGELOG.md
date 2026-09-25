@@ -5,6 +5,21 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
+  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
+  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
+  Git-spawning tests now import `scripts/hermetic-git.mjs`.
+
+### Added
+- `scripts/manifest-consistency.test.mjs`: static check that plugin.json, marketplace.json, the
+  README status lines and the newest CHANGELOG entry share one version, and that each agent
+  declares its expected model alias (never a literal ID).
+- `scripts/hermetic-git.test.mjs`: proves the hermetic env defeats a hostile global excludesfile
+  and XDG ignore (with a control that shows the hostile config does ignore the file).
+
 ## [0.5.0] - 2026-09-25
 
 ### Changed

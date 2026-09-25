@@ -1,5 +1,6 @@
 // Smoke + red-team for the pre-push invoker: it must BLOCK a push whose gated commit is broken and
 // ALLOW a clean trivial one, and it must gate the PUSHED sha (local_sha), not the worktree.
+import './hermetic-git.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
