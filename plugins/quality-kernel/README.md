@@ -7,11 +7,21 @@ live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
 > Status: **v0.4.0.** The deterministic **quality gate** (`/gate`) is built and was
-> reworked after an independent red-team panel broke v1 (see `docs/agentic-harness/validation-panel.*`).
+> reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
-> design. The live breaker (M2) is the next milestone — and, importantly, the ONLY thing that closes
-> the honest limit below. Design chain: `docs/agentic-harness/`.
+> design.
+>
+> **The live breaker is built, and it is off by default.** `scripts/breaker-gate.mjs` (M2) enforces
+> the blind breaker on the critical surface, and `scripts/gstack-*.mjs` (F1) give it a live browser
+> oracle to probe with. Neither sits on the default path: `hooks/pre-push.sample` invokes
+> `qk-gate.mjs`, which *reports* the unmet breaker requirement as **exit 3** rather than enforcing
+> it, and `breaker-gate.mjs` itself returns 3 unless the caller supplies `--breaker`. Enforcing it
+> is a deliberate opt-in, not a missing milestone. Design chain: [`docs/agentic-harness/`][chain]
+> in the source repository — it is not bundled with the installed plugin.
+
+[panel]: https://github.com/adrianflda/claude-code-templates/blob/main/docs/agentic-harness/validation-panel.v2.md
+[chain]: https://github.com/adrianflda/claude-code-templates/tree/main/docs/agentic-harness
 
 ## The Quality Gate (`/gate`) — the deterministic teeth
 
@@ -51,7 +61,7 @@ divergence, co-located test overlay, bug outside `productionGlobs`, export-ignor
 untracked config/tools fallback, pushed-sha-vs-worktree, forged base ref — is now a permanent
 regression test (`scripts/attacks.test.mjs`, `route.test.mjs`, `pre-push.test.mjs`).
 
-### Honest limits (what M0+M1 do NOT cover — the M2 live-breaker's job)
+### Honest limits (what `qk-gate` does NOT cover — the live breaker's job)
 The referee is an **in-process test oracle** that re-executes the committed change. It cannot, by
 mechanism alone, defend against the change's own code **executing and being trusted**:
 - **In-process oracle subversion** — production code the tests import can monkeypatch the assertion
@@ -70,9 +80,13 @@ mechanism alone, defend against the change's own code **executing and being trus
   tool's scope. Read "gated" as "surfaced for review," not "impossible to bypass."
 
 Closing the first three in general needs a **black-box probe in an environment indistinguishable from
-production** — the **M2 live breaker**. Until M2, treat a green as "the committed suite and acceptance
-oracle re-executed clean, and any test change was surfaced for human review", not "the code cannot be
-malicious." Every attack above is reproduced and tracked in `docs/agentic-harness/validation-panel.*`.
+production** — the live breaker, which `breaker-gate.mjs` enforces and `gstack-*.mjs` instruments.
+**Unless you route through `breaker-gate.mjs --breaker`, none of that runs**: treat a `qk-gate` green
+as "the committed suite and acceptance oracle re-executed clean, and any test change was surfaced for
+human review", not "the code cannot be malicious." Every attack above is reproduced and tracked in the validation panel ([v1][panel1], [v2][panel2]).
+
+[panel1]: https://github.com/adrianflda/claude-code-templates/blob/main/docs/agentic-harness/validation-panel.v1.md
+[panel2]: https://github.com/adrianflda/claude-code-templates/blob/main/docs/agentic-harness/validation-panel.v2.md
 
 ### Use it
 Per repo, once, create and **commit** `.quality-kernel/tools.json` (copy `config/tools.example.json`):
