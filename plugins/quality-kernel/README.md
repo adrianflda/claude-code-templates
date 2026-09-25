@@ -55,8 +55,12 @@ untracked config/tools fallback, pushed-sha-vs-worktree, forged base ref, a loca
 **Committed bytes, not a checkout.** Since 0.6.0 the base and head trees are written from raw blobs
 (`git cat-file`), so no checkout-time conversion runs: not the user's or the repo's local git config
 (`core.autocrlf`, filter drivers, `.git/info/attributes`), and not the committed `.gitattributes`
-either (`export-ignore`/`export-subst`, `eol`, `ident` are not applied). A path with a `filter`
-attribute — e.g. Git LFS — is refused as indeterminate, because its committed bytes are a placeholder.
+either (`export-ignore`/`export-subst`, `eol`, `ident`, `working-tree-encoding` are not applied);
+exec bits come from the tree mode. Every blob is re-hashed against its committed id, and git runs with
+replace refs and fsmonitor disabled. Refused as indeterminate: a path with a `filter` attribute
+(committed, or set in `.git/info/attributes`) such as Git LFS, whose committed bytes are a
+placeholder; tree entries git itself would not check out (`..`, `.`, `.git`, duplicates). Requires
+**git >= 2.40** (`check-attr --source`); older git is refused up front.
 
 ### Honest limits (what M0+M1 do NOT cover — the M2 live-breaker's job)
 The referee is an **in-process test oracle** that re-executes the committed change. It cannot, by
@@ -75,6 +79,11 @@ mechanism alone, defend against the change's own code **executing and being trus
   developer can `git push --no-verify`; the "human review" is a workflow, not a mechanical lock. Real
   enforcement is server-side (a protected branch / required check), which is out of this local-first
   tool's scope. Read "gated" as "surfaced for review," not "impossible to bypass."
+- **The local object store is trusted for trees and commits.** Blobs are re-hashed, but a tree or
+  commit object rewritten directly in `.git/objects` (same id, other content) is not detected: git
+  does not verify objects on read. Anyone who can do that already controls the repository; verify
+  from a fresh clone, or server-side, when that matters. (Grafts only rewrite ancestry, which the
+  gate never reads — it compares two explicit trees.)
 - **Killing the gate mid-verify** (SIGINT/SIGTERM) leaves its temp tree behind and the verify command
   running as an orphan: verify runs through a blocking `spawnSync`, so no signal handler can act until
   it returns. Normal exits (0/1/2) clean up. Tracked as a follow-up (async spawn + process group).

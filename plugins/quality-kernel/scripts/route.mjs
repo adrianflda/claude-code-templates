@@ -18,8 +18,8 @@
 // Usage: route.mjs --repo <dir> --base <ref> [--head <ref>] [--changed a,b] [--deleted c] [--proposed tier]
 // Exit:  0 = classified (incl. critical) · 2 = operational error (fail-closed critical)
 
-import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { git } from './safe-git.mjs';
 
 const TIERS = { trivial: 0, standard: 1, critical: 2 };
 const NAME = ['trivial', 'standard', 'critical'];
@@ -127,7 +127,7 @@ export function classify(changed, config, proposed, deleted = []) {
 
 // Read a file at a committed ref, or null if absent/unreadable. Never touches the worktree.
 export function showAtRef(repo, ref, path) {
-  const r = spawnSync('git', ['-C', repo, 'show', `${ref}:${path}`], { encoding: 'utf8' });
+  const r = git(repo, ['show', `${ref}:${path}`]);
   return r.status === 0 ? r.stdout : null;
 }
 
@@ -184,11 +184,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
     if (!base) opError('need --base <ref> for a git-derived changeset (or pass --changed explicitly)');
     // Both endpoints must be verifiable committed refs — never the worktree.
     for (const ref of [base, head]) {
-      if (spawnSync('git', ['-C', repo, 'rev-parse', '--verify', `${ref}^{commit}`], { encoding: 'utf8' }).status !== 0) {
+      if (git(repo, ['rev-parse', '--verify', `${ref}^{commit}`]).status !== 0) {
         opError(`unverifiable ref "${ref}" in ${repo} (need committed base..head)`);
       }
     }
-    const d = spawnSync('git', ['-C', repo, 'diff', '-z', '--name-status', '-M', `${base}..${head}`], { encoding: 'utf8' });
+    const d = git(repo, ['diff', '-z', '--name-status', '-M', `${base}..${head}`]);
     if (d.status !== 0) opError(`git diff failed in ${repo}: ${(d.stderr || '').trim() || 'non-zero exit'}`);
     ({ changed, deleted } = parseDiffZ(d.stdout));
   }
