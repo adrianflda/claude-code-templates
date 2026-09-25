@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.5.1.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.6.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see `docs/agentic-harness/validation-panel.*`).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -37,8 +37,8 @@ the agent's word** — it re-runs your tests itself, against committed history, 
   `tools.json`, human-approved, distinct from the coder's tests — Constitution P3) runs against the
   base-immutable tree — and the gate **refuses (indeterminate)** if the `acceptance` command executes
   a file under `productionGlobs` (which head could overlay), keeping the oracle independent.
-  Fail-closed on any uncertainty (missing/ambiguous contract, symlink, stripped tests, an undeclared
-  changed path, a harness mutation, a case-collision, a command that can't run).
+  Fail-closed on any uncertainty (missing/ambiguous contract, symlink, a `filter` attribute, an
+  undeclared changed path, a harness mutation, a case-collision, a command that can't run).
 - **Composed gate** (`scripts/qk-gate.mjs`) — `route` + `referee` in one verdict. Exit `0` pass ·
   `1` fail · `2` indeterminate · `3` green-but-critical-needs-breaker.
 - **Invoker** (`hooks/pre-push.sample`) — a git pre-push hook that gates the exact **pushed sha**
@@ -48,8 +48,15 @@ Every red-team attack the panel used to break v1 — forged pass, weakened `tool
 neutered / renamed-away test, in-place test-neuter, non-`.sh` runner swap, golden re-goldening,
 committed symlink (incl. an arbitrary write outside the repo), non-ASCII path, worktree/HEAD
 divergence, co-located test overlay, bug outside `productionGlobs`, export-ignore-stripped tests,
-untracked config/tools fallback, pushed-sha-vs-worktree, forged base ref — is now a permanent
-regression test (`scripts/attacks.test.mjs`, `route.test.mjs`, `pre-push.test.mjs`).
+untracked config/tools fallback, pushed-sha-vs-worktree, forged base ref, a local smudge filter or
+`.git/info/attributes` rewriting the harness — is now a permanent regression test
+(`scripts/attacks.test.mjs`, `referee.test.mjs`, `route.test.mjs`, `pre-push.test.mjs`).
+
+**Committed bytes, not a checkout.** Since 0.6.0 the base and head trees are written from raw blobs
+(`git cat-file`), so no checkout-time conversion runs: not the user's or the repo's local git config
+(`core.autocrlf`, filter drivers, `.git/info/attributes`), and not the committed `.gitattributes`
+either (`export-ignore`/`export-subst`, `eol`, `ident` are not applied). A path with a `filter`
+attribute — e.g. Git LFS — is refused as indeterminate, because its committed bytes are a placeholder.
 
 ### Honest limits (what M0+M1 do NOT cover — the M2 live-breaker's job)
 The referee is an **in-process test oracle** that re-executes the committed change. It cannot, by
@@ -68,6 +75,9 @@ mechanism alone, defend against the change's own code **executing and being trus
   developer can `git push --no-verify`; the "human review" is a workflow, not a mechanical lock. Real
   enforcement is server-side (a protected branch / required check), which is out of this local-first
   tool's scope. Read "gated" as "surfaced for review," not "impossible to bypass."
+- **Killing the gate mid-verify** (SIGINT/SIGTERM) leaves its temp tree behind and the verify command
+  running as an orphan: verify runs through a blocking `spawnSync`, so no signal handler can act until
+  it returns. Normal exits (0/1/2) clean up. Tracked as a follow-up (async spawn + process group).
 
 Closing the first three in general needs a **black-box probe in an environment indistinguishable from
 production** — the **M2 live breaker**. Until M2, treat a green as "the committed suite and acceptance
@@ -87,10 +97,10 @@ Then:
 - Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
 
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
-Tests that reach git import `scripts/hermetic-git.mjs`, so your git setup (global/system config,
-XDG ignore, hooksPath, an outer `git -c` or an inherited `GIT_DIR`) cannot change their result;
-repo-local config is left alone. `scripts/test-hygiene.test.mjs` fails the suite if a git-using test
-forgets the import. `scripts/manifest-consistency.test.mjs` fails it if versions (plugin.json,
+Tests that reach git import `scripts/hermetic-git.mjs` first, so your git setup (global/system
+config and attributes, XDG ignore, hooksPath, an outer `git -c`, or any inherited `GIT_*` variable
+such as `GIT_DIR`) cannot change their result; repo-local config is left alone.
+`scripts/test-hygiene.test.mjs` fails the suite if a git-using test forgets that import. `scripts/manifest-consistency.test.mjs` fails it if versions (plugin.json,
 marketplace.json, README, CHANGELOG) disagree or an agent declares a literal model ID.
 
 ## M2 — plan-with-teeth + agentic QA (P2·P4·P5)
@@ -191,7 +201,7 @@ Automatic, always on (no invocation needed):
   "done" claim can be checked against a real verification event newer than the
   last edit. v0 records; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.5.1)
+## Gate status — teeth vs. prose (v0.6.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.

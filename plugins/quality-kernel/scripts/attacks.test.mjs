@@ -170,11 +170,17 @@ test('ATTACK B/Q11-12 (harness mutation) — a verify/setup step that rewrites i
   finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('ATTACK N7/Q7 (export-ignore) — stripping ANY committed file from the archive is indeterminate', () => {
+// 0.6.0: trees are materialized from raw blobs, so export-ignore can no longer strip the harness. The
+// attack now meets the full base harness, which runs and fails — a definitive block, not just "unsure".
+test('ATTACK N7/Q7 (export-ignore) — a committed export-ignore cannot hide the harness: it runs and blocks', () => {
   const { tmp, base, head } = mk(TOOLS,
     { 'src/code.mjs': OK, 'tests/guard.test.mjs': GUARD, '.gitattributes': 'tests/ export-ignore\n' },
     { 'src/code.mjs': BROKEN });
-  try { assert.strictEqual(run(tmp, base, head).status, 2); } finally { rmSync(tmp, { recursive: true, force: true }); }
+  try {
+    const r = run(tmp, base, head);
+    assert.strictEqual(r.status, 1);
+    assert.notStrictEqual(json(r).evidence.trustedExit, 0);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
 test('ATTACK X1 (deletion) — removing runtime code OUTSIDE productionGlobs is indeterminate', () => {
