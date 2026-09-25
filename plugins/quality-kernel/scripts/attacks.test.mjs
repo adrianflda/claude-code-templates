@@ -2,6 +2,7 @@
 // independent panel used to FOOL an earlier gate (validation-panel.{v1,v2}.md). The current gate
 // must keep every one defeated forever: a broken change must yield exit 1 (fail) or 2 (indeterminate,
 // fail-closed), never 0. Provenance noted per test (gate-breaker A/N/Q-numbers).
+import './hermetic-git.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';

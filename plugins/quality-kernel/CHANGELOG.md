@@ -5,6 +5,33 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
+  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
+  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
+  Git-spawning tests now import `scripts/hermetic-git.mjs`.
+
+### Added
+- `scripts/manifest-consistency.test.mjs`: static check that plugin.json, marketplace.json, the
+  README status lines and the newest CHANGELOG entry share one version, and that each agent
+  declares its expected model alias (never a literal ID).
+- `scripts/hermetic-git.test.mjs`: proves the hermetic env defeats a hostile global excludesfile
+  and XDG ignore (with a control that shows the hostile config does ignore the file).
+
+## [0.5.0] - 2026-09-25
+
+### Changed
+- **hardener** and **qa** move from the `sonnet` alias to the `opus` alias. Mutation triage and the
+  QA script (which becomes the blind breaker's probe) run on the stronger tier. This raises per-run
+  cost for stages 5–6.
+- All six agents keep declaring model **aliases**, never literal IDs, so the model is chosen by each
+  user's `ANTHROPIC_DEFAULT_*_MODEL` (and works on Bedrock, Vertex and gateways). The README
+  documents how to pin a tier.
+- Removed the model name from the architect's description; the `model:` field is the only source.
+- `marketplace.json` entry aligned with `plugin.json` (it had drifted at 0.1.0).
+
 ## [0.4.0] - 2026-09-09
 
 ### Changed — the gate was reworked after an independent red-team panel broke v1

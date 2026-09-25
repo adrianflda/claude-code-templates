@@ -6,7 +6,7 @@ description: >-
   covers the uncovered, and runs the deterministic tool sequence with survivor-triage.
   Hands off to QA. (SwarmForge spells this role "hardender".)
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: sonnet
+model: opus
 ---
 
 You are the **Hardener**, stage 5 of the quality-kernel engine.

@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.4.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.5.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -101,6 +101,10 @@ Then:
 - Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
 
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
+Tests that spawn git import `scripts/hermetic-git.mjs` first, so your global/system git config
+(excludesfile, XDG ignore, hooksPath) cannot change their result — do the same in new ones.
+`scripts/manifest-consistency.test.mjs` fails the suite if versions (plugin.json, marketplace.json,
+README, CHANGELOG) disagree or an agent declares a literal model ID instead of its alias.
 
 ## M2 — plan-with-teeth + agentic QA (P2·P4·P5)
 
@@ -149,9 +153,20 @@ closes those seams with three principles:
 | **specifier** | EARS criteria + Gherkin + e2e QA + external invariants | Gherkin DRY check |
 | **coder** | implementation + unit tests (genuine RED) + accept. harness | TDD, oracle-signal check |
 | **cleaner** | structure-preserving cleanup | CRAP ≤ 6, jscpd, mutation-site count |
-| **architect** (opus) | module boundaries, dependency direction | dependency-cruiser / import-linter |
+| **architect** | module boundaries, dependency direction | dependency-cruiser / import-linter |
 | **hardener** | mutation hardening, kill survivors | StrykerJS / mutmut, survivor-triage |
 | **qa** | final independent verification, UI-only | the QA script **is the breaker's probe** |
+
+**Models.** Agents declare model *aliases*, never literal IDs, so each user's provider decides
+which model runs: specifier, coder and cleaner use `sonnet`; architect, hardener and qa use
+`opus` (hardener and qa moved up from `sonnet` in 0.5.0 — mutation triage and the breaker's
+probe benefit most from the stronger tier, at a higher per-run cost). Aliases resolve through
+`ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_OPUS_MODEL`; on Bedrock, Vertex or a
+gateway, set those to the IDs your provider accepts. To pin the tier on the first-party API:
+
+```json
+{ "env": { "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5", "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5" } }
+```
 
 Each agent runs a **self-audit before handing off** ("passing checks alone do
 not establish completeness"). Roles are fixed; **domain expertise is injected**
@@ -189,7 +204,7 @@ Automatic, always on (no invocation needed):
   "done" claim can be checked against a real verification event newer than the
   last edit. v0 records; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.4.0)
+## Gate status — teeth vs. prose (v0.5.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
