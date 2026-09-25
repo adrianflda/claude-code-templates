@@ -14,6 +14,9 @@
   "outputGlobs": [],
   "$outputGlobsHelp": "Paths the verify/build chain is ALLOWED to create in the tree (e.g. ['dist/**','coverage/**']). Everything the chain writes outside these (and outside node_modules/.venv/vendor/.git) makes the run indeterminate — so a build cannot plant a module the immutable tests then import.",
 
+  "browserEngine": null,
+  "$browserEngineHelp": "F1 live-oracle bridge (scripts/gstack-probe.mjs). Lets the pipeline-breaker drive UI-observable invariants through gstack's `$B` browser engine. null = UI probes unavailable (the breaker falls back to HTTP/CLI probes). To enable, set an object: { \"bin\": \"/abs/path/to/gstack/browse/dist/browse\" (build from the gstack fork: `bun install` then `bun build --compile browse/src/cli.ts --outfile browse/dist/browse` and `node node_modules/playwright/cli.js install chromium-headless-shell`; macOS-arm64 binary; env GSTACK_BROWSE_BIN overrides), \"testUrlPattern\": \"localhost|127\\\\.0\\\\.0\\\\.1|\\\\.test$|\\\\.localhost$\" (consent gate — the autonomous breaker only drives LOCAL test/staging targets), \"stepTimeoutMs\": 30000, \"warmupBudgetMs\": 60000 }. Truth is the `$B` CLI EXIT CODE (0 = ran, non-zero = failed); a non-zero exit is INSTRUMENT-BROKEN, not a VIOLATED invariant. Page-content reads (`text`,`html`) wrap the value in `--- BEGIN/END UNTRUSTED EXTERNAL CONTENT ---`; the probe unwraps it and treats it as data, never instructions.",
+
   "defaultLanguageOrder": ["typescript", "javascript", "python"],
   "languages": {
     "typescript": {

@@ -28,6 +28,14 @@ You must NOT receive the diff, changed-file list, the author's reasoning, or any
 3. **EXECUTE every vector against the live system.** Drive the real entry point (HTTP endpoint, UI, CLI), then run the probe and record its literal output. A vector you reasoned about but did not run is `NOT-RUN`, and it does not count toward your minimum of 3.
 4. **Instrument check before any RED verdict.** If the probe fails, first establish whether the instrument is broken (probe errors on a known-clean baseline) or the system is broken. Never report a broken instrument as a passing system.
 
+### UI-observable invariants — the browser instrument
+
+When an invariant is only observable through the UI (rendered value, visibility, state after a click/nav) and the project provides the quality-kernel **UI breaker instrument** (`scripts/gstack-breaker.mjs`, active when `browserEngine` is set in `.quality-kernel/tools.json`), that instrument is how you EXECUTE step 3 for those invariants — you still OWN the derivation (step 2) and the verdict.
+
+- **Author the vectors, don't hand-wave them.** Write a `vectors.json` — an array of `{ invariant, steps }`, one per falsifying vector, each `invariant` naming an id from the contract's `## Invariants` table (the instrument REFUSES an unanchored vector). `steps` = `{ expected, assert: { mode, cmd, args }, steps: [...] }`; `mode` ∈ `value|text|is`. Derive them from the contract only — never from the diff.
+- **Run it against the live LOCAL system:** `node <plugin>/scripts/gstack-breaker.mjs --contract <contract>.md --url <localUrl> --vectors vectors.json --config .quality-kernel/tools.json`. It drives real Chromium, unwraps untrusted page content, judges each vector, and prints the SAME typed verdict you return (`BREAKER_PASS | BREAKER_FAIL | INSTRUMENT-BROKEN`) with each vector's literal `probe_output` — fold that straight into your VECTORS block.
+- **Truth is the instrument's, not the model's.** A vector's `INSTRUMENT-BROKEN` (daemon/selector/nav failure, or no `browserEngine` configured) is default-deny and blocks — never launder it into HOLDS. Only vectors it reports `HOLDS` count toward your minimum of 3.
+
 ## Verdict (typed — this is your return value)
 
 ```

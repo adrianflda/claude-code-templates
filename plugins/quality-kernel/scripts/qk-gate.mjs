@@ -7,9 +7,11 @@
 // Exit:  0 = verified pass · 1 = verified fail · 2 = indeterminate (fail-closed)
 //
 // NOTE (honest limitation): when route flags a CRITICAL change, the live "breaker" oracle is
-// also required before merge — that gate is milestone M2 and is NOT yet enforced here. This
-// gate does what M0+M1 can: real re-execution + deterministic risk classification. It flags the
-// M2 requirement in `notes` rather than pretending to satisfy it.
+// also required before merge. That gate IS built — `breaker-gate.mjs` (M2) enforces it — but it is
+// deliberately NOT invoked from here: this entry point does what M0+M1 can, namely real
+// re-execution + deterministic risk classification. It flags the unmet breaker requirement in
+// `notes` and via exit 3 rather than pretending to satisfy it. For an enforced critical merge,
+// call `breaker-gate.mjs --breaker ...` instead of this script.
 
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -68,7 +70,7 @@ const requiresBreaker = (route.json ? !!route.json.requiresBreaker : true) || ov
 const requiresHumanReview = overlaidTests.length > 0;
 const notes = [];
 if (route.json ? !!route.json.requiresBreaker : true) {
-  notes.push('CRITICAL surface: the live breaker (M2) is required before merge and is NOT yet enforced. Exit 3 = do-not-merge until M2 lands.');
+  notes.push('CRITICAL surface: the live breaker is required before merge and is NOT enforced in this invocation. Re-run through breaker-gate.mjs with --breaker to enforce it. Exit 3 = do-not-merge until it passes.');
 }
 if (overlaidTests.length) {
   notes.push(`Test file(s) modified and overlaid from head (${overlaidTests.join(', ')}) — a test change is a contract change: human review required before merge (Option B). Exit 3.`);
@@ -76,7 +78,7 @@ if (overlaidTests.length) {
 
 // The EXIT CODE is the gate (Constitution P1: "if a rule matters, it's code" — a prose note is not).
 //   1/2 = referee blocked (real fail / indeterminate)
-//   3   = referee passed BUT a required gate (the M2 breaker on a critical change) is unenforced
+//   3   = referee passed BUT a required gate (the live breaker on a critical change) is unenforced here
 //   0   = verified green with no unmet gate
 let code;
 if (!refPass) code = verdict.indeterminate ? 2 : 1;
