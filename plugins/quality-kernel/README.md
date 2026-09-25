@@ -135,9 +135,12 @@ closes those seams with three principles:
 | **specifier** | EARS criteria + Gherkin + e2e QA + external invariants | Gherkin DRY check |
 | **coder** | implementation + unit tests (genuine RED) + accept. harness | TDD, oracle-signal check |
 | **cleaner** | structure-preserving cleanup | CRAP ≤ 6, jscpd, mutation-site count |
-| **architect** (opus) | module boundaries, dependency direction | dependency-cruiser / import-linter |
-| **hardener** | mutation hardening, kill survivors | StrykerJS / mutmut, survivor-triage |
-| **qa** | final independent verification, UI-only | the QA script **is the breaker's probe** |
+| **architect** (`claude-opus-5-5`) | module boundaries, dependency direction | dependency-cruiser / import-linter |
+| **hardener** (`claude-opus-5-5`) | mutation hardening, kill survivors | StrykerJS / mutmut, survivor-triage |
+| **qa** (`claude-opus-5-5`) | final independent verification, UI-only | the QA script **is the breaker's probe** |
+
+specifier, coder and cleaner use the `sonnet` alias. architect, hardener and qa are pinned to a
+literal model ID so their tier does not change when `ANTHROPIC_DEFAULT_OPUS_MODEL` does.
 
 Each agent runs a **self-audit before handing off** ("passing checks alone do
 not establish completeness"). Roles are fixed; **domain expertise is injected**
