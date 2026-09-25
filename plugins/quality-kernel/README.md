@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.5.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.5.1.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see `docs/agentic-harness/validation-panel.*`).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -87,10 +87,11 @@ Then:
 - Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
 
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
-Tests that spawn git import `scripts/hermetic-git.mjs` first, so your global/system git config
-(excludesfile, XDG ignore, hooksPath) cannot change their result — do the same in new ones.
-`scripts/manifest-consistency.test.mjs` fails the suite if versions (plugin.json, marketplace.json,
-README, CHANGELOG) disagree or an agent declares a literal model ID instead of its alias.
+Tests that reach git import `scripts/hermetic-git.mjs`, so your git setup (global/system config,
+XDG ignore, hooksPath, an outer `git -c` or an inherited `GIT_DIR`) cannot change their result;
+repo-local config is left alone. `scripts/test-hygiene.test.mjs` fails the suite if a git-using test
+forgets the import. `scripts/manifest-consistency.test.mjs` fails it if versions (plugin.json,
+marketplace.json, README, CHANGELOG) disagree or an agent declares a literal model ID.
 
 ## M2 — plan-with-teeth + agentic QA (P2·P4·P5)
 
@@ -190,7 +191,7 @@ Automatic, always on (no invocation needed):
   "done" claim can be checked against a real verification event newer than the
   last edit. v0 records; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.5.0)
+## Gate status — teeth vs. prose (v0.5.1)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.

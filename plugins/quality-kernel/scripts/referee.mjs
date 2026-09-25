@@ -31,7 +31,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync } from 'node:fs';
 import { join, dirname, isAbsolute, normalize } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, devNull } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
 import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
 
@@ -117,9 +117,17 @@ for (const ref of [base, head]) {
 const show = (ref, path, enc = 'utf8') => spawnSync('git', ['-C', repo, 'show', `${ref}:${path}`], { encoding: enc });
 
 // --- contract from the BASE ref (immutable to the change) ---
+// A contract missing at base is often one the user's own ignore rules kept out of `git add`
+// (a global excludesfile listing .quality-kernel/ is common, since the ledger lives there).
+function ignoreHint(path) {
+  if (!existsSync(join(repo, path))) return '';
+  const r = spawnSync('git', ['-C', repo, 'check-ignore', '-v', '--', path], { encoding: 'utf8' });
+  const m = r.status === 0 && r.stdout.match(/^(.*):(\d+):(.*)\t/);
+  return m ? ` — it exists in the worktree but is ignored by git (${m[1]}:${m[2]}: "${m[3]}"); commit it with \`git add -f ${path}\`` : '';
+}
 function loadToolsAtBase() {
   const raw = show(base, '.quality-kernel/tools.json');
-  if (raw.status !== 0) indeterminate(`no .quality-kernel/tools.json at base ${base} (the verify contract must be committed in the baseline)`);
+  if (raw.status !== 0) indeterminate(`no .quality-kernel/tools.json at base ${base} (the verify contract must be committed in the baseline)${ignoreHint('.quality-kernel/tools.json')}`);
   let j; try { j = JSON.parse(raw.stdout); } catch (e) { indeterminate(`unreadable tools.json at base ${base}: ${e.message}`); }
   if (!j || typeof j.verify !== 'string' || !j.verify.trim()) indeterminate('tools.json "verify" must be a non-empty string at base');
   if (!Array.isArray(j.productionGlobs) || j.productionGlobs.length === 0) indeterminate('tools.json "productionGlobs" must be a non-empty array at base');
@@ -253,16 +261,22 @@ if (sym) indeterminate(`symlink in a committed tree is not allowed under the gat
 }
 
 // --- tree building ---
-function tmpDir() { return mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); }
+// indeterminate() ends the process with process.exit, which skips `finally` blocks, so temp
+// trees are also removed from an exit handler.
+const tempTrees = new Set();
+process.on('exit', () => { for (const d of tempTrees) rmSync(d, { recursive: true, force: true }); });
+function tmpDir() { const d = mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); tempTrees.add(d); return d; }
 function safeJoin(root, p) { const d = normalize(join(root, p)); return (d === root || d.startsWith(root + '/')) ? d : null; }
 // No shell. The previous `bash -c` form interpolated repo/ref/into with JSON.stringify, which only
 // adds double quotes — command substitution ($(…), backticks) still executes inside them, so a ref or
 // directory containing $(…) ran arbitrary code during the gate. Both legs are argv-only spawns, with
 // the archive staged through a temp file so a large repo is not buffered in memory.
+// core.attributesFile is pinned so the user's own attributes (export-subst, eol, filters) cannot
+// rewrite the committed bytes being verified; the repo's committed .gitattributes still applies.
 function archive(ref, into) {
   const tar = join(tmpdir(), `qk-${randomBytes(8).toString('hex')}.tar`);
   try {
-    const a = spawnSync('git', ['-C', repo, 'archive', '--output', tar, ref], { encoding: 'utf8' });
+    const a = spawnSync('git', ['-C', repo, '-c', `core.attributesFile=${devNull}`, 'archive', '--output', tar, ref], { encoding: 'utf8' });
     if (a.status !== 0) return false;
     const x = spawnSync('tar', ['-x', '-f', tar, '-C', into], { encoding: 'utf8' });
     return x.status === 0;

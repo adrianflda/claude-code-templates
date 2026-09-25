@@ -5,20 +5,35 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.1] - 2026-09-25
 
-### Fixed
-- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
-  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
-  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
-  Git-spawning tests now import `scripts/hermetic-git.mjs`.
+### Fixed — gate
+- **User git attributes no longer rewrite the verified tree.** `git archive` honoured the user's
+  `core.attributesFile`, so a global `export-subst` (or eol/filter rule) changed the committed
+  bytes the harness ran against and could flip the verdict. The referee now pins
+  `core.attributesFile` for the archive; the repo's committed `.gitattributes` still applies.
+- **A contract kept out of the base by an ignore rule is diagnosed.** When `tools.json` is missing
+  at base but exists in the worktree and git ignores it, the indeterminate reason names the rule
+  (`git check-ignore -v`) and the fix (`git add -f`).
+- **Temp trees no longer leak on indeterminate exits.** `process.exit` skipped the `finally`
+  cleanup; trees are now also removed from an exit handler.
+
+### Fixed — test suite
+- The Node suite no longer depends on the developer's git setup. A global `core.excludesfile`
+  (or the XDG `git/ignore`) listing `.quality-kernel/` failed 59 of 126 tests; a global
+  `core.hooksPath`, `commit.gpgsign` or an outer `git -c` (`GIT_CONFIG_PARAMETERS`) failed
+  fixture commits; an inherited `GIT_DIR` (suite run from a git hook) committed fixtures into the
+  outer repo. Git-using tests import `scripts/hermetic-git.mjs`, which pins a temporary global
+  config (repo-local config still wins, so attack tests can plant it) and drops inherited git vars.
 
 ### Added
-- `scripts/manifest-consistency.test.mjs`: static check that plugin.json, marketplace.json, the
-  README status lines and the newest CHANGELOG entry share one version, and that each agent
-  declares its expected model alias (never a literal ID).
-- `scripts/hermetic-git.test.mjs`: proves the hermetic env defeats a hostile global excludesfile
-  and XDG ignore (with a control that shows the hostile config does ignore the file).
+- `scripts/hermetic-git.test.mjs`: six hostile git environments, each with a control that shows the
+  hostile setup takes effect, plus a check that repo-local config still wins.
+- `scripts/test-hygiene.test.mjs`: every test that reaches git (directly or via referee, route,
+  qk-gate, breaker-gate) imports the hermetic module; no non-test file imports it.
+- `scripts/manifest-consistency.test.mjs`: plugin.json, marketplace.json, the README status lines
+  and the newest CHANGELOG entry share one version; every agent file declares a model alias and
+  each stage its expected one.
 
 ## [0.5.0] - 2026-09-25
 
