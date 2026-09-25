@@ -6,9 +6,15 @@
 // itself auto-spawns and reuses its persistent Chromium daemon (state in <cwd>/.gstack/browse.json),
 // so we do not manage the daemon lifecycle here. No dependency on Aside (the fallback engine only).
 //
-// Truth model (gstack browse driver contract): `$B` ALWAYS exits 0 — truth is on stdout. This module
-// returns raw stdout/stderr/status untouched; the caller (gstack-probe.mjs) judges the run from the
-// `GSTACK_STEP_OK` sentinel / `[error` lines. `ran:false` means the process could not START at all.
+// Truth model (verified against the compiled binary, build 1234): the `$B` BINARY reports through
+// its EXIT CODE — 0 = ran, non-zero = failed (bad selector, nav timeout, browser could not launch).
+// The `GSTACK_STEP_OK` sentinel belongs to gstack's wrapper-script cookbook, NOT to this CLI; do not
+// parse for it. This module returns raw stdout/stderr/status untouched and judges nothing: callers
+// (gstack-probe.mjs, gstack-breaker.mjs) read `status`, and a non-zero exit is INSTRUMENT-BROKEN,
+// never a VIOLATED invariant. `ran:false` means the process could not START, or never exited.
+//
+// `ensureDaemon` below is the one exception that reads `status` here, and only to retry a cold-daemon
+// boot race — see its comment.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -30,8 +36,9 @@ export function resolveBrowseBin({ bin = null, config = null } = {}) {
 }
 
 // Run one `$B` command. Returns { ran, stdout, stderr, status, error }.
-// `ran` is false ONLY when the process could not start (missing binary / spawn error / timeout); a
-// `$B` that ran but printed an `[error` line still has ran:true — that is judged from stdout, not here.
+// `ran` is false ONLY when the process could not start or never exited (missing binary / spawn error
+// / timeout). A `$B` that ran and FAILED still has ran:true with a non-zero `status` — success is the
+// caller's call, read off `status`, not decided here.
 export function runBrowse(bin, args, { cwd = process.cwd(), timeoutMs = 30000 } = {}) {
   if (!bin) return { ran: false, stdout: '', stderr: '', status: null, error: 'no browse binary resolved' };
   const r = spawnSync(bin, args, { cwd, encoding: 'utf8', timeout: timeoutMs });
