@@ -13,10 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flipped verdicts both ways: a smudge filter declared in `$GIT_DIR/info/attributes` plus local
   config neutered the base harness and turned a real FAIL into PASS; a global `core.autocrlf` turned
   a clean change into FAIL. Now no conversion runs at all — including those the *committed*
-  `.gitattributes` asks for: `export-ignore`/`export-subst`, `eol`, `ident` are not applied, and
-  exec bits come from the tree mode.
-- **A path with a `filter` attribute (e.g. Git LFS) is refused as indeterminate**: its committed
-  bytes are a placeholder, so verifying them would not test the file the project uses.
+  `.gitattributes` asks for: `export-ignore`/`export-subst`, `eol`, `ident`, `working-tree-encoding`
+  are not applied, and exec bits come from the tree mode.
+- **A path with a `filter` attribute (e.g. Git LFS) is refused as indeterminate** (committed, or
+  set in `$GIT_DIR/info/attributes`): its committed bytes are a placeholder, so verifying them would
+  not test the file the project uses.
+- **Every blob is re-hashed against its committed id**, and every git call runs with
+  `GIT_NO_REPLACE_OBJECTS=1` and `core.fsmonitor=false` (new `scripts/safe-git.mjs`, also used by
+  the router). A local `git replace`, or a rewritten loose object, turned a real FAIL into PASS.
+- **Tree entries git would not check out are refused**: `..`, `.`, empty or `\` components, `.git`
+  (and its case/8.3 variants), duplicates. A crafted tree (`hash-object --literally`) with an entry
+  named `..` aliased `src/../lib/helper.mjs` onto a base harness helper and forged a PASS.
+- **Requires git >= 2.40** (`check-attr --source`), checked up front.
 - ATTACK N7/Q7 (`export-ignore` on the tests) now ends in a definitive FAIL (exit 1): the stripped
   harness can no longer be stripped, so it runs and blocks. It was indeterminate (exit 2) before.
 
@@ -27,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Negation rules are not reported as ignores; the probe runs with fsmonitor disabled.
 - **Temp trees no longer leak on indeterminate exits.** `process.exit` skipped the `finally`
   cleanup; trees are now also removed from an exit handler (each removal isolated).
+- **Overlay fidelity**: a production file whose mode changes at head gets the head mode (was a false
+  FAIL); a file that becomes a directory, or the reverse, is verified instead of crashing with exit 1.
+  Write errors, and blobs above a size cap (`QK_MAX_BLOB_BYTES`, default 256 MiB), are indeterminate.
+  The cat-file staging file is created exclusively with mode 0600.
 - Known limit, documented: killing the gate with a signal mid-verify still leaks its tree and
   orphans the verify command (blocking `spawnSync`); tracked as a follow-up.
 
