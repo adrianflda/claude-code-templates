@@ -7,7 +7,7 @@ or in decoration.**
 
 ## Colour
 
-Defined in `packages/design-system/src/tokens.css`, in OKLCH, so lightness steps
+Defined in `templates/spa/design/tokens.css`, in OKLCH, so lightness steps
 are perceptually even and rotating a hue never changes apparent brightness.
 
 - **Surfaces** are a cold near-black ramp (`--kit-void` → `--kit-rim`), tinted
@@ -16,6 +16,10 @@ are perceptually even and rotating a hue never changes apparent brightness.
 - **Text** steps down through three levels and never reaches pure white. Pure
   white on near-black is the single fastest way to make a dark interface look
   amateur — it vibrates.
+The whole ramp is derived from one brand hex per client (see
+`docs/generating-sites.md`), so what follows describes the formula rather than a
+fixed palette.
+
 - **Saturation is a signal, not a background.** Only six tokens carry real
   chroma, and each one means something: `--kit-signal` (primary action),
   `--kit-flux` (secondary), `--kit-warn`, `--kit-critical`, `--kit-nominal`.

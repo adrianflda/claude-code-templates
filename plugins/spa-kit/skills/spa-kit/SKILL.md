@@ -8,22 +8,30 @@ description: Interview the user about a client, fill in a spa-kit brief, generat
 Turn a conversation into a generated, verified client site. The user should not
 have to know the brief schema, the flags, or the oracles.
 
-The CLI ships with this plugin. Invoke it as:
+## Finding the CLI
+
+Resolve it once, at the start, and reuse it. Two contexts, one line:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/spa-kit.mjs" <command>
+SPA_KIT="${CLAUDE_PLUGIN_ROOT:+node ${CLAUDE_PLUGIN_ROOT}/bin/spa-kit.mjs}"
+SPA_KIT="${SPA_KIT:-spa-kit}"
+$SPA_KIT --help
 ```
 
-If `spa-kit` is on the PATH (the user ran `npm link` in the plugin), the bare
-command works too. Before the first generation on a machine, run:
+`CLAUDE_PLUGIN_ROOT` is set when this runs as an installed plugin. When it is
+not — the skill copied into `~/.claude/skills`, with the CLI on the PATH via
+`npm link` — the bare `spa-kit` command is the fallback. If neither resolves, say
+so and stop; do not guess a path.
+
+Then, before the first generation on a machine:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/spa-kit.mjs" doctor --fix
+$SPA_KIT doctor --fix
 ```
 
-which checks Node, the kit's dependencies and Playwright's browsers, and
-installs what is missing. Do this once, silently, rather than letting a later
-step fail for a missing dependency.
+It checks Node, the kit's dependencies and Playwright's browsers and installs
+what is missing. Do this once, quietly, rather than letting a later step fail for
+a missing dependency.
 
 ## Principles
 
@@ -91,7 +99,6 @@ Default location `~/Projects/clients/<slug>`; confirm it if the user has not
 said where. Then:
 
 ```bash
-SPA_KIT="node \"${CLAUDE_PLUGIN_ROOT}/bin/spa-kit.mjs\""
 $SPA_KIT new ~/Projects/clients/<slug> --brief=<path-to-your-brief>.json
 $SPA_KIT verify ~/Projects/clients/<slug>
 ```

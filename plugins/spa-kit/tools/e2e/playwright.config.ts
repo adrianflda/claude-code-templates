@@ -110,24 +110,6 @@ export default defineConfig({
     },
   ],
 
-  /**
-   * Tests run against a production build, not the dev server: dev-only overlays,
-   * unminified bundles and missing prerendering all distort both visual
-   * baselines and web-vitals numbers.
-   *
-   * Only for the kit's own fixture — an external project is served by the caller.
-   */
-  ...(projectDir
-    ? {}
-    : {
-        webServer: {
-          command: "npm run start --workspace apps/fixture",
-          cwd: "../..",
-          url: baseURL,
-          reuseExistingServer: !process.env["CI"],
-          timeout: 120_000,
-          stdout: "pipe" as const,
-          stderr: "pipe" as const,
-        },
-      }),
+  // The suite always runs against a generated project, started by the caller
+  // (`spa-kit verify`). There is no fixture app in this repository to serve.
 });

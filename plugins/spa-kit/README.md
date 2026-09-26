@@ -4,8 +4,9 @@ A factory for client SPAs that classic search crawlers **and** AI answer engines
 can both read.
 
 This plugin is the tooling, not the product: it generates a standalone site per
-client and verifies it from the outside. `apps/fixture` exists so every tool has
-something real to run against.
+client and verifies it from the outside. Its own self-test generates a site from
+the same template a client gets, so a broken template fails the kit's build
+rather than a client's launch.
 
 ## Install
 
@@ -75,7 +76,7 @@ npm run verify        # typecheck → lint → test → build → seo → e2e
 
 | Layer | Tool | Command |
 | ----- | ---- | ------- |
-| Design | Tokens + motion primitives (`packages/design-system`) | — |
+| Design | Tokens + motion primitives, derived per client from one brand hex | `spa-kit apply` |
 | Design | Animated components from 5 verified registries | `npm run kit:add -- --list` |
 | Implementation | Next.js 16 App Router, React 19, Tailwind 4 | `npm run dev` |
 | E2E | Playwright: smoke, visual, a11y, motion, vitals | `npm run e2e` |
@@ -105,9 +106,13 @@ Three independent oracles, deliberately not sharing assumptions:
 
 An unreachable target is `BREAKER_INCONCLUSIVE`, never a pass.
 
-## Known duplication
+## Verifying the kit itself
 
-`packages/design-system/src/` and `templates/spa/design/` hold the same tokens
-and motion primitives: the first is what the fixture compiles against, the
-second is what gets copied into a generated site. They must be kept in step by
-hand until the fixture is itself generated from the template.
+```bash
+npm run verify      # typecheck + lint + 52 unit tests + self-test
+npm run self-test   # generate a site from the template and run every oracle on it
+```
+
+There is deliberately no checked-in fixture app: the self-test generates one, so
+the template and the generator are themselves under test and cannot drift from
+what clients receive.

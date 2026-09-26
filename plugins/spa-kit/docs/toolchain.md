@@ -7,8 +7,9 @@ no command behind it, treat the guarantee as unverified.
 
 | Path | What it is |
 | ---- | ---------- |
-| `apps/fixture` | Next.js App Router app used as the verification target. A harness fixture, not the product. |
-| `packages/design-system` | Design tokens (`tokens.css`) and motion primitives (`motion.ts`). |
+| `templates/spa` | What a client receives. The single source for generated sites. |
+| `bin/` | The CLI: new, apply, verify, list, brief, doctor, plus the pure logic it decides with. |
+| `tests/` | 52 unit tests on node:test, and the self-test's brief. |
 | `tools/e2e` | Playwright: smoke, visual regression, accessibility, motion contract, web vitals. |
 | `tools/seo` | Executable SEO/AEO oracles. Exits non-zero on violation. |
 | `tools/breaker` | Blind breaker: contract + live URL in, typed verdict out. |
@@ -18,12 +19,13 @@ no command behind it, treat the guarantee as unverified.
 ## Commands
 
 ```bash
-npm run dev            # fixture on http://localhost:4321
-npm run build          # production build
-npm run typecheck      # tsc across every workspace
-npm run lint           # eslint, repo-wide
-npm run verify         # typecheck → lint → test → build → seo → e2e
+npm run verify         # typecheck → lint → 52 unit tests → self-test
+npm run self-test      # generate a site from the template and run every oracle
+npm test               # unit tests only
+npm run doctor         # is this installation able to run?
 ```
+
+To work on a generated site instead, `cd` into it: `npm run dev` there.
 
 ### End-to-end
 
@@ -36,8 +38,9 @@ npm run e2e:perf                # LCP / CLS / long-task budgets
 npm run e2e:update-snapshots    # accept new visual baselines
 ```
 
-Playwright starts the **production build**, not the dev server: dev overlays and
-unminified bundles distort both visual baselines and vitals numbers.
+Playwright runs against the **production build** of a generated site, started by
+`spa-kit verify`: dev overlays and unminified bundles distort both visual
+baselines and vitals numbers.
 
 **Visual baselines are per-platform.** Playwright suffixes them with the OS
 (`home-visual-darwin.png` locally, `home-visual-linux.png` in CI), so a macOS
@@ -115,5 +118,6 @@ comparable against the pinned browser.
 - **No GSAP, no Lenis, no three.js.** All three are reasonable additions, none
   is needed until a specific interaction calls for it. Adding them by default
   would spend the performance budget before there is anything to show.
-- **No unit tests for the fixture.** The fixture exists to be probed; its
-  behaviour is asserted end to end.
+- **No checked-in fixture app.** The self-test generates one from the template,
+  so the generator is exercised on every run and there is no second copy of a
+  site to keep in step.

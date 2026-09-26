@@ -45,16 +45,18 @@ component name.
 
 ## Usage
 
+Run it from inside a generated site, or name the site:
+
 ```bash
 npm run kit:add -- --list
-npm run kit:add -- shadcn:button motionprimitives:text-effect
-npm run kit:add -- reactbits:SplitText-TS-CSS
+cd ~/Projects/clients/acme && node <plugin>/scripts/kit-add.mjs shadcn:button
+npm run kit:add -- --project=~/Projects/clients/acme motionprimitives:text-effect
 ```
 
 ## What actually happens when you pull one in
 
 Verified on 2026-09-25 by installing `shadcn:button` and
-`motionprimitives:text-effect` into the fixture. Both landed in
+`motionprimitives:text-effect` into a generated site. Both landed in
 `components/ui/`, and **both failed `npm run typecheck` as delivered**:
 
 - `button.tsx` imports `class-variance-authority`, which the CLI did **not**
@@ -76,7 +78,7 @@ model against a strict TypeScript config. Budget a few minutes per component.
 A copied component enters the repo as a draft, not as a finished part. Before it
 ships:
 
-1. Replace hard-coded colours with tokens from `@kit/design-system`.
+1. Replace hard-coded colours with the site's tokens (`design/tokens.css`).
 2. Replace hard-coded durations and easings with `transition()` / `duration`
    tokens, so the reduced-motion and visual-freeze contracts keep holding. The
    ESLint rule flags literals, but it cannot see everything.

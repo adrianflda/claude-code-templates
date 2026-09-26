@@ -20,7 +20,7 @@ export default tseslint.config(
   {
     // Node scripts and tooling: declare the runtime globals explicitly rather
     // than pulling in another dependency just to list them.
-    files: ["scripts/**/*.mjs", "bin/**/*.mjs", "**/*.config.js", "**/*.config.mjs"],
+    files: ["scripts/**/*.mjs", "bin/**/*.mjs", "tests/**/*.mjs", "**/*.config.js", "**/*.config.mjs"],
     languageOptions: {
       globals: {
         process: "readonly",
@@ -28,6 +28,7 @@ export default tseslint.config(
         fetch: "readonly",
         URL: "readonly",
         setTimeout: "readonly",
+        structuredClone: "readonly",
       },
     },
   },

@@ -2,10 +2,13 @@
 
 ## What this repo is
 
-Tooling for building a modern SPA that classic crawlers and AI answer engines can
-both read. `apps/fixture` is a verification target, not the product. Do not grow
-it into an application — when the real SPA starts, it gets its own workspace and
-reuses `packages/design-system` and everything under `tools/`.
+Tooling for generating and verifying client SPAs that classic crawlers and AI
+answer engines can both read. Nothing here is a website: `templates/spa` is what
+a client receives, and `scripts/self-test.mjs` generates one to verify the kit.
+
+The template is the single source for everything a generated site contains. If
+you change what sites get, change the template — there is no second copy to keep
+in step, and reintroducing one is how this repository previously drifted.
 
 ## Non-negotiables
 
@@ -16,8 +19,8 @@ reuses `packages/design-system` and everything under `tools/`.
    nodes that are already in the server HTML. Never gate mounting on scroll,
    visibility or a timer.
 3. **Motion values come from tokens.** No literal durations or easings in
-   components. `packages/design-system/src/tokens.css` is the only source, which
-   is what keeps reduced-motion and screenshot determinism working.
+   components. `templates/spa/design/tokens.css` is the only source, and its
+   colour block is generated per client from one brand hex.
 4. **Every guarantee has a command.** If you claim something holds, name the
    command that proves it and quote its output. An unverified claim is a defect.
 
