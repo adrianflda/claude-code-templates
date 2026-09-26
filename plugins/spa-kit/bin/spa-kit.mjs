@@ -267,6 +267,7 @@ async function cmdDoctor(_positional, flags) {
       }
     })();
 
+  let depsOk = false;
   if (linked) {
     add(
       "dependencies",
@@ -277,6 +278,7 @@ async function cmdDoctor(_positional, flags) {
   } else {
     const deps = ["tsx", "node-html-parser", "@playwright/test"];
     const missing = deps.filter((d) => !existsSync(join(modulesPath, d)));
+    depsOk = missing.length === 0;
     add(
       "dependencies",
       missing.length === 0,
@@ -285,8 +287,7 @@ async function cmdDoctor(_positional, flags) {
     );
   }
 
-  const depsUsable = checks.find((c) => c.name === "dependencies")?.ok === true;
-  if (depsUsable) {
+  if (depsOk) {
     const browsers = await run("npx", ["playwright", "install", "--dry-run"], {
       cwd: KIT_ROOT,
       capture: true,
@@ -430,14 +431,30 @@ async function cmdVerify(positional, flags) {
       ],
       { cwd: KIT_ROOT, capture: true },
     );
-    record("seo", seo.code, summarise(seo.stdout, /(\d+ passed · \d+ failed · \d+ advisory)/));
+    record("seo", seo.code, summarise(seo.stdout, /(\d+ passed · \d+ failed · \d+ advisory)/, seo.stderr));
 
     const breaker = await run(
       "npx",
       ["tsx", join(KIT_ROOT, "tools/breaker/src/breaker.ts"), `--contract=${join(dir, "contract.json")}`, `--base=${base}`],
       { cwd: KIT_ROOT, capture: true },
     );
-    record("breaker", breaker.code, summarise(breaker.stdout, /(BREAKER_[A-Z]+ — .*)/));
+    // Exit 2 is BREAKER_INCONCLUSIVE: the breaker could not verify, which is
+    // not a falsified contract. Never a pass, but not a proven failure either —
+    // collapsing the two would hide an unreachable target behind "FAILED".
+    const breakerDetail =
+      summarise(breaker.stdout, /(BREAKER_[A-Z]+ — .*)/, breaker.stderr) ??
+      (breaker.code === 2 ? "BREAKER_INCONCLUSIVE" : undefined);
+    if (breaker.code === 2) {
+      steps.push({
+        name: "breaker",
+        passed: false,
+        inconclusive: true,
+        exitCode: 2,
+        ...(breakerDetail ? { detail: breakerDetail } : {}),
+      });
+    } else {
+      record("breaker", breaker.code, breakerDetail);
+    }
 
     if (flags["skip-e2e"] !== true) {
       // A project with no visual baselines yet would fail its first run purely
@@ -451,7 +468,7 @@ async function cmdVerify(positional, flags) {
         capture: true,
         env: { KIT_BASE_URL: base, KIT_PROJECT_DIR: dir },
       });
-      const detail = summarise(e2e.stdout, /(\d+ (?:passed|failed).*)/);
+      const detail = summarise(e2e.stdout, /(\d+ (?:passed|failed).*)/, e2e.stderr);
       record("e2e", e2e.code, seeded ? `${detail ?? ""} · visual baselines created` : detail);
     }
   } finally {
@@ -462,7 +479,8 @@ async function cmdVerify(positional, flags) {
     }
   }
 
-  if (steps.some((s) => !s.passed)) verdict = "FAILED";
+  if (steps.some((s) => !s.passed && !s.inconclusive)) verdict = "FAILED";
+  else if (steps.some((s) => s.inconclusive)) verdict = "INCONCLUSIVE";
   return { verdict, base, project: project.name, steps };
 }
 
@@ -470,9 +488,16 @@ function tail(text, lines = 6) {
   return (text ?? "").trim().split("\n").slice(-lines).join("\n");
 }
 
-function summarise(stdout, pattern) {
+/**
+ * Pulls the oracle's own summary line out of its output. When the pattern does
+ * not match — which is what a crashed subprocess looks like — fall back to the
+ * tail of its output, so a stack trace is reported instead of an empty detail.
+ */
+function summarise(stdout, pattern, stderr = "") {
   const match = (stdout ?? "").match(pattern);
-  return match ? match[1] : undefined;
+  if (match) return match[1];
+  const fallback = tail(stdout || stderr, 4);
+  return fallback.length > 0 ? fallback : undefined;
 }
 
 // -------------------------------------------------------------------- list
@@ -546,8 +571,9 @@ async function main() {
       else {
         process.stdout.write(`verify ${result.project ?? ""} · ${result.base}\n`);
         for (const step of result.steps) {
+          const mark = step.passed ? "  ok  " : step.inconclusive ? " ???? " : " FAIL ";
           process.stdout.write(
-            `  [${step.passed ? "  ok  " : " FAIL "}] ${step.name}${step.detail ? ` · ${step.detail}` : ""}\n`,
+            `  [${mark}] ${step.name}${step.detail ? ` · ${step.detail}` : ""}\n`,
           );
         }
         process.stdout.write(`\n${result.verdict}\n`);

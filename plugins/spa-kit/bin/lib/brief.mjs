@@ -120,9 +120,14 @@ export function normaliseBrief(raw) {
     .trim();
   brief.proseLength = prose.length;
   brief.warnings = [];
-  if (prose.length < 400) {
+  // The probe's hard floor is 300 characters in the rendered page. Warn at 400
+  // so there is margin: the rendered page is not character-for-character the
+  // brief, and a page that only just clears the floor breaks on the next edit.
+  const PROSE_FLOOR = 300;
+  const PROSE_MARGIN = 400;
+  if (prose.length < PROSE_MARGIN) {
     brief.warnings.push(
-      `only ${prose.length} characters of prose; the SEO probe requires 300+ in the rendered page and this leaves no margin. Add sections or lengthen the bodies.`,
+      `only ${prose.length} characters of prose. The SEO probe fails below ${PROSE_FLOOR} in the rendered page, so anything under ${PROSE_MARGIN} here leaves no margin. Add sections or lengthen the bodies.`,
     );
   }
   if (brief.sections.length === 0) {
