@@ -33,3 +33,22 @@ export function firstFreePort(usedPorts, base) {
   while (used.has(port)) port += 1;
   return port;
 }
+
+/**
+ * Resolves which project a component should be installed into.
+ *
+ * Takes the facts rather than touching the filesystem: the caller says what
+ * `--project` held and whether the candidate carries a components.json.
+ */
+export function resolveProjectTarget({ argv, cwd, hasComponentsJson }) {
+  const flag = argv.find((a) => a.startsWith("--project="));
+  const raw = flag ? flag.split("=").slice(1).join("=") : cwd;
+  if (!hasComponentsJson(raw)) {
+    return {
+      ok: false,
+      dir: raw,
+      error: `${raw} has no components.json — run this inside a generated site, or pass --project=<dir>`,
+    };
+  }
+  return { ok: true, dir: raw };
+}

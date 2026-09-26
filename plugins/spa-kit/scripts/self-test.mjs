@@ -23,11 +23,18 @@ const BRIEF = join(KIT_ROOT, "tests", "fixtures", "self-test-brief.json");
 function run(args, options = {}) {
   return new Promise((resolvePromise) => {
     const child = spawn(process.execPath, [CLI, ...args], { stdio: "inherit", ...options });
+    // Without an error handler a failed spawn never settles and the run hangs.
+    child.on("error", (err) => {
+      process.stderr.write(`self-test: could not start the CLI — ${err.message}\n`);
+      resolvePromise(127);
+    });
     child.on("close", (code) => resolvePromise(code ?? 1));
   });
 }
 
-const keep = process.argv.includes("--keep");
+// A failed run's output is the only evidence of why, so it is kept: CI uploads
+// it as an artifact, and locally it is what you go and read.
+const keepAlways = process.argv.includes("--keep");
 const dir = join(await mkdtemp(join(tmpdir(), "spa-kit-self-test-")), "site");
 
 try {
@@ -42,6 +49,10 @@ try {
     process.stdout.write(`self-test ${verified === 0 ? "PASSED" : `FAILED (exit ${verified})`}\n`);
   }
 } finally {
-  if (keep) process.stdout.write(`kept: ${dir}\n`);
-  else await rm(dirname(dir), { recursive: true, force: true });
+  const failed = process.exitCode !== 0;
+  if (keepAlways || failed) {
+    process.stdout.write(`kept for inspection: ${dir}\n`);
+  } else {
+    await rm(dirname(dir), { recursive: true, force: true });
+  }
 }

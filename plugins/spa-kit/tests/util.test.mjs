@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { slugify, parseArgs, firstFreePort } from "../bin/lib/util.mjs";
+import {
+  slugify,
+  parseArgs,
+  firstFreePort,
+  resolveProjectTarget,
+} from "../bin/lib/util.mjs";
 
 test("slugify: strips accents, punctuation and edge dashes", () => {
   assert.equal(slugify("Faro Legal"), "faro-legal");
@@ -33,4 +38,35 @@ test("firstFreePort: returns the base when nothing is used", () => {
 test("firstFreePort: skips every claimed port", () => {
   assert.equal(firstFreePort([4400, 4401, 4403], 4400), 4402);
   assert.equal(firstFreePort([4400, 4401, 4402], 4400), 4403);
+});
+
+test("resolveProjectTarget: defaults to the working directory", () => {
+  const r = resolveProjectTarget({ argv: ["shadcn:button"], cwd: "/site", hasComponentsJson: () => true });
+  assert.equal(r.ok, true);
+  assert.equal(r.dir, "/site");
+});
+
+test("resolveProjectTarget: --project wins over the working directory", () => {
+  const r = resolveProjectTarget({
+    argv: ["--project=/clients/acme", "shadcn:button"],
+    cwd: "/somewhere/else",
+    hasComponentsJson: () => true,
+  });
+  assert.equal(r.dir, "/clients/acme");
+});
+
+test("resolveProjectTarget: a path without components.json is refused with a usable message", () => {
+  const r = resolveProjectTarget({ argv: [], cwd: "/tmp", hasComponentsJson: () => false });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /\/tmp has no components\.json/);
+  assert.match(r.error, /--project=/);
+});
+
+test("resolveProjectTarget: keeps '=' inside a project path", () => {
+  const r = resolveProjectTarget({
+    argv: ["--project=/a=b/site"],
+    cwd: "/x",
+    hasComponentsJson: () => true,
+  });
+  assert.equal(r.dir, "/a=b/site");
 });

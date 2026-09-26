@@ -20,6 +20,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { resolveProjectTarget } from "../bin/lib/util.mjs";
 
 const REGISTRIES = {
   shadcn: {
@@ -51,14 +52,13 @@ const REGISTRIES = {
  * components.json the shadcn CLI needs.
  */
 function resolveTarget(argv) {
-  const flag = argv.find((a) => a.startsWith("--project="));
-  const dir = flag ? resolve(flag.split("=").slice(1).join("=")) : process.cwd();
-  if (!existsSync(join(dir, "components.json"))) {
-    throw new Error(
-      `${dir} has no components.json — run this inside a generated site, or pass --project=<dir>`,
-    );
-  }
-  return dir;
+  const outcome = resolveProjectTarget({
+    argv,
+    cwd: process.cwd(),
+    hasComponentsJson: (dir) => existsSync(join(resolve(dir), "components.json")),
+  });
+  if (!outcome.ok) throw new Error(outcome.error);
+  return resolve(outcome.dir);
 }
 
 function printList() {
