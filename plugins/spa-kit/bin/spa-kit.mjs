@@ -14,7 +14,7 @@
  */
 import { spawn } from "node:child_process";
 import { readFile, writeFile, mkdir, readdir, cp } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import { dirname, join, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { derivePalette, renderTokenBlock } from "./lib/palette.mjs";
@@ -254,16 +254,39 @@ async function cmdDoctor(_positional, flags) {
   const major = Number(process.versions.node.split(".")[0]);
   add("node", major >= 24, `v${process.versions.node}`, "install Node 24 or newer");
 
-  const deps = ["tsx", "node-html-parser", "@playwright/test"];
-  const missing = deps.filter((d) => !existsSync(join(KIT_ROOT, "node_modules", d)));
-  add(
-    "dependencies",
-    missing.length === 0,
-    missing.length === 0 ? `${deps.length} present` : `missing: ${missing.join(", ")}`,
-    `npm install --prefix "${KIT_ROOT}"`,
-  );
+  // A symlinked node_modules is worse than a missing one: `npm install` would
+  // write through it into whatever it points at, silently mixing another
+  // project's dependency tree with this one's.
+  const modulesPath = join(KIT_ROOT, "node_modules");
+  const linked =
+    existsSync(modulesPath) && (() => {
+      try {
+        return lstatSync(modulesPath).isSymbolicLink();
+      } catch {
+        return false;
+      }
+    })();
 
-  if (missing.length === 0) {
+  if (linked) {
+    add(
+      "dependencies",
+      false,
+      `node_modules is a symlink — installing would write into its target`,
+      `unlink "${modulesPath}" && npm install --prefix "${KIT_ROOT}"`,
+    );
+  } else {
+    const deps = ["tsx", "node-html-parser", "@playwright/test"];
+    const missing = deps.filter((d) => !existsSync(join(modulesPath, d)));
+    add(
+      "dependencies",
+      missing.length === 0,
+      missing.length === 0 ? `${deps.length} present` : `missing: ${missing.join(", ")}`,
+      `npm install --prefix "${KIT_ROOT}"`,
+    );
+  }
+
+  const depsUsable = checks.find((c) => c.name === "dependencies")?.ok === true;
+  if (depsUsable) {
     const browsers = await run("npx", ["playwright", "install", "--dry-run"], {
       cwd: KIT_ROOT,
       capture: true,
@@ -278,12 +301,15 @@ async function cmdDoctor(_positional, flags) {
       `npm run e2e:install --prefix "${KIT_ROOT}"`,
     );
   } else {
-    add("browsers", false, "not checked (dependencies missing first)", "install dependencies first");
+    add("browsers", false, "not checked (fix dependencies first)", "resolve the dependencies check");
   }
 
   add("template", existsSync(join(TEMPLATE, "package.json")), TEMPLATE, "reinstall the plugin");
 
   if (flags.fix) {
+    // Only remedies that are plain npm installs are automated. Anything that
+    // needs a path removed (the symlink case) is left to the operator on
+    // purpose: deleting the wrong thing there damages another project.
     for (const check of checks.filter((c) => !c.ok && c.remedy?.startsWith("npm"))) {
       const [cmd, ...args] = check.remedy.replace(/"/g, "").split(" ");
       const result = await run(cmd, args, { capture: true });
