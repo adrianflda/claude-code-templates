@@ -5,6 +5,8 @@ import {
   exitCodeFor,
   classifyDependencies,
   summariseOutput,
+  isAutomatableRemedy,
+  selectAutomatable,
 } from "../bin/lib/verify-logic.mjs";
 
 test("computeVerdict: everything passing is PASSED", () => {
@@ -109,4 +111,34 @@ test("summariseOutput: falls back to stdout when there is no stderr", () => {
 test("summariseOutput: undefined when there is nothing to report", () => {
   assert.equal(summariseOutput("", /(\d+ passed)/, ""), undefined);
   assert.equal(summariseOutput(undefined, /(\d+ passed)/), undefined);
+});
+
+test("isAutomatableRemedy: only npm installs run unattended", () => {
+  assert.equal(isAutomatableRemedy('npm install --prefix "/p"'), true);
+  assert.equal(isAutomatableRemedy("npm run e2e:install"), true);
+  // Anything that deletes a path must not be automated.
+  assert.equal(isAutomatableRemedy('unlink "/p/node_modules" && npm install'), false);
+  assert.equal(isAutomatableRemedy("install Node 24 or newer"), false);
+  assert.equal(isAutomatableRemedy("reinstall the plugin"), false);
+  assert.equal(isAutomatableRemedy(undefined), false);
+  // "npm" without a space is not a command.
+  assert.equal(isAutomatableRemedy("npmjs.com is down"), false);
+});
+
+test("selectAutomatable: picks failing automatable checks and nothing else", () => {
+  const checks = [
+    { name: "node", ok: true },
+    { name: "deps", ok: false, automatable: true },
+    { name: "link", ok: false, automatable: false },
+    { name: "browsers", ok: false, automatable: true },
+    { name: "template", ok: false },
+  ];
+  assert.deepEqual(
+    selectAutomatable(checks).map((c) => c.name),
+    ["deps", "browsers"],
+  );
+});
+
+test("selectAutomatable: a passing check is never re-run", () => {
+  assert.deepEqual(selectAutomatable([{ name: "deps", ok: true, automatable: true }]), []);
 });

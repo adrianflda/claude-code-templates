@@ -78,3 +78,19 @@ export function summariseOutput(stdout, pattern, stderr = "", lines = 4) {
 
   return tailOf(stderr) || tailOf(stdout) || undefined;
 }
+
+/**
+ * Whether a remedy is safe to run unattended.
+ *
+ * Only installs are. Anything that removes a path is left to a person: deleting
+ * the wrong node_modules damages a different project, and no diagnostic is worth
+ * that risk.
+ */
+export function isAutomatableRemedy(remedy) {
+  return typeof remedy === "string" && remedy.startsWith("npm ");
+}
+
+/** The failing checks that `--fix` may act on. */
+export function selectAutomatable(checks) {
+  return checks.filter((c) => !c.ok && c.automatable === true);
+}

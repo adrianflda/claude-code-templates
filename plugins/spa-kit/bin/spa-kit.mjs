@@ -30,6 +30,8 @@ import {
   exitCodeFor,
   classifyDependencies,
   summariseOutput,
+  isAutomatableRemedy,
+  selectAutomatable,
 } from "./lib/verify-logic.mjs";
 import { slugify, parseArgs, firstFreePort } from "./lib/util.mjs";
 
@@ -229,7 +231,7 @@ async function substitute(dir, replacements) {
  */
 async function cmdDoctor(_positional, flags) {
   const checks = [];
-  const add = (name, ok, detail, remedy, automatable = remedy?.startsWith("npm") ?? false) =>
+  const add = (name, ok, detail, remedy, automatable = isAutomatableRemedy(remedy)) =>
     checks.push({ name, ok, detail, ...(ok ? {} : { remedy, automatable }) });
 
   const major = Number(process.versions.node.split(".")[0]);
@@ -243,21 +245,39 @@ async function cmdDoctor(_positional, flags) {
   // is gone would answer false and the link would go undetected — which is the
   // case that most needs reporting.
   let linked = false;
+  let statError = null;
   try {
     linked = lstatSync(modulesPath).isSymbolicLink();
-  } catch {
-    linked = false; // absent entirely, which the missing-packages branch covers
+  } catch (err) {
+    // ENOENT means simply absent, which the missing-packages branch covers.
+    // Anything else (EACCES, EIO) must be surfaced: coercing it into "missing
+    // packages" would trigger an install that hides the real cause.
+    if (err?.code !== "ENOENT") statError = err;
+  }
+
+  if (statError) {
+    add(
+      "dependencies",
+      false,
+      `cannot inspect node_modules: ${statError.code ?? statError.message}`,
+      `resolve access to "${modulesPath}" and re-run doctor`,
+      false,
+    );
   }
 
   const deps = ["tsx", "node-html-parser", "@playwright/test"];
-  const depsVerdict = classifyDependencies({
-    isSymlink: linked,
-    missing: linked ? [] : deps.filter((d) => !existsSync(join(modulesPath, d))),
-    modulesPath,
-    kitRoot: KIT_ROOT,
-  });
+  const depsVerdict = statError
+    ? { ok: false, automatable: false }
+    : classifyDependencies({
+        isSymlink: linked,
+        missing: linked ? [] : deps.filter((d) => !existsSync(join(modulesPath, d))),
+        modulesPath,
+        kitRoot: KIT_ROOT,
+      });
   const depsOk = depsVerdict.ok;
-  add("dependencies", depsVerdict.ok, depsVerdict.detail, depsVerdict.remedy, depsVerdict.automatable);
+  if (!statError) {
+    add("dependencies", depsVerdict.ok, depsVerdict.detail, depsVerdict.remedy, depsVerdict.automatable);
+  }
 
   if (depsOk) {
     const browsers = await run("npx", ["playwright", "install", "--dry-run"], {
@@ -283,7 +303,7 @@ async function cmdDoctor(_positional, flags) {
     // Only remedies that are plain npm installs are automated. Anything that
     // needs a path removed (the symlink case) is left to the operator on
     // purpose: deleting the wrong thing there damages another project.
-    for (const check of checks.filter((c) => !c.ok && c.automatable)) {
+    for (const check of selectAutomatable(checks)) {
       const [cmd, ...args] = check.remedy.replace(/"/g, "").split(" ");
       const result = await run(cmd, args, { capture: true });
       check.fixed = result.code === 0;
