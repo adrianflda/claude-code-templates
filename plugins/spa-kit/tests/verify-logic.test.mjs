@@ -49,6 +49,22 @@ test("classifyDependencies: a symlinked tree fails and is never auto-fixed", () 
   assert.match(v.remedy, /^unlink /);
 });
 
+test("classifyDependencies: a DANGLING symlink still fails", () => {
+  // existsSync follows links, so a symlink to a deleted target looks like
+  // exists:false while still being a link. Requiring both once made this
+  // combination fall through and report a broken tree as healthy.
+  const v = classifyDependencies({
+    exists: false,
+    isSymlink: true,
+    missing: [],
+    modulesPath: "/p/node_modules",
+    kitRoot: "/p",
+  });
+  assert.equal(v.ok, false, "a dangling symlink must never report healthy");
+  assert.equal(v.automatable, false);
+  assert.match(v.detail, /symlink/);
+});
+
 test("classifyDependencies: missing packages fail and are auto-fixable", () => {
   const v = classifyDependencies({
     exists: true,

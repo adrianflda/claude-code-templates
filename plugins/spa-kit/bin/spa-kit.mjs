@@ -229,8 +229,8 @@ async function substitute(dir, replacements) {
  */
 async function cmdDoctor(_positional, flags) {
   const checks = [];
-  const add = (name, ok, detail, remedy) =>
-    checks.push({ name, ok, detail, ...(ok ? {} : { remedy })});
+  const add = (name, ok, detail, remedy, automatable = remedy?.startsWith("npm") ?? false) =>
+    checks.push({ name, ok, detail, ...(ok ? {} : { remedy, automatable }) });
 
   const major = Number(process.versions.node.split(".")[0]);
   add("node", major >= 24, `v${process.versions.node}`, "install Node 24 or newer");
@@ -239,25 +239,25 @@ async function cmdDoctor(_positional, flags) {
   // write through it into whatever it points at, silently mixing another
   // project's dependency tree with this one's.
   const modulesPath = join(KIT_ROOT, "node_modules");
-  const linked =
-    existsSync(modulesPath) && (() => {
-      try {
-        return lstatSync(modulesPath).isSymbolicLink();
-      } catch {
-        return false;
-      }
-    })();
+  // lstat, not existsSync: existsSync follows links, so a symlink whose target
+  // is gone would answer false and the link would go undetected — which is the
+  // case that most needs reporting.
+  let linked = false;
+  try {
+    linked = lstatSync(modulesPath).isSymbolicLink();
+  } catch {
+    linked = false; // absent entirely, which the missing-packages branch covers
+  }
 
   const deps = ["tsx", "node-html-parser", "@playwright/test"];
   const depsVerdict = classifyDependencies({
-    exists: existsSync(modulesPath),
     isSymlink: linked,
     missing: linked ? [] : deps.filter((d) => !existsSync(join(modulesPath, d))),
     modulesPath,
     kitRoot: KIT_ROOT,
   });
   const depsOk = depsVerdict.ok;
-  add("dependencies", depsVerdict.ok, depsVerdict.detail, depsVerdict.remedy);
+  add("dependencies", depsVerdict.ok, depsVerdict.detail, depsVerdict.remedy, depsVerdict.automatable);
 
   if (depsOk) {
     const browsers = await run("npx", ["playwright", "install", "--dry-run"], {
@@ -283,7 +283,7 @@ async function cmdDoctor(_positional, flags) {
     // Only remedies that are plain npm installs are automated. Anything that
     // needs a path removed (the symlink case) is left to the operator on
     // purpose: deleting the wrong thing there damages another project.
-    for (const check of checks.filter((c) => !c.ok && c.remedy?.startsWith("npm"))) {
+    for (const check of checks.filter((c) => !c.ok && c.automatable)) {
       const [cmd, ...args] = check.remedy.replace(/"/g, "").split(" ");
       const result = await run(cmd, args, { capture: true });
       check.fixed = result.code === 0;

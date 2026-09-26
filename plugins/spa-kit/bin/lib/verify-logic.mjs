@@ -33,8 +33,11 @@ export function exitCodeFor(verdict) {
  * would write through the link into another project's tree. Removing a path is
  * never offered as an automated fix.
  */
-export function classifyDependencies({ exists, isSymlink, missing = [], modulesPath, kitRoot }) {
-  if (exists && isSymlink) {
+export function classifyDependencies({ isSymlink, missing = [], modulesPath, kitRoot }) {
+  // Branch on isSymlink alone. `existsSync` follows links, so a symlink whose
+  // target is gone reports exists:false while still being a link — requiring
+  // both would fall through and declare a broken tree healthy.
+  if (isSymlink) {
     return {
       ok: false,
       automatable: false,
