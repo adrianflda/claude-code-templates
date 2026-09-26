@@ -16,7 +16,7 @@
     "test": "node --test \"tests/*.test.mjs\"",
     "test:unit": "node --test \"tests/*.test.mjs\"",
     "self-test": "node scripts/self-test.mjs",
-    "typecheck": "npm run typecheck --prefix tools/seo && npm run typecheck --prefix tools/breaker && npm run typecheck --prefix tools/e2e",
+    "typecheck": "tsc -p tools/seo/tsconfig.json --noEmit && tsc -p tools/breaker/tsconfig.json --noEmit && tsc -p tools/e2e/tsconfig.json --noEmit",
     "lint": "eslint .",
     "e2e:install": "playwright install --with-deps chromium webkit",
     "kit:add": "node scripts/kit-add.mjs",
@@ -25,11 +25,16 @@
     "lh": "lhci autorun --config=tools/lighthouse/lighthouserc.json"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^9.39.0",
     "@lhci/cli": "^0.15.1",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.0.0",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.0",
+    "node-html-parser": "^9.0.4",
     "start-server-and-test": "^3.0.12",
+    "tsx": "^4.23.15",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.70.1"
   },
