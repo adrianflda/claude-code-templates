@@ -18,7 +18,7 @@
     "start": "npm run start --workspace apps/fixture",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
-    "test": "npm run test --workspaces --if-present",
+    "test": "node --test \"tests/*.test.mjs\" && npm run test --workspaces --if-present",
     "e2e": "playwright test --config=tools/e2e/playwright.config.ts",
     "e2e:visual": "playwright test --config=tools/e2e/playwright.config.ts --project=visual",
     "e2e:a11y": "playwright test --config=tools/e2e/playwright.config.ts --project=a11y",
@@ -36,7 +36,8 @@
     "new": "node bin/spa-kit.mjs new",
     "verify:project": "node bin/spa-kit.mjs verify",
     "projects": "node bin/spa-kit.mjs list",
-    "skill:install": "rm -rf ~/.claude/skills/spa-kit && cp -R skills/spa-kit ~/.claude/skills/spa-kit && echo 'skill installed at ~/.claude/skills/spa-kit'"
+    "skill:install": "rm -rf ~/.claude/skills/spa-kit && cp -R skills/spa-kit ~/.claude/skills/spa-kit && echo 'skill installed at ~/.claude/skills/spa-kit'",
+    "test:unit": "node --test \"tests/*.test.mjs\""
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

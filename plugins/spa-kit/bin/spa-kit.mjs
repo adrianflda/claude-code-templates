@@ -25,6 +25,13 @@ import {
   BRIEF_EXAMPLE,
 } from "./lib/brief.mjs";
 import { toHex } from "./lib/color.mjs";
+import {
+  computeVerdict,
+  exitCodeFor,
+  classifyDependencies,
+  summariseOutput,
+} from "./lib/verify-logic.mjs";
+import { slugify, parseArgs, firstFreePort } from "./lib/util.mjs";
 
 const KIT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = join(KIT_ROOT, "templates", "spa");
@@ -33,30 +40,6 @@ const DEFAULT_PORT_BASE = 4400;
 const EXIT = { ok: 0, failed: 1, usage: 2 };
 
 // ---------------------------------------------------------------- utilities
-
-function parseArgs(argv) {
-  const positional = [];
-  const flags = {};
-  for (const arg of argv) {
-    if (arg.startsWith("--")) {
-      const [key, ...rest] = arg.slice(2).split("=");
-      flags[key] = rest.length > 0 ? rest.join("=") : true;
-    } else {
-      positional.push(arg);
-    }
-  }
-  return { positional, flags };
-}
-
-function slugify(value) {
-  return value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-}
 
 function run(command, args, options = {}) {
   return new Promise((resolvePromise) => {
@@ -207,9 +190,7 @@ async function nextFreePort(dir) {
   } catch {
     /* parent unreadable; fall back to the base port */
   }
-  let port = DEFAULT_PORT_BASE;
-  while (used.has(port)) port += 1;
-  return port;
+  return firstFreePort(used, DEFAULT_PORT_BASE);
 }
 
 /** Replaces placeholders in every text file of the generated project. */
@@ -267,25 +248,16 @@ async function cmdDoctor(_positional, flags) {
       }
     })();
 
-  let depsOk = false;
-  if (linked) {
-    add(
-      "dependencies",
-      false,
-      `node_modules is a symlink — installing would write into its target`,
-      `unlink "${modulesPath}" && npm install --prefix "${KIT_ROOT}"`,
-    );
-  } else {
-    const deps = ["tsx", "node-html-parser", "@playwright/test"];
-    const missing = deps.filter((d) => !existsSync(join(modulesPath, d)));
-    depsOk = missing.length === 0;
-    add(
-      "dependencies",
-      missing.length === 0,
-      missing.length === 0 ? `${deps.length} present` : `missing: ${missing.join(", ")}`,
-      `npm install --prefix "${KIT_ROOT}"`,
-    );
-  }
+  const deps = ["tsx", "node-html-parser", "@playwright/test"];
+  const depsVerdict = classifyDependencies({
+    exists: existsSync(modulesPath),
+    isSymlink: linked,
+    missing: linked ? [] : deps.filter((d) => !existsSync(join(modulesPath, d))),
+    modulesPath,
+    kitRoot: KIT_ROOT,
+  });
+  const depsOk = depsVerdict.ok;
+  add("dependencies", depsVerdict.ok, depsVerdict.detail, depsVerdict.remedy);
 
   if (depsOk) {
     const browsers = await run("npx", ["playwright", "install", "--dry-run"], {
@@ -409,7 +381,6 @@ async function cmdVerify(positional, flags) {
 
   // Start the built app ourselves so every oracle sees the same origin.
   const server = spawn("npm", ["start"], { cwd: dir, stdio: "ignore", detached: true });
-  let verdict = "PASSED";
   try {
     if (!(await waitForHttp(base))) {
       record("server", 1, `no response from ${base} within 120s`);
@@ -479,26 +450,14 @@ async function cmdVerify(positional, flags) {
     }
   }
 
-  if (steps.some((s) => !s.passed && !s.inconclusive)) verdict = "FAILED";
-  else if (steps.some((s) => s.inconclusive)) verdict = "INCONCLUSIVE";
-  return { verdict, base, project: project.name, steps };
+  return { verdict: computeVerdict(steps), base, project: project.name, steps };
 }
 
 function tail(text, lines = 6) {
   return (text ?? "").trim().split("\n").slice(-lines).join("\n");
 }
 
-/**
- * Pulls the oracle's own summary line out of its output. When the pattern does
- * not match — which is what a crashed subprocess looks like — fall back to the
- * tail of its output, so a stack trace is reported instead of an empty detail.
- */
-function summarise(stdout, pattern, stderr = "") {
-  const match = (stdout ?? "").match(pattern);
-  if (match) return match[1];
-  const fallback = tail(stdout || stderr, 4);
-  return fallback.length > 0 ? fallback : undefined;
-}
+const summarise = summariseOutput;
 
 // -------------------------------------------------------------------- list
 
@@ -578,7 +537,7 @@ async function main() {
         }
         process.stdout.write(`\n${result.verdict}\n`);
       }
-      return result.verdict === "PASSED" ? EXIT.ok : result.verdict === "INCONCLUSIVE" ? EXIT.usage : EXIT.failed;
+      return exitCodeFor(result.verdict);
     }
 
     if (command === "apply") {
