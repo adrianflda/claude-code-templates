@@ -1,0 +1,37 @@
+{
+  "name": "__SPA_NAME__ — public surface",
+  "invariants": [
+    {
+      "id": "home.server-rendered",
+      "claim": "The home page answers with its full content in the first HTML response, with no JavaScript executed.",
+      "route": "/",
+      "expect": {
+        "status": 200,
+        "selectors": ["h1", "link[rel=\"canonical\"]", "script[type=\"application/ld+json\"]"],
+        "minVisibleText": 300,
+        "bodyExcludes": ["Application error", "__SPA_HEADLINE__ placeholder"]
+      }
+    },
+    {
+      "id": "robots.allows-ai-crawlers",
+      "claim": "robots.txt is served and does not block AI crawlers from the site root.",
+      "route": "/robots.txt",
+      "expect": {
+        "status": 200,
+        "bodyIncludes": ["User-Agent: GPTBot", "User-Agent: ClaudeBot", "Sitemap:"]
+      }
+    },
+    {
+      "id": "sitemap.served",
+      "claim": "sitemap.xml is served as XML and lists pages with absolute URLs.",
+      "route": "/sitemap.xml",
+      "expect": { "status": 200, "headers": { "content-type": "xml" }, "bodyIncludes": ["<loc>", "http"] }
+    },
+    {
+      "id": "llms-txt.served",
+      "claim": "llms.txt is served as plain text and starts with a Markdown heading.",
+      "route": "/llms.txt",
+      "expect": { "status": 200, "headers": { "content-type": "text/plain" }, "bodyIncludes": ["# "] }
+    }
+  ]
+}

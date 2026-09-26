@@ -22,6 +22,14 @@
       "version": "0.5.0",
       "category": "quality-gates",
       "keywords": ["quality-gate", "multi-agent", "spec-driven-development", "tdd", "mutation-testing", "verification", "swarmforge", "agents"]
+    },
+    {
+      "name": "spa-kit",
+      "source": "./plugins/spa-kit",
+      "description": "A factory for client SPAs that classic search crawlers and AI answer engines can both read. Generates a standalone Next.js site from a declarative brief, derives the whole OKLCH palette from one brand hex with enforced contrast targets, and verifies it with three independent oracles: a no-JavaScript crawler probe, a blind breaker, and a Playwright suite (visual, a11y, motion contract, web vitals). Includes the /spa-kit interview skill.",
+      "version": "0.1.0",
+      "category": "site-generation",
+      "keywords": ["spa", "nextjs", "seo", "aeo", "geo", "accessibility", "visual-regression", "playwright", "design-tokens", "site-generator"]
     }
   ]
 }

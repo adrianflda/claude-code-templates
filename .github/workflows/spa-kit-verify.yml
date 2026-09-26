@@ -1,0 +1,65 @@
+name: spa-kit
+
+# Workflows only run from the repository root, so this lives here rather than
+# inside the plugin. It is scoped to the plugin's files so unrelated pushes do
+# not pay for it.
+on:
+  push:
+    branches: [main]
+    paths: ["plugins/spa-kit/**", ".github/workflows/spa-kit-verify.yml"]
+  pull_request:
+    paths: ["plugins/spa-kit/**", ".github/workflows/spa-kit-verify.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: spa-kit-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: plugins/spa-kit
+
+jobs:
+  static:
+    name: typecheck · lint · unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: plugins/spa-kit/.nvmrc
+          cache: npm
+          cache-dependency-path: plugins/spa-kit/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  self-test:
+    name: generate a site and run the oracles against it
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: plugins/spa-kit/.nvmrc
+          cache: npm
+          cache-dependency-path: plugins/spa-kit/package-lock.json
+      - run: npm ci
+
+      # Baselines are platform-specific; the self-test generates its own, so the
+      # browser build only has to be consistent within this job.
+      - run: npx playwright install --with-deps chromium webkit
+
+      # Generates a site from the template, then runs the SEO/AEO probe, the
+      # blind breaker and the Playwright suite against it. Fails the build on
+      # any of them.
+      - run: npm run self-test
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: spa-kit-playwright-report
+          path: /tmp/spa-kit-self-test-*/site/.spa-kit
+          retention-days: 7
+          if-no-files-found: ignore
