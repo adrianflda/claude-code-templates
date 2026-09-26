@@ -51,6 +51,31 @@ test("classifyDependencies: a symlinked tree fails and is never auto-fixed", () 
   assert.match(v.remedy, /^unlink /);
 });
 
+test("classifyDependencies: an unreadable path is its own outcome, not 'missing'", () => {
+  const v = classifyDependencies({
+    statError: Object.assign(new Error("permission denied"), { code: "EACCES" }),
+    modulesPath: "/p/node_modules",
+    kitRoot: "/p",
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.automatable, false, "an install would mask the real cause");
+  assert.match(v.detail, /EACCES/);
+  assert.doesNotMatch(v.detail, /missing/);
+  assert.match(v.remedy, /resolve access/);
+});
+
+test("classifyDependencies: an unreadable path outranks every other signal", () => {
+  // Whatever else is true, we could not look: say so rather than guess.
+  const v = classifyDependencies({
+    statError: Object.assign(new Error("io"), { code: "EIO" }),
+    isSymlink: true,
+    missing: ["tsx"],
+    modulesPath: "/p/node_modules",
+    kitRoot: "/p",
+  });
+  assert.match(v.detail, /EIO/);
+});
+
 test("classifyDependencies: a DANGLING symlink still fails", () => {
   // existsSync follows links, so a symlink to a deleted target looks like
   // exists:false while still being a link. Requiring both once made this

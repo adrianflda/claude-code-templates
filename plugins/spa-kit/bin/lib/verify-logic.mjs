@@ -33,7 +33,24 @@ export function exitCodeFor(verdict) {
  * would write through the link into another project's tree. Removing a path is
  * never offered as an automated fix.
  */
-export function classifyDependencies({ isSymlink, missing = [], modulesPath, kitRoot }) {
+export function classifyDependencies({
+  statError = null,
+  isSymlink = false,
+  missing = [],
+  modulesPath,
+  kitRoot,
+}) {
+  // An unreadable path is its own outcome. Folding EACCES into "missing
+  // packages" would trigger an install that hides the real cause.
+  if (statError) {
+    return {
+      ok: false,
+      automatable: false,
+      detail: `cannot inspect node_modules: ${statError.code ?? statError.message}`,
+      remedy: `resolve access to "${modulesPath}" and re-run doctor`,
+    };
+  }
+
   // Branch on isSymlink alone. `existsSync` follows links, so a symlink whose
   // target is gone reports exists:false while still being a link — requiring
   // both would fall through and declare a broken tree healthy.

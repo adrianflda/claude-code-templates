@@ -241,43 +241,29 @@ async function cmdDoctor(_positional, flags) {
   // write through it into whatever it points at, silently mixing another
   // project's dependency tree with this one's.
   const modulesPath = join(KIT_ROOT, "node_modules");
+
   // lstat, not existsSync: existsSync follows links, so a symlink whose target
-  // is gone would answer false and the link would go undetected — which is the
-  // case that most needs reporting.
-  let linked = false;
+  // is gone would answer false and the link would go undetected. ENOENT means
+  // simply absent; any other error is a fact the classifier must be told about.
+  let isSymlink = false;
   let statError = null;
   try {
-    linked = lstatSync(modulesPath).isSymbolicLink();
+    isSymlink = lstatSync(modulesPath).isSymbolicLink();
   } catch (err) {
-    // ENOENT means simply absent, which the missing-packages branch covers.
-    // Anything else (EACCES, EIO) must be surfaced: coercing it into "missing
-    // packages" would trigger an install that hides the real cause.
     if (err?.code !== "ENOENT") statError = err;
   }
 
-  if (statError) {
-    add(
-      "dependencies",
-      false,
-      `cannot inspect node_modules: ${statError.code ?? statError.message}`,
-      `resolve access to "${modulesPath}" and re-run doctor`,
-      false,
-    );
-  }
-
   const deps = ["tsx", "node-html-parser", "@playwright/test"];
-  const depsVerdict = statError
-    ? { ok: false, automatable: false }
-    : classifyDependencies({
-        isSymlink: linked,
-        missing: linked ? [] : deps.filter((d) => !existsSync(join(modulesPath, d))),
-        modulesPath,
-        kitRoot: KIT_ROOT,
-      });
+  const depsVerdict = classifyDependencies({
+    statError,
+    isSymlink,
+    missing:
+      statError || isSymlink ? [] : deps.filter((d) => !existsSync(join(modulesPath, d))),
+    modulesPath,
+    kitRoot: KIT_ROOT,
+  });
+  add("dependencies", depsVerdict.ok, depsVerdict.detail, depsVerdict.remedy, depsVerdict.automatable);
   const depsOk = depsVerdict.ok;
-  if (!statError) {
-    add("dependencies", depsVerdict.ok, depsVerdict.detail, depsVerdict.remedy, depsVerdict.automatable);
-  }
 
   if (depsOk) {
     const browsers = await run("npx", ["playwright", "install", "--dry-run"], {
