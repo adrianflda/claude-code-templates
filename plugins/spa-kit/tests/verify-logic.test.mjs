@@ -74,6 +74,9 @@ test("classifyDependencies: an unreadable path outranks every other signal", () 
     kitRoot: "/p",
   });
   assert.match(v.detail, /EIO/);
+  assert.equal(v.ok, false);
+  assert.equal(v.automatable, false);
+  assert.match(v.remedy, /resolve access/);
 });
 
 test("classifyDependencies: a DANGLING symlink still fails", () => {
