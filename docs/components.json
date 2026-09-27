@@ -46957,6 +46957,34 @@
       "mcpServersList": [],
       "installCommand": "/plugin install quality-kernel@claude-code-templates",
       "downloads": 0
+    },
+    {
+      "name": "spa-kit",
+      "id": "spa-kit",
+      "type": "plugin",
+      "description": "A factory for client SPAs that classic search crawlers and AI answer engines can both read. Generates a standalone Next.js site from a declarative brief, derives the whole OKLCH palette from one brand hex with enforced contrast targets, and verifies it with three independent oracles: a no-JavaScript crawler probe, a blind breaker, and a Playwright suite (visual, a11y, motion contract, web vitals). Includes the /spa-kit interview skill.",
+      "version": "0.1.0",
+      "keywords": [
+        "spa",
+        "nextjs",
+        "seo",
+        "aeo",
+        "geo",
+        "accessibility",
+        "visual-regression",
+        "playwright",
+        "design-tokens",
+        "site-generator"
+      ],
+      "author": "",
+      "commands": 0,
+      "agents": 0,
+      "mcpServers": 0,
+      "commandsList": [],
+      "agentsList": [],
+      "mcpServersList": [],
+      "installCommand": "/plugin install spa-kit@claude-code-templates",
+      "downloads": 0
     }
   ],
   "marketplace": {
@@ -46999,6 +47027,25 @@
           "verification",
           "swarmforge",
           "agents"
+        ]
+      },
+      {
+        "name": "spa-kit",
+        "source": "./plugins/spa-kit",
+        "description": "A factory for client SPAs that classic search crawlers and AI answer engines can both read. Generates a standalone Next.js site from a declarative brief, derives the whole OKLCH palette from one brand hex with enforced contrast targets, and verifies it with three independent oracles: a no-JavaScript crawler probe, a blind breaker, and a Playwright suite (visual, a11y, motion contract, web vitals). Includes the /spa-kit interview skill.",
+        "version": "0.1.0",
+        "category": "site-generation",
+        "keywords": [
+          "spa",
+          "nextjs",
+          "seo",
+          "aeo",
+          "geo",
+          "accessibility",
+          "visual-regression",
+          "playwright",
+          "design-tokens",
+          "site-generator"
         ]
       }
     ]
