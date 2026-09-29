@@ -5,6 +5,89 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-09-29
+
+### Added — workspace mode (several repos, one org folder), explicit and opt-in
+- **`--workspace <dir>` on `route.mjs`, `referee.mjs` and `qk-gate.mjs`.** An org folder holds its
+  repos side by side plus a control repo (by convention `workspace`) whose committed
+  `workspace.json` (version 1) lists them. With the flag, a listed repo's `tools.json` /
+  `critical-surface.json` come from `<workspace>/repos/<name>/` and **win over the repo's own**;
+  the repo's own base file is used only when the workspace has none. Without the flag nothing
+  changes: there is no sibling auto-discovery, so a repo without a contract stays indeterminate.
+- **An explicit workspace fails closed.** Not a repo of its own, the product repo itself, a
+  manifest missing / only in the worktree / an unsupported version, a repo that is not listed, is
+  `forbidden`, or is not `role: "app"` → indeterminate (exit 2) with the reason, never a silent
+  fallback to the repo's own config — including a `--workspace` given with an empty or missing
+  value (e.g. `--workspace "$UNSET"`). The fallback to the repo's own file is per file.
+- **The workspace commit is pinned.** `--workspace-ref` (default `main`) is resolved once to a
+  commit SHA — a branch as `origin/<ref>` and/or `refs/heads/<ref>` (when both exist they must be
+  the same commit, else refused), or a full commit SHA; tags cannot shadow it, and revision syntax,
+  abbreviated SHAs, `HEAD`, tree/blob ids and option-like values are refused. `qk-gate` resolves it
+  once, hands the SHA to both route and referee (run them through qk-gate), reports
+  `workspace: { dir, ref, sha }`, and re-checks after the run that the ref did not move (moved →
+  indeterminate). Files are read at that SHA (never from the worktree) and hash-verified. The source
+  (`{ source, workspace, ref, sha }` or `{ source: 'repo', ref }`) is reported in
+  `route.configSource`, `referee.evidence.toolsSource` and the evidence ledger (`tools_source`).
+- **Config blobs are hash-verified.** git does not verify objects on read, so a loose object
+  rewritten in place keeps its id. Every gate config read — the workspace manifest,
+  `repos/<name>/*.json`, and a repo's own `.quality-kernel/{tools,critical-surface}.json` — is now
+  re-hashed against its id (`readVerifiedBlob` in `safe-git.mjs`). Altered blob bytes, a corrupt
+  tree on the path, or a non-regular-file entry (symlink, directory, submodule) fail closed
+  (indeterminate), never read as "absent" — "absent" requires the trees to read cleanly with no
+  such entry, so there is no silent fallback. The referee already did this for the product trees.
+  Commit and tree objects themselves are still trusted (see Trust model).
+- **`scripts/qk-org-gate.mjs --workspace <dir> --branch <name> [--workspace-ref <ref>]`** gates one
+  feature across the workspace: every listed app repo that has the branch runs `qk-gate` against
+  `merge-base(<declared base>, <branch>)` (`origin/<base>` preferred over the local branch) and the
+  pinned workspace commit. It works in three phases — every repo's head, base, merge-base and skip
+  decision is resolved BEFORE any gate runs, each repo is gated at those pinned commits, and every
+  pinned ref plus the workspace ref is re-checked after (moved → indeterminate) — so code executed
+  while gating one repo cannot drop another repo from the feature. Exit precedence 1 > 2 > 3 > 0.
+  Fail-closed (exit 2, never skipped): a listed repo that is not cloned or not a git repo, a repo
+  symlinked from outside the org folder, a forbidden / invalid-name / non-app entry, a missing or
+  malformed base, a feature branch only on origin or different from origin, no merge-base, a
+  qk-gate crash; nothing gated at all = 2. `--branch` and manifest bases must be plain branch names;
+  a present-but-malformed `forbidden` makes the manifest unusable. An app gated without its harness
+  on the same branch gets a non-blocking note. Each repo reports `configRef` / `configSha`, and a
+  workspace-sourced result whose `configSha` is not the pinned commit is not trusted (exit 2).
+- Tests: `scripts/workspace.test.mjs` (33), `scripts/workspace-gate.test.mjs` (31),
+  `scripts/org-gate.test.mjs` (49). Written RED-first; the attack tests (sibling workspace without
+  the flag, tag shadowing, `--workspace-ref` injection, a repo dropping another from the feature,
+  code moving the workspace ref, empty `--workspace`, a forged config blob) were also run against
+  earlier drafts of this release and fail there. Four independent review rounds (adversarial critic
+  + mutation testing) drove the hardening. Proven on a real repo
+  (mbvs-client-v2, 537 Jest tests): a benign change passes (exit 0), a change that breaks covered
+  code fails (exit 1), and the same broken change without `--workspace` is indeterminate (exit 2).
+
+### Trust model (honest limit)
+- Workspace mode protects against a repo's **own change under review**: its feature branch cannot
+  supply or loosen the rules it is checked against, and a change to the pinned refs, or to config
+  blob bytes, during the run is detected.
+- It does **not** protect against whoever can commit to the workspace ref or chooses
+  `--workspace-ref` (the caller picks the ref; any branch or full SHA is accepted) — that party owns
+  the contract of every listed repo. Code the gate executes runs with the user's rights: it can
+  rewrite a local workspace for a LATER run, which no in-run check can see (the same execution-trust
+  limit the referee already documents). That limit also covers what no ref or blob check sees,
+  including WITHIN one `qk-org-gate` run for repos gated later: commit and tree objects are trusted
+  (a tree rewritten in place with valid content can point a later repo's config path at another
+  real blob, undetected), directories shared with the real repo through `linkPaths` (e.g.
+  `node_modules`) can be altered, the plugin's own scripts can be rewritten, and `breaker-gate.mjs`
+  still reads its contract/attack files without the blob check. The real fix for this class is isolation — each repo's verify in
+  its own sandbox — not more in-run checks. A local-only workspace is anchored only locally. Branch
+  protection on a reviewed remote only helps if callers also pin the ref to that remote branch;
+  signed workspace commits are the other option — neither is in this release.
+
+### Fixed
+- `route.mjs` (and the new `qk-org-gate.mjs`) ran nothing and exited 0 when invoked through a
+  symlinked path (on macOS `/tmp` and `/var` are symlinks): the "is this the main module" check
+  compared a resolved URL with an unresolved `argv[1]`. Now real paths are compared
+  (`scripts/entrypoint.mjs`). `crap.mjs` has the same check and is not changed in this release.
+
+### Known limit
+- Colocated tests: with `productionGlobs: ["src/**"]` and tests under `src/`, a change that edits a
+  test is indeterminate (a production glob that also matches a test pattern is refused as
+  ambiguous). Unchanged from 0.6.0; now visible because workspace mode makes such repos gateable.
+
 ## [0.6.0] - 2026-09-25
 
 ### Changed — the gate verifies committed bytes (behaviour change)

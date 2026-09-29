@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.6.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.7.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see `docs/agentic-harness/validation-panel.*`).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -210,7 +210,7 @@ Automatic, always on (no invocation needed):
   "done" claim can be checked against a real verification event newer than the
   last edit. v0 records; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.6.0)
+## Gate status — teeth vs. prose (v0.7.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
@@ -237,6 +237,45 @@ Copy the examples into your repo's `.quality-kernel/`:
 - **`config/critical-surface.example.json`** → the globs that trigger the
   blast-radius override. If absent, `/forge` treats anything outside
   docs/tests/styling/tooling as critical (fail-safe).
+
+### Workspace mode (several repos in one org folder)
+
+An org folder can hold its repos side by side plus a control repo named `workspace`:
+
+```
+<org>/
+├── workspace/                      # its own git repo
+│   ├── workspace.json              # { "version": 1, "org": "...", "repos": { "<name>": { "role": "app", "base": "development", "harness": "<name>-qa" } }, "forbidden": [...] }
+│   └── repos/<name>/tools.json     # and critical-surface.json
+├── <name>/
+└── ...
+```
+
+- **Explicit only:** pass `--workspace <dir>` to `route` / `referee` / `qk-gate` (`qk-org-gate`
+  always does). Without it nothing changes — there is no auto-discovery.
+- With it, a listed repo's `tools.json` / `critical-surface.json` come from
+  `workspace/repos/<name>/` and **win over the repo's own** (used only when the workspace has none).
+  A workspace that cannot serve the repo (not listed, forbidden, not `role: "app"`, no manifest,
+  an empty `--workspace` value) is indeterminate, never a silent fallback. The fallback to the
+  repo's own file is per file.
+- The workspace ref (`--workspace-ref`, default `main`) is pinned once to a commit SHA (a branch
+  as `origin/<ref>` and/or the local branch — both must agree when both exist — or a full SHA; tags
+  cannot shadow it) and every file is read at that SHA. Run route/referee through `qk-gate`, which
+  pins once, reports `workspace: { dir, ref, sha }` and re-checks after the run that the ref did not
+  move. The SHA is also in `route.configSource` and `referee.evidence.toolsSource`.
+- Gate a feature across every listed repo that has its branch:
+  `node scripts/qk-org-gate.mjs --workspace <org>/workspace --branch feature/<name>`
+  (exit 1 > 2 > 3 > 0; anything listed that cannot be verified = 2; a missing harness branch is a
+  note, not a block). It resolves every repo's refs before running any gate and re-checks them
+  after, so one repo's executed code cannot drop another repo from the feature.
+- **Trust limit:** this protects against a repo's own change under review. It does not protect
+  against whoever can commit to the workspace ref or chooses `--workspace-ref` — that party owns
+  every listed repo's contract. Code the gate executes runs with your rights (see "Honest limits"):
+  refs are pinned and config blob bytes hash-verified, but commit/tree objects are trusted, and dirs
+  shared through `linkPaths` (e.g. `node_modules`) and the plugin's own scripts are writable — so
+  code run while gating one repo can change what a LATER repo of the same `qk-org-gate` run reads,
+  or the workspace for a later run. Isolation per repo is the real fix for that class. A local-only
+  workspace is anchored only locally.
 
 ## Tools
 

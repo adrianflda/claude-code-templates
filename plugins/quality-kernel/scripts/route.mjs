@@ -16,10 +16,12 @@
 //  - Requires --base; a git failure or unverifiable ref is an operational error (fail-closed).
 //
 // Usage: route.mjs --repo <dir> --base <ref> [--head <ref>] [--changed a,b] [--deleted c] [--proposed tier]
+//                  [--workspace <dir>] [--workspace-ref <ref>]
 // Exit:  0 = classified (incl. critical) · 2 = operational error (fail-closed critical)
 
-import { pathToFileURL } from 'node:url';
-import { git } from './safe-git.mjs';
+import { git, readVerifiedBlob } from './safe-git.mjs';
+import { findWorkspace, showWorkspaceFile, workspaceSource, repoSource } from './workspace.mjs';
+import { isEntrypoint } from './entrypoint.mjs';
 
 const TIERS = { trivial: 0, standard: 1, critical: 2 };
 const NAME = ['trivial', 'standard', 'critical'];
@@ -161,11 +163,13 @@ export function parseDiffZ(buf) {
 }
 
 // --- CLI ---
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+if (isEntrypoint(import.meta.url)) {
   const args = process.argv.slice(2);
-  let repo = null, base = null, head = 'HEAD', changedArg = null, deletedArg = null, proposed = null;
+  let repo = null, base = null, head = 'HEAD', changedArg = null, deletedArg = null, proposed = null, workspaceDir, workspaceRef;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--repo') repo = args[++i];
+    else if (args[i] === '--workspace') workspaceDir = args[++i] ?? ''; // present without a value = empty -> fails closed
+    else if (args[i] === '--workspace-ref') workspaceRef = args[++i];
     else if (args[i] === '--base') base = args[++i];
     else if (args[i] === '--head') head = args[++i];
     else if (args[i] === '--changed') changedArg = args[++i];
@@ -197,19 +201,36 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   changed = changed.filter((p) => !isLedger(p));
   deleted = deleted.filter((p) => !isLedger(p));
 
-  // critical-surface.json comes from the BASE REF (immutable), never the worktree or env.
+  // critical-surface.json comes from the BASE REF (immutable), never the worktree or env. With an
+  // explicit --workspace the workspace's file at the pinned workspace commit wins, the repo's own is
+  // used only when the workspace has none, and a workspace that cannot serve the repo fails closed
+  // (same precedence as the referee — see workspace.mjs).
   let config = null;
+  let configSource = null;
   if (base && repo) {
-    const raw = showAtRef(repo, base, '.quality-kernel/critical-surface.json');
+    const ws = findWorkspace(repo, { workspace: workspaceDir, ref: workspaceRef });
+    if (ws && ws.error) opError(`workspace mode: ${ws.error}`);
+    let raw = null;
+    let where = null;
+    // Both reads are hash-verified: altered stored bytes fail closed, never read as "absent".
+    if (ws) {
+      try { raw = showWorkspaceFile(ws, 'critical-surface.json'); } catch (e) { opError(e.message); }
+      if (raw !== null) { where = `workspace ${ws.dir} @ ${ws.sha.slice(0, 12)}`; configSource = workspaceSource(ws); }
+    }
+    if (raw === null) {
+      const own = readVerifiedBlob(repo, base, '.quality-kernel/critical-surface.json');
+      if (own.error) opError(`critical-surface integrity: ${own.error}`);
+      if (!own.absent) { raw = own.text; where = `base ${base}`; configSource = repoSource(base); }
+    }
     if (raw !== null) {
       try { config = JSON.parse(raw); }
-      catch (e) { opError(`unreadable critical-surface.json at base ${base}: ${e.message}`); }
+      catch (e) { opError(`unreadable critical-surface.json at ${where}: ${e.message}`); }
       // Parseable is not valid: a wrong-typed criticalGlobs/safeGlobs would silently stop matching.
       const bad = configError(config);
-      if (bad) opError(`invalid critical-surface.json at base ${base}: ${bad}`);
+      if (bad) opError(`invalid critical-surface.json at ${where}: ${bad}`);
     }
   }
 
-  emit(classify(changed, config, proposed, deleted));
+  emit({ ...classify(changed, config, proposed, deleted), configSource });
   process.exit(0);
 }

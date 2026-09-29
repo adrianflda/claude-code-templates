@@ -25,7 +25,8 @@
 // fingerprinting, and a baseline with genuinely no tests. Only a black-box probe in a
 // prod-indistinguishable environment closes these. Symlinks in a committed tree => indeterminate.
 //
-// Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>]
+// Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>] [--workspace <dir>] [--workspace-ref <ref>]
+//         (with an explicit --workspace, the workspace's contract for this repo wins; see workspace.mjs)
 // Exit:   0 = PASS · 1 = real FAIL · 2 = indeterminate (fail-closed)
 
 import { spawnSync } from 'node:child_process';
@@ -34,7 +35,8 @@ import { join, dirname, isAbsolute, normalize } from 'node:path';
 import { tmpdir, devNull } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
 import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
-import { git } from './safe-git.mjs';
+import { git, readVerifiedBlob } from './safe-git.mjs';
+import { findWorkspace, showWorkspaceFile, workspaceSource, repoSource } from './workspace.mjs';
 
 // CONVERGENCE FIX (panel v2.6 root cause): there is NO silent "inert" / "harness-by-name" allow-list
 // of changes the gate skips — that path-name allow-list always leaked a real runtime input (a prompt
@@ -98,11 +100,13 @@ function indeterminate(reason) { emit({ pass: false, indeterminate: true, eviden
 
 // --- args ---
 const args = process.argv.slice(2);
-let repo = null, base = null, head = 'HEAD';
+let repo = null, base = null, head = 'HEAD', workspaceDir, workspaceRef;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--repo') repo = args[++i];
   else if (args[i] === '--base') base = args[++i];
   else if (args[i] === '--head') head = args[++i];
+  else if (args[i] === '--workspace') workspaceDir = args[++i] ?? ''; // present without a value = empty -> fails closed
+  else if (args[i] === '--workspace-ref') workspaceRef = args[++i];
 }
 if (!repo) indeterminate('missing --repo <dir>');
 if (!existsSync(repo) || !statSync(repo).isDirectory()) indeterminate(`repo not found or not a directory: ${repo}`);
@@ -137,10 +141,30 @@ function ignoreHint(path) {
   const where = `${source}:${line}`.replace(/[\x00-\x1f\x7f]/g, '?');
   return ` — it exists in the worktree but an ignore rule excludes it (${where}); commit it with \`git add -f ${path}\``;
 }
+// Where the contract comes from. Without --workspace: the repo's base ref, as always. With an
+// explicit --workspace (see workspace.mjs for the trust model): the workspace's file at the pinned
+// workspace commit WINS; the repo's own base file is used only when the workspace has none, and a
+// workspace that cannot serve this repo is indeterminate — never a silent single-repo fallback.
+let toolsSource = repoSource(base);
 function loadToolsAtBase() {
-  const raw = show(base, '.quality-kernel/tools.json');
-  if (raw.status !== 0) indeterminate(`no .quality-kernel/tools.json at base ${base} (the verify contract must be committed in the baseline)${ignoreHint('.quality-kernel/tools.json')}`);
-  let j; try { j = JSON.parse(raw.stdout); } catch (e) { indeterminate(`unreadable tools.json at base ${base}: ${e.message}`); }
+  let text = null;
+  const ws = findWorkspace(repo, { workspace: workspaceDir, ref: workspaceRef });
+  if (ws && ws.error) indeterminate(`workspace mode: ${ws.error}`);
+  // Both reads are hash-verified: altered stored bytes fail closed, never read as "absent".
+  if (ws) {
+    try { text = showWorkspaceFile(ws, 'tools.json'); } catch (e) { indeterminate(e.message); }
+    if (text !== null) toolsSource = workspaceSource(ws);
+  }
+  if (text === null) {
+    const own = readVerifiedBlob(repo, base, '.quality-kernel/tools.json');
+    if (own.error) indeterminate(`contract integrity: ${own.error}`);
+    if (!own.absent) text = own.text;
+  }
+  if (text === null) {
+    const inWs = ws ? `no tools.json in the workspace (repos/${ws.name}/ at ${ws.sha.slice(0, 12)}) nor ` : 'no ';
+    indeterminate(`${inWs}.quality-kernel/tools.json at base ${base} (the verify contract must be committed in the baseline)${ignoreHint('.quality-kernel/tools.json')}`);
+  }
+  let j; try { j = JSON.parse(text); } catch (e) { indeterminate(`unreadable tools.json (${toolsSource.source}${toolsSource.sha ? ` ${toolsSource.sha.slice(0, 12)}` : ''}) at base ${base}: ${e.message}`); }
   if (!j || typeof j.verify !== 'string' || !j.verify.trim()) indeterminate('tools.json "verify" must be a non-empty string at base');
   if (!Array.isArray(j.productionGlobs) || j.productionGlobs.length === 0) indeterminate('tools.json "productionGlobs" must be a non-empty array at base');
   for (const g of j.productionGlobs) {
@@ -490,10 +514,10 @@ try { setup(headTree, 'head'); headExit = run(tools.verify, headTree, 'verify (h
 finally { rmSync(headTree, { recursive: true, force: true }); }
 
 const pass = trustedExit === 0 && headExit === 0 && (acceptanceExit === null || acceptanceExit === 0);
-ledgerAppend(repo, { verify: tools.verify, acceptance: tools.acceptance, base, head, trusted_exit: trustedExit, head_exit: headExit, acceptance_exit: acceptanceExit, pass });
+ledgerAppend(repo, { verify: tools.verify, tools_source: toolsSource, acceptance: tools.acceptance, base, head, trusted_exit: trustedExit, head_exit: headExit, acceptance_exit: acceptanceExit, pass });
 emit({
   pass,
-  evidence: { verify: tools.verify, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head, overlaidTests: [...changedTest] },
+  evidence: { verify: tools.verify, toolsSource, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head, overlaidTests: [...changedTest] },
   reason: pass
     ? `verified: base harness × head production green + head-as-is green${acceptanceExit === null ? '' : ' + acceptance oracle green'} (re-executed)`
     : trustedExit !== 0
