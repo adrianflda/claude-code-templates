@@ -17,7 +17,7 @@
  * Usage:
  *   node ai-review-panel.mjs              # review staged changes
  *   node ai-review-panel.mjs --branch     # review committed changes being pushed
- *   node ai-review-panel.mjs --base main  # explicit base branch
+ *   node ai-review-panel.mjs --base main  # everything on this branch that is not on main
  *   node ai-review-panel.mjs --pr 123     # review a PR diff and post the report as a comment
  *
  * Env knobs:
@@ -25,10 +25,15 @@
  *   AI_REVIEW_MODEL       model for reviewers (default: sonnet)
  *   AI_REVIEW_TIMEOUT_MS  per-agent timeout (default: 240000)
  *   AI_REVIEW_BLOCK_ON    severity that blocks: critical|high (default: critical)
- *   AI_REVIEW_REQUIRED    1 = fail (exit 2) if the CLI is unavailable (default: 0 = warn+pass)
+ *   AI_REVIEW_REQUIRED    1 = fail (exit 2) if no reviewer could run (default: 0 = warn+pass;
+ *                         the PreToolUse gate sets 1 unless told otherwise)
  *   AI_REVIEW_SKIP        1 = skip review entirely (escape hatch)
  *
- * Exit codes: 0 = ok / advisory, 1 = blocking issues found, 2 = CLI unavailable & required.
+ * Deleted files reach the reviewers as a header only (`git diff --irreversible-delete`): the
+ * panel sees WHAT was removed and can look for leftovers, without the removed content
+ * using up the diff budget.
+ *
+ * Exit codes: 0 = ok / advisory, 1 = blocking issues found, 2 = no reviewer ran & required.
  */
 
 import { execSync, spawn } from 'child_process';
@@ -53,7 +58,12 @@ let prNumber = '';
 let postToPr = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--branch') reviewMode = 'branch';
-  else if (args[i] === '--base' && args[i + 1]) baseBranch = args[++i];
+  else if (args[i] === '--base' && args[i + 1]) {
+    // A base only means something for committed changes: `--base main` alone used to stay
+    // in staged mode and review nothing.
+    baseBranch = args[++i];
+    reviewMode = 'branch';
+  }
   else if (args[i] === '--pr' && args[i + 1]) {
     prNumber = args[++i];
     postToPr = true;
@@ -317,12 +327,15 @@ const EXCLUDES = [
   ":(exclude)dist/**",
   ":(exclude)build/**",
 ];
+// Deletions are part of the change. They are included as a header only (-D): a push that
+// removes files must not look like a push that changed nothing.
+const DIFF_FLAGS = '--irreversible-delete --diff-filter=ACMRD';
+const PATHSPEC = `-- . ${EXCLUDES.map((e) => `"${e}"`).join(' ')}`;
 let diff = '';
 let description = '';
 if (reviewMode === 'staged') {
-  diff = run(`git diff --cached --diff-filter=ACMR -- . ${EXCLUDES.map((e) => `"${e}"`).join(' ')}`);
-  if (!diff)
-    diff = run(`git diff --diff-filter=ACMR -- . ${EXCLUDES.map((e) => `"${e}"`).join(' ')}`);
+  diff = run(`git diff --cached ${DIFF_FLAGS} ${PATHSPEC}`);
+  if (!diff) diff = run(`git diff ${DIFF_FLAGS} ${PATHSPEC}`);
   description = 'staged/unstaged changes';
 } else {
   // Review EXACTLY the commits being pushed — those not yet on any remote. This is
@@ -349,14 +362,19 @@ if (reviewMode === 'staged') {
     range = `${newCommits[newCommits.length - 1]}^..HEAD`;
     description = `${newCommits.length} commit(s) being pushed`;
   }
-  diff = run(
-    `git diff ${range} --diff-filter=ACMR -- . ${EXCLUDES.map((e) => `"${e}"`).join(' ')}`,
-  );
+  diff = run(`git diff ${range} ${DIFF_FLAGS} ${PATHSPEC}`);
 }
 
 if (!diff) {
   console.log('[pre-push-review] No code changes to review.');
   process.exit(0);
+}
+
+const deletedFiles = (diff.match(/^deleted file mode /gm) || []).length;
+if (deletedFiles) {
+  console.log(
+    `[pre-push-review] ${deletedFiles} deleted file(s): the reviewers see their names, not their content.`,
+  );
 }
 
 let diffLines = diff.split('\n').length;
@@ -380,7 +398,7 @@ Output ONLY a JSON object — no prose, no markdown fences — of exactly this s
 {"findings":[{"severity":"critical|high|medium|low","file":"path","line":0,"issue":"what & why","suggestion":"fix"}],"summary":"one sentence"}
 Rules: report only issues within your focus area; cite file:line from the diff; do NOT invent issues; reserve "critical" for defects that must block a release (data loss, security/privacy breach, broken core behavior). If nothing in your area, return {"findings":[],"summary":"LGTM"}.
 
-## Diff
+${deletedFiles ? `## Deleted files\n${deletedFiles} file(s) are deleted in this diff. Each appears as a "deleted file mode" header with no content. Within your focus area, check whether anything else in the diff still depends on them.\n\n` : ''}## Diff
 \`\`\`diff
 ${diff}
 \`\`\``;

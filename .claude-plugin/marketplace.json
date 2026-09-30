@@ -11,7 +11,7 @@
       "name": "pre-push-review",
       "source": "./plugins/pre-push-review",
       "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "quality-gates",
       "keywords": ["code-review", "pre-push", "git", "quality-gate", "hooks", "security", "multi-agent"]
     },
