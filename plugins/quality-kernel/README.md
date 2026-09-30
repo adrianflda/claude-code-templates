@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.7.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.8.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see `docs/agentic-harness/validation-panel.*`).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -210,7 +210,7 @@ Automatic, always on (no invocation needed):
   "done" claim can be checked against a real verification event newer than the
   last edit. v0 records; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.7.0)
+## Gate status — teeth vs. prose (v0.8.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
@@ -237,6 +237,22 @@ Copy the examples into your repo's `.quality-kernel/`:
 - **`config/critical-surface.example.json`** → the globs that trigger the
   blast-radius override. If absent, `/forge` treats anything outside
   docs/tests/styling/tooling as critical (fail-safe).
+
+### `/init-workspace` — set up workspace mode
+
+`/init-workspace [--org <dir>] [--repos a,b,c] [--exclude x,y]` is the init step for working across
+repos: it discovers the org folder's repos (`scripts/ws-discover.mjs`, git metadata only; with
+`--repos` nothing else is opened), profiles each one from its committed base branch
+(`scripts/ws-profile.mjs`; `.env*` / key files are reported by name, never read), has one read-only
+agent per repo propose the gate config with file:line evidence (skill `init-workspace`), validates
+that output deterministically and writes it to a NEW branch `init/<date>` of `<org>/workspace`
+(`scripts/ws-propose.mjs`; a gated `verify` must be backed by the repo's own declared test script,
+make target or compose file). After a human approves the listed commands, it re-executes every
+proposed gate config (`scripts/ws-verify.mjs --approved <sha>`, `--no-ledger`) and commits the labels
+(verified / runs-but-fails / cannot-run-here / no-gate-config). A repo whose
+tests need services it cannot start locally gets a dockerization proposal under
+`repos/<name>/local-env/`. Nothing is trusted until a human merges the branch into `main`.
+Spec: `docs/agentic-harness/spec-init-workspace.v1.md` (M1; the integration map is M2).
 
 ### Workspace mode (several repos in one org folder)
 
@@ -268,6 +284,10 @@ An org folder can hold its repos side by side plus a control repo named `workspa
   (exit 1 > 2 > 3 > 0; anything listed that cannot be verified = 2; a missing harness branch is a
   note, not a block). It resolves every repo's refs before running any gate and re-checks them
   after, so one repo's executed code cannot drop another repo from the feature.
+- **`/init-workspace` human approval is PROSE-ONLY-ACCEPTED:** `ws-verify --approved <sha>` proves
+  only that the caller knows the proposal sha — the agent shares the user's rights, so the real gates
+  are that a `verify` can only be built from the repo's own declared facts (`ws-command.mjs`) and
+  Claude Code's permission prompt on the Bash call.
 - **Trust limit:** this protects against a repo's own change under review. It does not protect
   against whoever can commit to the workspace ref or chooses `--workspace-ref` — that party owns
   every listed repo's contract. Code the gate executes runs with your rights (see "Honest limits"):

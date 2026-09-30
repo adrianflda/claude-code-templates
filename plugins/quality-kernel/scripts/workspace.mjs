@@ -85,7 +85,7 @@ export function readWorkspaceManifest(wsDir, ref = 'main') {
   if (!m || m.version !== MANIFEST_VERSION || !m.repos || typeof m.repos !== 'object' || Array.isArray(m.repos)) return null;
   // A present-but-malformed deny list must not silently deny nothing.
   if (m.forbidden !== undefined && !(Array.isArray(m.forbidden) && m.forbidden.every((x) => typeof x === 'string'))) return null;
-  return { dir: top, ref, sha, repos: m.repos, forbidden: m.forbidden || [] };
+  return { dir: top, ref, sha, org: typeof m.org === 'string' ? m.org : null, repos: m.repos, forbidden: m.forbidden || [] };
 }
 
 // Workspace mode for repoDir.

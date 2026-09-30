@@ -5,6 +5,68 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-29
+
+### Added — `/init-workspace` (M1: discover → profile → propose → verify)
+
+> **Status: WORK IN PROGRESS — not ready to use or install.** M1 failed its adversarial review gate
+> three times (2026-09-30): an agent-chosen `verify` spec built from the repo's own facts can still be
+> a no-op that gets labelled `verified` (e.g. `MAKEFLAGS=n make test`, `npx --no cross-env`), and
+> propose / verify follow symlinks. Planned fix: a RED canary in ws-verify (the command must FAIL on
+> a sabotaged copy before it can be `verified`), an env allow list, npx limited to the command
+> position of a declared script, symlink refusal in propose / verify.
+- **`commands/init-workspace.md` + skill `init-workspace`** — the init step for multi-repo work: the
+  workspace it proposes is what `/gate --workspace`, `qk-org-gate`, `/forge` and `/develop` use.
+- **`scripts/ws-discover.mjs`** — lists and classifies the org folder's repos (repo / worktree /
+  copy / not-git / workspace, harness hints, base-branch candidates, forbidden from an existing
+  workspace or `--forbid`) from git metadata only. Plain files and hidden dirs are not listed; remote
+  URLs have credentials stripped; with `--repos`, other dirs are reported by name and never opened.
+- **`scripts/ws-profile.mjs`** — deterministic facts for one repo from its committed base branch
+  (hash-verified reads): stack, manifests, test scripts, test conventions, CI, Docker files, and a
+  local-env hint (native / docker-existing / needs-local-env / no-tests). `.env*` and key files are
+  reported by name (`sensitiveFilesCommitted`) and never read.
+- **`scripts/ws-propose.mjs`** — validates the profiler agents' JSON (roles, branch names,
+  degenerate / absolute / `..` globs, glob syntax the gate does not support such as `{a,b}`, local-env
+  file names, secret-looking values) and writes the proposal to a new `init/<date>[-n]` branch of the
+  workspace repo through a temporary worktree: `workspace.json` (merged with main's), per-repo
+  `tools.json` / `critical-surface.json`, `local-env/` dockerization proposals, `INIT-REPORT.md`.
+  main and the workspace worktree are never touched; the workspace repo is created if absent.
+- **`scripts/ws-verify.mjs`** — re-executes every proposed gate config through `qk-gate` (base..base,
+  pinned to the proposal commit) and commits the labels to the branch.
+- Hardening from the review of the first draft (each fix RED-first):
+  - discovery builds the deny list (option + an existing workspace's main) BEFORE opening anything:
+    forbidden / excluded dirs are listed by name and never opened (checked with an instrumented git);
+    an existing workspace whose manifest is unusable stops the run; listed names must match the dir
+    entry exactly and symlinks are refused; remote credentials are stripped by URL parsing (userinfo,
+    query, fragment, scp `user:pw@host:`);
+  - profile: must be the top level of its repo; broader sensitive-name list; secret-looking values in
+    npm test scripts are redacted;
+  - propose: refuses a workspace dir that is not a repo of its own (it would have written into a
+    parent repo), an unusable existing manifest, forbidden repos, multi-line / control-char evidence,
+    secret-looking values in any string (AWS secret / ASIA / JWT / URL userinfo / github_pat_ /
+    sk_live_ / password literals), `./` globs, and any gated `verify` not backed by the profile facts
+    or chaining commands; writes are contained in the worktree; the branch is cut from main; main's
+    extra `tools.json` keys and `$comment` are kept; the report is rendered from `init-report.json`;
+  - verify: requires `--approved <proposal sha>` (the skill's human confirmation step) and an
+    unchanged config; runs with the new referee flag `--no-ledger`; Docker unavailable →
+    `cannot-run-here`; re-runs re-render the report; labels carry the config tree id.
+- Final review round (the free-text `verify` could still be steered with env / CLI options):
+  `verify` is now a STRUCTURED spec (`npm-script` / `npx` / `make` / `compose`) that
+  **`scripts/ws-command.mjs`** builds into the command from the repo's declared facts only — env names
+  with a deny list and plain values, `npx --no` (never installs), args from a fixed flag list, compose
+  limited to `-f <committed file> run --rm <service>`; `ws-propose` re-profiles every repo itself and
+  takes the committed sensitive files from that; every string reaching the report is sanitized;
+  password literals are benign only as an exact whole value; SendGrid / Stripe rk/pk / Slack webhook /
+  Google / npm / PEM-body patterns; discover refuses a workspace that is not its own repo or has no
+  main; forbidden names are dropped from `repos` and labelled `forbidden` by verify; profiles redact
+  URL userinfo and `--password` values. `--approved` is documented as PROSE-ONLY-ACCEPTED.
+- `referee.mjs --no-ledger`: skip the audit ledger (used by /init-workspace verification).
+- Tests: `ws-command` (10), `ws-discover` (20), `ws-profile` (17), `ws-propose` (21), `ws-verify` (18), RED first.
+- First real run (Matchbox, 4 apps + 4 harnesses): client-v2 and admin-tools verified; aws-services
+  `runs-but-fails` — reproduced as a flaky test (mocha's 2 s default timeout on an `associate.sh`
+  spawn; 2 of 3 runs fail on the same commit); server-v2 `needs-local-env` with a hermetic
+  `docker-compose.gate.yml` proposal (its committed Docker paths need a gitignored `.env.local`).
+
 ## [0.7.0] - 2026-09-29
 
 ### Added — workspace mode (several repos, one org folder), explicit and opt-in

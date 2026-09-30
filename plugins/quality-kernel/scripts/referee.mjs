@@ -89,6 +89,7 @@ const DEFAULT_LINK_PATHS = []; // opt-in: linking worktree dirs is a trust assum
 
 function emit(v) { process.stdout.write(JSON.stringify(v) + '\n'); }
 function ledgerAppend(repoDir, record) {
+  if (noLedger) return; // e.g. /init-workspace verification must not write into product repos
   try {
     const dir = join(repoDir, '.quality-kernel');
     mkdirSync(dir, { recursive: true });
@@ -100,13 +101,14 @@ function indeterminate(reason) { emit({ pass: false, indeterminate: true, eviden
 
 // --- args ---
 const args = process.argv.slice(2);
-let repo = null, base = null, head = 'HEAD', workspaceDir, workspaceRef;
+let repo = null, base = null, head = 'HEAD', workspaceDir, workspaceRef, noLedger = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--repo') repo = args[++i];
   else if (args[i] === '--base') base = args[++i];
   else if (args[i] === '--head') head = args[++i];
   else if (args[i] === '--workspace') workspaceDir = args[++i] ?? ''; // present without a value = empty -> fails closed
   else if (args[i] === '--workspace-ref') workspaceRef = args[++i];
+  else if (args[i] === '--no-ledger') noLedger = true; // audit-only: never affects the verdict
 }
 if (!repo) indeterminate('missing --repo <dir>');
 if (!existsSync(repo) || !statSync(repo).isDirectory()) indeterminate(`repo not found or not a directory: ${repo}`);
