@@ -75,8 +75,38 @@ So the honest state is neither "M2 pending" nor "M2 done". It is a third state:
 
 No test asserted on any of the changed strings; this was checked before editing.
 
-## Open decision, deliberately not taken here
+## The hook: why pointing it at `breaker-gate.mjs` would change nothing
 
-Whether `hooks/pre-push.sample` should default to `breaker-gate.mjs` instead of
-`qk-gate.mjs` is a **product decision**, not a documentation fix. It changes
-behaviour for every installed user. Left to the maintainer.
+Worth stating precisely, because "should the hook call the other gate?" sounds
+like a one-line decision and is not one.
+
+**Today the gate already blocks.** `hooks/pre-push.sample` runs
+`node "$GATE" ... || status=1`, so *any* non-zero exit blocks the push — exit 3
+included. A change touching the critical surface is blocked today, pending a
+human. There is no hole.
+
+**Swapping the path alone is a no-op.** `breaker-gate.mjs` returns 3 —
+identical to `qk-gate.mjs` — unless the caller supplies `--breaker`, and the
+hook supplies nothing. Same exit code, same block, zero gain.
+
+**What enforcement would actually require** is four arguments that differ per
+change: `--breaker`, `--contract` (which invariant), `--probe` (the command),
+and `--url` (a **running** system). A pre-push hook fires on a developer's
+laptop, where no such system need exist, and `git push` cannot infer which
+invariant a commit touches.
+
+So this is a missing design, not a pending config flip. The options:
+
+| | Approach | Cost |
+| --- | --- | --- |
+| **A** | Leave it. Exit 3 blocks and asks a human. | None — works today |
+| **B** | Opt-in per repo: a `breaker` block in `.quality-kernel/tools.json` (url, probe, contract); the hook routes through `breaker-gate.mjs` when present, `qk-gate.mjs` when absent. | The real work |
+| **C** | Move enforcement server-side, where a live system can be stood up. | CI design |
+
+Recommended: **A** now, **B** when a specific repo needs it, **C** for real
+enforcement. The hook's own header already says a client-side hook is "a
+guardrail for honest workflows, not a boundary against an adversary with a
+shell."
+
+Note that the extension point already exists: `QK_GATE` lets anyone point the
+hook elsewhere without a code change.
