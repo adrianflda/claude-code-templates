@@ -23,7 +23,7 @@
 import { homedir } from 'os';
 import { basename, isAbsolute, resolve } from 'path';
 
-const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|`[^`]*`|\$\([^()]*\)|\S*)\s+/;
+const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|`[^`]*`|\$\((?:[^()]|\([^()]*\))*\)|\S*)\s+/;
 const SKIP_VARS = ['PREPUSH_REVIEW_SKIP', 'AI_REVIEW_SKIP'];
 // Environment that points git at another repository.
 const REPO_VARS = ['GIT_DIR', 'GIT_WORK_TREE'];
@@ -79,6 +79,8 @@ function splitWithHeredocs(command) {
   const pending = []; // here-documents opened on the current line
   let current = { text: '', heredocs: [] };
   let quote = null;
+  let nested = 0; // depth of `$( ... )`: its separators belong to the substitution
+  let backtick = false;
   let i = 0;
 
   const close = () => {
@@ -123,6 +125,20 @@ function splitWithHeredocs(command) {
     }
 
     const rest = command.slice(i);
+    if (rest.startsWith('$(')) {
+      nested += 1;
+      current.text += '$(';
+      i += 2;
+      continue;
+    }
+    if (ch === '`') backtick = !backtick;
+    else if (ch === '(' && nested) nested += 1;
+    else if (ch === ')' && nested) nested -= 1;
+    if ((nested || backtick) && ch !== '\n') {
+      current.text += ch;
+      i += 1;
+      continue;
+    }
     if (rest.startsWith('<<<')) {
       // A here-string: take the operator whole, so its tail is not read as `<<`.
       current.text += '<<<';
@@ -166,7 +182,19 @@ export function splitCommands(command) {
 /** Text of `$( ... )` and backtick substitutions that sit outside single quotes. */
 function substitutions(text) {
   const bare = text.replace(/'[^']*'/g, "''");
-  return [...bare.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)].map((m) => m[1] ?? m[2]);
+  const found = [...bare.matchAll(/`([^`]*)`/g)].map((m) => m[1]);
+  for (let start = bare.indexOf('$('); start !== -1; ) {
+    let depth = 1;
+    let end = start + 2;
+    while (end < bare.length && depth) {
+      if (bare[end] === '(') depth += 1;
+      else if (bare[end] === ')') depth -= 1;
+      end += 1;
+    }
+    found.push(bare.slice(start + 2, depth ? end : end - 1));
+    start = bare.indexOf('$(', end);
+  }
+  return found;
 }
 
 /** Index of `push` when tokens[at] is git and its verb is push; otherwise -1. */
@@ -188,6 +216,7 @@ export function findPushTargets(command, baseCwd, depth = 0) {
   if (depth > 3) return targets;
   let cwd = baseCwd;
   let known = true;
+  let exported = false; // GIT_DIR or GIT_WORK_TREE set for the rest of the command
   const saved = []; // directory to return to when a `( ... )` subshell closes
 
   for (const segment of splitWithHeredocs(String(command ?? ''))) {
@@ -219,15 +248,23 @@ export function findPushTargets(command, baseCwd, depth = 0) {
       text = tokens.slice(1).map((t) => t.raw).join(' ');
     }
 
-    const skip = SKIP_VARS.some((name) => env[name] === '1');
-    const redirected = REPO_VARS.some((name) => name in env);
     const head = tokens[0]?.value;
+    // `GIT_DIR=x` on its own, `export GIT_DIR=x`, `declare -x GIT_DIR=x`: it stays set.
+    const names = tokens.map((t) => t.value.split('=')[0]);
+    if (
+      (!tokens.length && REPO_VARS.some((name) => name in env)) ||
+      (['export', 'declare', 'typeset'].includes(head) && REPO_VARS.some((name) => names.includes(name)))
+    ) {
+      exported = true;
+    }
+    const skip = SKIP_VARS.some((name) => env[name] === '1');
+    const redirected = exported || REPO_VARS.some((name) => name in env);
     const found = targets.length;
 
     // A substitution runs its own command, wherever it sits in the line.
     for (const inner of substitutions(segment.text)) {
       for (const t of findPushTargets(inner, cwd, depth + 1)) {
-        targets.push({ ...t, known: t.known && known, skip: t.skip || skip });
+        targets.push({ ...t, known: t.known && known && !redirected, skip: t.skip || skip });
       }
     }
 
@@ -251,7 +288,7 @@ export function findPushTargets(command, baseCwd, depth = 0) {
       for (const script of scripts) {
         const dynamic = !script.raw.startsWith("'") && /[$`]/.test(script.value);
         for (const t of findPushTargets(script.value, cwd, depth + 1)) {
-          targets.push({ ...t, known: t.known && known && !dynamic, skip: t.skip || skip });
+          targets.push({ ...t, known: t.known && known && !dynamic && !redirected, skip: t.skip || skip });
         }
         if (head === 'eval' && /(^|[;&|\s])(cd|pushd|popd)\s/.test(script.value)) known = false;
       }

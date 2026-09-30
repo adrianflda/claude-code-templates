@@ -136,6 +136,7 @@ node scripts/ai-review-panel.mjs --pr 123   # review a PR and post a rolling com
 | `AI_REVIEW_REQUIRED` | `1` in the hook, `0` when the panel is run directly | `1` = block (exit 2) if no reviewer could run |
 | `PREPUSH_REVIEW_SKIP` / `AI_REVIEW_SKIP` | — | `1` = bypass the review once |
 | `CLAUDE_BIN` | auto | explicit path to the `claude` binary |
+| `PREPUSH_REVIEW_TIMEOUT_MS` | `540000` | how long the hook waits for the panel; past it the push is blocked as not reviewed |
 
 ## Bypass once
 

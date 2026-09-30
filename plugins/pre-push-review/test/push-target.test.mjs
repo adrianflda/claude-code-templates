@@ -169,6 +169,33 @@ test('shell keywords in front of git are seen through', () => {
   assert.deepEqual(dirs('! git push'), [BASE]);
 });
 
+test('separators inside a substitution stay inside it', () => {
+  assert.deepEqual(splitCommands('OUT=$(cd /repos/a && git push) && echo "$OUT"'), [
+    'OUT=$(cd /repos/a && git push)',
+    'echo "$OUT"',
+  ]);
+  assert.deepEqual(dirs('OUT=$(cd /repos/a && git push) && echo done'), ['/repos/a']);
+  assert.deepEqual(dirs('echo `cd /repos/b; git push`'), ['/repos/b']);
+  assert.deepEqual(dirs('X=$(echo $(cd /repos/c && git push))'), ['/repos/c']);
+  // The `cd` happened inside the substitution, so it does not move what follows.
+  assert.deepEqual(dirs('OUT=$(cd /repos/a && git status); git push'), [BASE]);
+});
+
+test('GIT_DIR set for the rest of the command makes every later push unknown', () => {
+  for (const command of [
+    'export GIT_DIR=/other/.git && git push',
+    'export GIT_WORK_TREE=/other; git push',
+    'declare -x GIT_DIR=/other/.git; git push',
+    'GIT_DIR=/other/.git; git push',
+    'export GIT_DIR=/other/.git && bash -c "git push"',
+  ]) {
+    const targets = findPushTargets(command, BASE);
+    assert.equal(targets.length, 1, command);
+    assert.equal(targets[0].known, false, command);
+  }
+  assert.deepEqual(findPushTargets('export FOO=1 && git push', BASE), here());
+});
+
 test('a push the rules cannot place is reported as unknown, never dropped', () => {
   for (const command of [
     'sudo -u deploy git push',

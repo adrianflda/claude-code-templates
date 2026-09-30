@@ -36,6 +36,10 @@ import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { findPushTargets } from './push-target.mjs';
 
+// The panel runs 6 reviewers at up to 240 s each, 3 at a time. Past this limit the review is
+// treated as not finished, so the gate answers before the harness gives up on the hook.
+const PANEL_TIMEOUT_MS = Number(process.env.PREPUSH_REVIEW_TIMEOUT_MS || 540_000);
+
 const BYPASS =
   '(To bypass once: set PREPUSH_REVIEW_SKIP=1, or ask the user to confirm the override.)\n';
 // The line the panel prints last when it reviewed the change and found nothing blocking.
@@ -126,6 +130,8 @@ for (const dir of [...new Set(targets.map((t) => t.dir))]) {
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: PANEL_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
       env: { ...process.env, AI_REVIEW_REQUIRED: process.env.AI_REVIEW_REQUIRED ?? '1' },
     });
   } catch (e) {
@@ -134,7 +140,12 @@ for (const dir of [...new Set(targets.map((t) => t.dir))]) {
     else {
       // Killed by a signal, could not start, or overflowed its buffer: the review did not finish.
       code = 2;
-      failure = e.signal ? `the panel was killed by ${e.signal}` : `the panel could not run (${e.code || e.message})`;
+      failure =
+        e.code === 'ETIMEDOUT'
+          ? `the panel did not finish in ${PANEL_TIMEOUT_MS} ms`
+          : e.signal
+            ? `the panel was killed by ${e.signal}`
+            : `the panel could not run (${e.code || e.message})`;
     }
   }
 

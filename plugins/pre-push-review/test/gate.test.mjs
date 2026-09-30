@@ -10,7 +10,8 @@ const PASS = 'SUMMARY: 0 critical, 0 high, 0 medium, 0 low\n[pre-push-review] Pa
 /**
  * A plugin root whose panel records the directory it ran in and then behaves as told:
  * FAKE_PANEL_EXIT is its exit code, FAKE_PANEL_OUT its stdout, FAKE_PANEL_KILL makes it die
- * from a signal, and FAKE_PANEL_FAIL_IN makes it report a critical issue in that directory.
+ * from a signal, FAKE_PANEL_HANG makes it never finish, and FAKE_PANEL_FAIL_IN makes it report
+ * a critical issue in that directory.
  */
 function fakePlugin() {
   const root = tempDir('plugin');
@@ -20,6 +21,7 @@ function fakePlugin() {
     `import { appendFileSync } from 'node:fs';
 appendFileSync(process.env.FAKE_PANEL_LOG, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), required: process.env.AI_REVIEW_REQUIRED }) + '\\n');
 if (process.env.FAKE_PANEL_KILL) process.kill(process.pid, 'SIGKILL');
+if (process.env.FAKE_PANEL_HANG) await new Promise(() => setInterval(() => {}, 1000));
 if (process.env.FAKE_PANEL_FAIL_IN === process.cwd()) {
   process.stdout.write('[CRITICAL] x.js:1 — broken\\n');
   process.exit(1);
@@ -273,4 +275,16 @@ test('the pass line counts only as the last line of the panel output', () => {
   assert.equal(result.code, 0);
   assert.deepEqual(markers(result.home), []);
   assert.match(JSON.parse(result.stdout).systemMessage, /All review agents failed/);
+});
+
+test('a panel that does not finish in time blocks the push', () => {
+  const repo = makeRepo('repo');
+  const result = runGate({
+    command: 'git push',
+    cwd: repo,
+    env: { FAKE_PANEL_HANG: '1', PREPUSH_REVIEW_TIMEOUT_MS: '1500' },
+  });
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /was NOT reviewed: the panel did not finish in 1500 ms/);
+  assert.deepEqual(markers(result.home), []);
 });
