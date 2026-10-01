@@ -19,6 +19,9 @@ Guarantees (each has a test):
   hand-written rules around it stay byte-identical. Unbalanced markers or a symlinked `CLAUDE.md` are refused.
 - The block budget is 4096 bytes (~1k tokens); a bigger guide is refused.
 - Nothing is written without `--apply`; the previous files are backed up to `<org>/.claude/org-workspace/backups/`.
+- `--apply` also writes `<org>/.claude/org-workspace/guide.json` (the same guide, for tools —
+  quality-kernel's org mode reads it) and `map-summary.json` (so an update without a new map keeps
+  the who-calls-whom lines).
 - Guide text is single-line, bounded, secret-scanned and rendered as plain text.
 - Map citations: every `path:line` must be a non-blank line of a committed, non-sensitive file of
   the repo it belongs to, or the map is refused; each side is labelled `✓` (the line names the

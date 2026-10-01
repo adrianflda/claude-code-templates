@@ -29,7 +29,9 @@ the build. If the description already answers a question, don't ask it.
    Gherkin for the must-have flows, an **invariants table with EXACT expected values**, and an
    end-to-end QA procedure. Scaffold `.quality-kernel/tools.json` (`verify`, `productionGlobs`,
    `acceptance`, `testGlobs`), `.quality-kernel/critical-surface.json`, and add
-   `.quality-kernel/*.jsonl` to `.gitignore`.
+   `.quality-kernel/*.jsonl` to `.gitignore`. Inside an org folder with an org guide, put the gate
+   config in `<org>/.quality-kernel/repos/<repo>/` instead (never inside the product repo) and list
+   the repos the system touches from the guide and `SYSTEM-MAP.md`.
 
 ## Phase 2 — APPROVAL GATE (stop here)
 Present, concisely: the scope + non-goals, the stack, the subproject split, the Contract's must-have
@@ -48,7 +50,8 @@ NOT write any implementation code before approval.** This is the one required ch
 ## Phase 4 — Verify with the gate (the arbiter of "tested")
 - For every change, run the gate: `node "${CLAUDE_PLUGIN_ROOT}/scripts/qk-gate.mjs" --repo <dir>
   --base <sha> --head <sha>` (or `/gate`). Green = referee re-executed clean. A test change routes to
-  human review (exit 3) — surface it. On the critical surface, run the blind breaker
+  human review (exit 3) — surface it. Across several repos of an org folder, gate the feature as a
+  whole: `node "${CLAUDE_PLUGIN_ROOT}/scripts/qk-org-gate.mjs" --org <org> --branch <branch>`. On the critical surface, run the blind breaker
   (`scripts/breaker-gate.mjs` → the host `pipeline-breaker`) before calling it done.
 - Run the acceptance suite (the Contract) via the referee's `acceptance`.
 - **Prove it runs**: build the app and start it locally; exercise the must-have flows from the

@@ -1,23 +1,21 @@
 #!/usr/bin/env node
-// Org-level gate for workspace mode: one feature = the same branch name across the repos a
-// workspace lists (see workspace.mjs for the trust model). The workspace ref is resolved ONCE to a
-// commit SHA; every listed app repo that has the branch is gated with qk-gate against
-// base = merge-base(<declared base>, <branch>) and that pinned workspace commit. Verdicts are
-// aggregated into one exit code.
+// Org-level gate: one feature = the same branch name across the app repos the org guide lists (see
+// org.mjs for the trust model). The org config is pinned ONCE by content; every listed app repo
+// that has the branch is gated with qk-gate against base = merge-base(<declared base>, <branch>)
+// and its org config. Verdicts are aggregated into one exit code.
 //
-// Usage: qk-org-gate.mjs --workspace <dir> --branch <name> [--workspace-ref <ref>]
+// Usage: qk-org-gate.mjs --org <dir> --branch <name>
 // Exit:  0 = every gated repo passed · 1 = a repo really failed · 2 = indeterminate · 3 = passed but
 //        a critical change needs the live breaker. Precedence 1 > 2 > 3 > 0.
 //
 // Three phases, because the code a gate executes runs with the user's rights and could touch the
 // OTHER repos of the feature: (1) PLAN — every repo's head, base, merge-base and skip decision is
 // resolved before any gate runs; (2) RUN — each planned repo is gated at the commits pinned in (1);
-// (3) RE-CHECK — every ref read in (1), and the workspace ref, must be unchanged, else the repo (or
-// the whole feature) is indeterminate. A real failure is always reported as one. Config blobs are
-// hash-verified when read (safe-git.mjs). NOT covered (execution-trust limit; per-repo isolation is
-// the real fix): commit/tree objects rewritten in place with valid content (can change which config
-// blob a later repo reads), dirs shared with the real repo through linkPaths (node_modules), and the
-// plugin's own scripts — all writable by code executed while gating an earlier repo.
+// (3) RE-CHECK — every ref read in (1), and the org config pin, must be unchanged, else the repo (or
+// the whole feature) is indeterminate. A real failure is always reported as one. NOT covered
+// (execution-trust limit; per-repo isolation is the real fix): code executed while gating an earlier
+// repo can rewrite git objects in place, dirs shared through linkPaths (node_modules), or the
+// plugin's own scripts.
 //
 // Fail-closed: anything listed that cannot be verified is exit 2, never "skipped" — a listed repo
 // that is not cloned or not a git repo, a repo symlinked from outside the org folder, a forbidden /
@@ -31,7 +29,7 @@ import { dirname, join } from 'node:path';
 import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { git } from './safe-git.mjs';
-import { readWorkspaceManifest, resolveWorkspaceRef, isRepoName } from './workspace.mjs';
+import { readOrgManifest, orgPin, orgRepoDir, isRepoName } from './org.mjs';
 import { isEntrypoint } from './entrypoint.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -65,13 +63,16 @@ function planRepo(root, manifest, name, spec, branch) {
   if (!isRepoName(name)) return reject('invalid repo name in the manifest');
   if (manifest.forbidden.includes(name)) return reject('listed in repos but forbidden');
   if (!spec || typeof spec !== 'object') return reject('manifest entry must be an object');
+  // A harness is checked through its app (harnessNote), not gated itself.
+  if (spec.role === 'harness') return { result: { name, status: 'skipped', reason: 'harness: checked with its app, not gated itself' } };
   if (spec.role !== 'app') return reject(`role ${JSON.stringify(spec.role)} is not gated (only "app")`);
 
   const dir = join(root, name);
   const baseBranch = spec.base ?? null;
   const fail = (reason, extra = {}) => ({ result: { name, status: 'ran', exit: 2, baseBranch, reason, ...extra } });
   if (!existsSync(dir)) return fail(`listed repo not found at ${dir}`);
-  if (dirname(realpathSync(dir)) !== realpathSync(root)) return reject(`resolves outside the org folder (${realpathSync(dir)})`);
+  const entry = orgRepoDir(root, name);
+  if (entry.error) return reject(entry.error);
   const top = git(dir, ['rev-parse', '--show-toplevel']);
   if (top.status !== 0 || realpathSync(top.stdout.trim()) !== realpathSync(dir)) return fail(`${dir} is not a git repository`);
 
@@ -92,22 +93,22 @@ function planRepo(root, manifest, name, spec, branch) {
   return { plan: { name, spec, dir, baseBranch, baseRef, base: mb.stdout.trim(), head, pinned: { [headRef]: head, [remoteHeadRef]: remoteHead, [baseRef]: baseTip } } };
 }
 
-// Phase 2 for one planned repo: qk-gate at the pinned head, base and workspace commit.
+// Phase 2 for one planned repo: qk-gate at the pinned head and base, with the org config.
 function runPlan(p, manifest, branch) {
   const r = spawnSync('node', [join(here, 'qk-gate.mjs'), '--repo', p.dir, '--base', p.base, '--head', p.head,
-    '--workspace', manifest.dir, '--workspace-ref', manifest.sha], { encoding: 'utf8' });
+    '--org', manifest.dir], { encoding: 'utf8' });
   let verdict = null;
   try { verdict = JSON.parse((r.stdout || '').trim().split('\n').filter(Boolean).pop()); } catch { /* null */ }
   const src = verdict && verdict.referee && verdict.referee.evidence && verdict.referee.evidence.toolsSource;
   let exit = normalizeExit(r.status);
-  // A contract taken from the workspace must be the pinned commit's; anything else is not trusted.
-  const offPin = src && src.source === 'workspace' && src.sha !== manifest.sha;
+  // A contract taken from the org must be the config pinned in phase 1; anything else is not trusted.
+  const offPin = src && src.source === 'org' && src.pin !== manifest.pin;
   if (offPin && exit !== 1) exit = 2;
   return {
-    name: p.name, status: 'ran', exit, ...(offPin ? { offPin: `verified against workspace ${src.sha}, not the pinned ${manifest.sha}` } : {}),
+    name: p.name, status: 'ran', exit, ...(offPin ? { offPin: `verified against org config ${src.pin}, not the pinned ${manifest.pin}` } : {}),
     baseBranch: p.baseBranch, baseRef: p.baseRef, base: p.base,
     head: branch, headSha: p.head, gate: verdict ? verdict.gate : null, tier: verdict ? verdict.tier : null,
-    configSha: src && src.sha ? src.sha : null, configRef: src && src.ref ? src.ref : null,
+    configPin: src && src.pin ? src.pin : null, configRef: src && src.ref ? src.ref : null,
     reason: verdict && verdict.referee ? verdict.referee.reason : (verdict && verdict.notes && verdict.notes.join(' ')) || `qk-gate produced no verdict (exit ${r.status})`,
   };
 }
@@ -128,27 +129,27 @@ function harnessNote(root, manifest, name, spec, branch) {
 }
 
 function main(argv) {
-  let workspace, branch = null, ref = 'main';
+  let orgArg, branch = null;
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--workspace') workspace = argv[++i] ?? '';
+    if (argv[i] === '--org') orgArg = argv[++i] ?? '';
     else if (argv[i] === '--branch') branch = argv[++i];
-    else if (argv[i] === '--workspace-ref') ref = argv[++i];
   }
   const finish = (result, code) => {
     process.stdout.write(JSON.stringify({ gate: GATE_NAME[code], exit: code, ...result }) + '\n');
     process.exit(code);
   };
-  if (!workspace || !branch) finish({ reason: 'need --workspace <dir> --branch <name> [--workspace-ref <ref>]' }, 2);
-  const manifest = existsSync(workspace) ? readWorkspaceManifest(workspace, ref) : null;
-  if (!manifest) finish({ reason: `no usable workspace.json at ref "${ref}" in ${workspace}` }, 2);
-  if (!isBranchName(manifest.dir, branch)) finish({ reason: `--branch ${JSON.stringify(branch)} is not a valid branch name` }, 2);
+  if (!orgArg || !branch) finish({ reason: 'need --org <dir> --branch <name>' }, 2);
+  const manifest = existsSync(orgArg) ? readOrgManifest(orgArg) : null;
+  if (!manifest) finish({ reason: `no usable org guide (.claude/org-workspace/guide.json) in ${orgArg} — run /org-init (org-workspace plugin)` }, 2);
+  try { manifest.pin = orgPin(manifest.dir); } catch (e) { finish({ reason: e.message }, 2); }
+  if (branch === 'HEAD' || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch) || branch.includes('..') || branch.endsWith('/') || branch.endsWith('.lock')) finish({ reason: `--branch ${JSON.stringify(branch)} is not a valid branch name` }, 2);
 
-  const root = dirname(manifest.dir);
+  const root = manifest.dir;
   // (1) PLAN every repo before any code runs.
   const entries = Object.entries(manifest.repos).map(([name, spec]) => ({ name, spec, ...planRepo(root, manifest, name, spec, branch) }));
   // (2) RUN the planned repos at their pinned commits.
   for (const e of entries) if (e.plan) e.result = runPlan(e.plan, manifest, branch);
-  // (3) RE-CHECK every pinned ref and the workspace ref.
+  // (3) RE-CHECK every pinned ref and the org config pin.
   const notes = [];
   for (const e of entries) {
     if (!e.plan) continue;
@@ -162,13 +163,15 @@ function main(argv) {
     if (n) notes.push(n);
   }
   const repos = entries.map((e) => e.result);
-  const workspaceMoved = resolveWorkspaceRef(manifest.dir, ref) !== manifest.sha;
-  if (workspaceMoved) notes.push(`workspace ref "${ref}" moved during the run (was ${manifest.sha}) — code executed by a gate may have rewritten the workspace; not trusted`);
+  let pinNow = null;
+  try { pinNow = orgPin(manifest.dir); } catch { /* unreadable now = moved */ }
+  const orgMoved = pinNow !== manifest.pin;
+  if (orgMoved) notes.push(`the org config changed during the run (pin was ${manifest.pin.slice(0, 12)}) — code executed by a gate may have rewritten it; not trusted`);
 
-  const out = { branch, workspace: { dir: manifest.dir, ref, sha: manifest.sha }, repos, notes };
+  const out = { branch, org: { dir: manifest.dir, pin: manifest.pin }, repos, notes };
   if (!repos.some((x) => x.status !== 'skipped')) out.reason = `no listed repo has branch "${branch}" — nothing was verified`;
   let code = aggregate(repos);
-  if (workspaceMoved && code !== 1) code = 2;
+  if (orgMoved && code !== 1) code = 2;
   finish(out, code);
 }
 

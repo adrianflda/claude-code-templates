@@ -37,7 +37,8 @@ Invariants table.
 1. Turn the QA procedure into an executable **UI-only** script. You may add CLI flags or
    UI commands to expose hard-to-test logic — always at the user-interface level.
 2. Run **CRAP** and **DRY** before the final verification.
-3. Run the end-to-end suite.
+3. Run the end-to-end suite. When the change spans repos of an org folder, close with
+   `qk-org-gate --org <org> --branch <branch>` so every touched repo is verified as one system.
 
 ## Consistency gate
 

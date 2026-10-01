@@ -9,6 +9,8 @@
 //   - The block has a size budget (BLOCK_BUDGET bytes, ~1k tokens); a bigger guide is refused.
 //   - Every string is single-line, bounded and secret-free; repo names are plain names.
 //   - Without --apply it only prints the diff; --apply writes, after a backup of the previous file.
+//   - The same validated guide is also written to <org>/.claude/org-workspace/guide.json, the
+//     machine copy other tools read (quality-kernel's org mode takes the repo list from it).
 //
 // Usage: org-guide.mjs --org <dir> --guide guide.json [--integrations integrations.json]
 //                      [--date YYYY-MM-DD] [--apply]
@@ -157,12 +159,20 @@ export function buildGuide({ org, guide, integrations = null, date }) {
     }
   }
   if (problems.length) throw new Error(`invalid guide:\n- ${problems.join('\n- ')}`);
+  // Without a new map, keep the last one's summary (an /org-learn update must not drop it).
+  const summaryPath = join(org, '.claude', 'org-workspace', 'map-summary.json');
+  if (pairs === null && existsSync(summaryPath) && !lstatSync(summaryPath).isSymbolicLink()) {
+    try {
+      const prev = JSON.parse(readFileSync(summaryPath, 'utf8'));
+      if (Array.isArray(prev) && prev.every((p) => p && isRepoName(p.from) && isRepoName(p.to) && Number.isInteger(p.n))) pairs = prev;
+    } catch { /* an unreadable summary is dropped; re-run with --integrations to restore it */ }
+  }
   const block = renderBlock(guide, { date, pairs });
   if (Buffer.byteLength(block) > BLOCK_BUDGET) throw new Error(`the guide block is ${Buffer.byteLength(block)} bytes; the budget is ${BLOCK_BUDGET} (~1k tokens) — shorten it: point to sources, do not copy them`);
   const claudePath = join(org, 'CLAUDE.md');
   if (existsSync(claudePath) && lstatSync(claudePath).isSymbolicLink()) throw new Error(`${claudePath} is a symlink — refusing to write through it`);
   const current = existsSync(claudePath) ? readFileSync(claudePath, 'utf8') : '';
-  return { claudePath, current, next: spliceBlock(current, block), block, map: map ? renderSystemMap({ date, branch: '(org folder, not versioned)', ...map }) : null, mapPath: join(org, 'SYSTEM-MAP.md') };
+  return { claudePath, current, next: spliceBlock(current, block), block, guide, pairs: map ? pairs : null, summaryPath, map: map ? renderSystemMap({ date, branch: '(org folder, not versioned)', ...map }) : null, mapPath: join(org, 'SYSTEM-MAP.md') };
 }
 
 function diff(a, b, label) {
@@ -178,6 +188,13 @@ export function applyGuide(built, { org, stamp = new Date().toISOString().replac
   mkdirSync(backups, { recursive: true });
   if (built.current) writeFileSync(join(backups, `CLAUDE.md.${stamp}`), built.current);
   writeFileSync(built.claudePath, built.next);
+  const guidePath = join(org, '.claude', 'org-workspace', 'guide.json');
+  if (existsSync(guidePath) && lstatSync(guidePath).isSymbolicLink()) throw new Error(`${guidePath} is a symlink — refusing to write through it`);
+  writeFileSync(guidePath, JSON.stringify(built.guide, null, 2) + '\n');
+  if (built.pairs) {
+    if (existsSync(built.summaryPath) && lstatSync(built.summaryPath).isSymbolicLink()) throw new Error(`${built.summaryPath} is a symlink — refusing to write through it`);
+    writeFileSync(built.summaryPath, JSON.stringify(built.pairs, null, 2) + '\n');
+  }
   if (built.map) {
     if (existsSync(built.mapPath) && lstatSync(built.mapPath).isSymbolicLink()) throw new Error(`${built.mapPath} is a symlink — refusing to write through it`);
     if (existsSync(built.mapPath)) writeFileSync(join(backups, `SYSTEM-MAP.md.${stamp}`), readFileSync(built.mapPath));

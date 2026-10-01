@@ -3,10 +3,10 @@
 // re-execution (referee.mjs), in one command. This is the usable entry for the two teeth
 // built so far. Spec chain: docs/agentic-harness/{spec,plan,tasks}-m{0,1}-*.v1.md
 //
-// Usage: qk-gate.mjs --repo <dir> --base <ref> [--head <ref>] [--workspace <dir>] [--workspace-ref <ref>]
-//        Flags are passed through to route + referee. With --workspace (see workspace.mjs), the
-//        workspace ref is resolved ONCE here to a commit SHA and that SHA is what both receive, so
-//        the change is classified and verified against the same workspace config.
+// Usage: qk-gate.mjs --repo <dir> --base <ref> [--head <ref>] [--org <dir>]
+//        Flags are passed through to route + referee. With --org (see org.mjs), the org config is
+//        hashed ONCE here and that pin is what both receive (each refuses a mismatch), so the change
+//        is classified and verified against the same config; it is re-checked after the run.
 // Exit:  0 = verified pass · 1 = verified fail · 2 = indeterminate (fail-closed)
 //
 // NOTE (honest limitation): when route flags a CRITICAL change, the live "breaker" oracle is
@@ -17,7 +17,7 @@
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveWorkspaceRef } from './workspace.mjs';
+import { orgPin } from './org.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -30,24 +30,19 @@ const earlyIndeterminate = (note) => {
   process.exit(2);
 };
 
-// Pin the workspace commit once (route and referee must read the same workspace config).
-// A --workspace token without a usable value is explicit mode that cannot work: fail closed.
-const wsFlagGiven = argv.includes('--workspace');
-const workspaceDir = flag('--workspace');
-let passthrough = argv; // route + referee accept the same --repo/--base/--head/--workspace* flags
-let workspace = null; // { dir, ref, sha } when pinned
-if (wsFlagGiven) {
-  if (!workspaceDir || workspaceDir.startsWith('--')) earlyIndeterminate('empty --workspace value (workspace mode needs the path of the workspace repo)');
-  const wsRef = flag('--workspace-ref') ?? 'main';
-  const sha = resolveWorkspaceRef(workspaceDir, wsRef);
-  if (!sha) earlyIndeterminate(`workspace ref "${wsRef}" does not resolve to a commit in ${workspaceDir} (a branch as origin/<ref> or refs/heads/<ref> — both must agree when both exist — or a full commit SHA)`);
-  workspace = { dir: workspaceDir, ref: wsRef, sha };
-  passthrough = [];
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--workspace-ref') { i++; continue; }
-    passthrough.push(argv[i]);
-  }
-  passthrough.push('--workspace-ref', sha);
+// Pin the org config once (route and referee must read the same config).
+// An --org token without a usable value is explicit mode that cannot work: fail closed.
+const orgFlagGiven = argv.includes('--org');
+const orgDir = flag('--org');
+let passthrough = argv.filter((a, i) => a !== '--org-pin' && argv[i - 1] !== '--org-pin'); // the pin is computed here, never taken from the caller
+let org = null; // { dir, pin } when pinned
+const pinOf = (dir) => { try { return orgPin(dir); } catch (e) { return { error: e.message }; } };
+if (orgFlagGiven) {
+  if (!orgDir || orgDir.startsWith('--')) earlyIndeterminate('empty --org value (org mode needs the path of the org folder)');
+  const pin = pinOf(orgDir);
+  if (typeof pin !== 'string') earlyIndeterminate(`org config of ${orgDir} cannot be pinned: ${pin.error}`);
+  org = { dir: orgDir, pin };
+  passthrough = [...passthrough, '--org-pin', pin];
 }
 
 function runJson(script) {
@@ -96,10 +91,10 @@ const requiresBreaker = (route.json ? !!route.json.requiresBreaker : true) || ov
 // the critical-surface cause, never this one).
 const requiresHumanReview = overlaidTests.length > 0;
 const notes = [];
-// Code the gate executed runs with the user's rights: if the workspace ref moved during the run,
-// the pinned config may no longer be what the workspace says — the verdict cannot be trusted.
-const workspaceMoved = workspace && resolveWorkspaceRef(workspace.dir, workspace.ref) !== workspace.sha;
-if (workspaceMoved) notes.push(`workspace ref "${workspace.ref}" moved during the run (was ${workspace.sha}) — code executed by the gate may have rewritten the workspace; indeterminate`);
+// Code the gate executed runs with the user's rights: if the org config changed during the run,
+// the pinned config may no longer be what the org says — the verdict cannot be trusted.
+const orgMoved = org && pinOf(org.dir) !== org.pin;
+if (orgMoved) notes.push(`the org config changed during the run (pin was ${org.pin.slice(0, 12)}) — code executed by the gate may have rewritten it; indeterminate`);
 if (route.json ? !!route.json.requiresBreaker : true) {
   notes.push('CRITICAL surface: the live breaker (M2) is required before merge and is NOT yet enforced. Exit 3 = do-not-merge until M2 lands.');
 }
@@ -113,7 +108,7 @@ if (overlaidTests.length) {
 //   0   = verified green with no unmet gate
 let code;
 if (!refPass) code = verdict.indeterminate ? 2 : 1;
-else if (workspaceMoved) code = 2;
+else if (orgMoved) code = 2;
 else if (requiresBreaker) code = 3;
 else code = 0;
 
@@ -125,7 +120,7 @@ process.stdout.write(JSON.stringify({
   requiresHumanReview,
   referee: verdict,
   route: route.json,
-  ...(workspace ? { workspace } : {}),
+  ...(org ? { org } : {}),
   notes,
 }) + '\n');
 process.exit(code);

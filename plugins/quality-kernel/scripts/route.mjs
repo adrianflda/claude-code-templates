@@ -16,11 +16,11 @@
 //  - Requires --base; a git failure or unverifiable ref is an operational error (fail-closed).
 //
 // Usage: route.mjs --repo <dir> --base <ref> [--head <ref>] [--changed a,b] [--deleted c] [--proposed tier]
-//                  [--workspace <dir>] [--workspace-ref <ref>]
+//                  [--org <dir>] [--org-pin <hash>]
 // Exit:  0 = classified (incl. critical) · 2 = operational error (fail-closed critical)
 
 import { git, readVerifiedBlob } from './safe-git.mjs';
-import { findWorkspace, showWorkspaceFile, workspaceSource, repoSource } from './workspace.mjs';
+import { findOrg, showOrgFile, orgSource, repoSource } from './org.mjs';
 import { isEntrypoint } from './entrypoint.mjs';
 
 const TIERS = { trivial: 0, standard: 1, critical: 2 };
@@ -165,11 +165,11 @@ export function parseDiffZ(buf) {
 // --- CLI ---
 if (isEntrypoint(import.meta.url)) {
   const args = process.argv.slice(2);
-  let repo = null, base = null, head = 'HEAD', changedArg = null, deletedArg = null, proposed = null, workspaceDir, workspaceRef;
+  let repo = null, base = null, head = 'HEAD', changedArg = null, deletedArg = null, proposed = null, orgDir, orgPinArg;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--repo') repo = args[++i];
-    else if (args[i] === '--workspace') workspaceDir = args[++i] ?? ''; // present without a value = empty -> fails closed
-    else if (args[i] === '--workspace-ref') workspaceRef = args[++i];
+    else if (args[i] === '--org') orgDir = args[++i] ?? ''; // present without a value = empty -> fails closed
+    else if (args[i] === '--org-pin') orgPinArg = args[++i];
     else if (args[i] === '--base') base = args[++i];
     else if (args[i] === '--head') head = args[++i];
     else if (args[i] === '--changed') changedArg = args[++i];
@@ -202,20 +202,19 @@ if (isEntrypoint(import.meta.url)) {
   deleted = deleted.filter((p) => !isLedger(p));
 
   // critical-surface.json comes from the BASE REF (immutable), never the worktree or env. With an
-  // explicit --workspace the workspace's file at the pinned workspace commit wins, the repo's own is
-  // used only when the workspace has none, and a workspace that cannot serve the repo fails closed
-  // (same precedence as the referee — see workspace.mjs).
+  // explicit --org the org's file (outside every repo, pinned by content) wins, the repo's own is
+  // used only when the org has none, and an org that cannot serve the repo fails closed (same
+  // precedence as the referee — see org.mjs).
   let config = null;
   let configSource = null;
   if (base && repo) {
-    const ws = findWorkspace(repo, { workspace: workspaceDir, ref: workspaceRef });
-    if (ws && ws.error) opError(`workspace mode: ${ws.error}`);
+    const ws = findOrg(repo, { org: orgDir, pin: orgPinArg });
+    if (ws && ws.error) opError(`org mode: ${ws.error}`);
     let raw = null;
     let where = null;
-    // Both reads are hash-verified: altered stored bytes fail closed, never read as "absent".
     if (ws) {
-      try { raw = showWorkspaceFile(ws, 'critical-surface.json'); } catch (e) { opError(e.message); }
-      if (raw !== null) { where = `workspace ${ws.dir} @ ${ws.sha.slice(0, 12)}`; configSource = workspaceSource(ws); }
+      try { raw = showOrgFile(ws, 'critical-surface.json'); } catch (e) { opError(e.message); }
+      if (raw !== null) { where = `org ${ws.dir} (pin ${ws.pin.slice(0, 12)})`; configSource = orgSource(ws); }
     }
     if (raw === null) {
       const own = readVerifiedBlob(repo, base, '.quality-kernel/critical-surface.json');

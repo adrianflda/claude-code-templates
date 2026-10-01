@@ -25,9 +25,9 @@
 // fingerprinting, and a baseline with genuinely no tests. Only a black-box probe in a
 // prod-indistinguishable environment closes these. Symlinks in a committed tree => indeterminate.
 //
-// Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>] [--workspace <dir>] [--workspace-ref <ref>]
+// Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>] [--org <dir>] [--org-pin <hash>]
 //         [--no-ledger] [--canary]
-//         (with an explicit --workspace, the workspace's contract for this repo wins; see workspace.mjs;
+//         (with an explicit --org, the org's contract for this repo wins; see org.mjs;
 //         --canary: after a green run, re-run on head with every test file raising — it must go RED;
 //         this shows the command exits non-zero when test files are broken — NOT that it executes
 //         them (a linter that parses them passes too) nor which tests run)
@@ -40,7 +40,7 @@ import { tmpdir, devNull } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
 import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
 import { git, readVerifiedBlob } from './safe-git.mjs';
-import { findWorkspace, showWorkspaceFile, workspaceSource, repoSource } from './workspace.mjs';
+import { findOrg, showOrgFile, orgSource, repoSource } from './org.mjs';
 import { canaryMatcher, sabotage } from './canary.mjs';
 
 // CONVERGENCE FIX (panel v2.6 root cause): there is NO silent "inert" / "harness-by-name" allow-list
@@ -106,13 +106,13 @@ function indeterminate(reason) { emit({ pass: false, indeterminate: true, eviden
 
 // --- args ---
 const args = process.argv.slice(2);
-let repo = null, base = null, head = 'HEAD', workspaceDir, workspaceRef, noLedger = false, canaryMode = false;
+let repo = null, base = null, head = 'HEAD', orgDir, orgPinArg, noLedger = false, canaryMode = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--repo') repo = args[++i];
   else if (args[i] === '--base') base = args[++i];
   else if (args[i] === '--head') head = args[++i];
-  else if (args[i] === '--workspace') workspaceDir = args[++i] ?? ''; // present without a value = empty -> fails closed
-  else if (args[i] === '--workspace-ref') workspaceRef = args[++i];
+  else if (args[i] === '--org') orgDir = args[++i] ?? ''; // present without a value = empty -> fails closed
+  else if (args[i] === '--org-pin') orgPinArg = args[++i];
   else if (args[i] === '--no-ledger') noLedger = true; // audit-only: never affects the verdict
   else if (args[i] === '--canary') canaryMode = true; // a green run must also be seen RED (canary.mjs)
 }
@@ -149,19 +149,19 @@ function ignoreHint(path) {
   const where = `${source}:${line}`.replace(/[\x00-\x1f\x7f]/g, '?');
   return ` — it exists in the worktree but an ignore rule excludes it (${where}); commit it with \`git add -f ${path}\``;
 }
-// Where the contract comes from. Without --workspace: the repo's base ref, as always. With an
-// explicit --workspace (see workspace.mjs for the trust model): the workspace's file at the pinned
-// workspace commit WINS; the repo's own base file is used only when the workspace has none, and a
-// workspace that cannot serve this repo is indeterminate — never a silent single-repo fallback.
+// Where the contract comes from. Without --org: the repo's base ref, as always. With an explicit
+// --org (see org.mjs for the trust model): the org's file (<org>/.quality-kernel/repos/<name>/) WINS;
+// the repo's own base file is used only when the org has none, and an org that cannot serve this
+// repo — or whose config no longer matches --org-pin — is indeterminate, never a silent fallback.
 let toolsSource = repoSource(base);
 function loadToolsAtBase() {
   let text = null;
-  const ws = findWorkspace(repo, { workspace: workspaceDir, ref: workspaceRef });
-  if (ws && ws.error) indeterminate(`workspace mode: ${ws.error}`);
-  // Both reads are hash-verified: altered stored bytes fail closed, never read as "absent".
+  const ws = findOrg(repo, { org: orgDir, pin: orgPinArg });
+  if (ws && ws.error) indeterminate(`org mode: ${ws.error}`);
+  // The repo's own file is a hash-verified blob read; the org's is a plain file (no symlinks).
   if (ws) {
-    try { text = showWorkspaceFile(ws, 'tools.json'); } catch (e) { indeterminate(e.message); }
-    if (text !== null) toolsSource = workspaceSource(ws);
+    try { text = showOrgFile(ws, 'tools.json'); } catch (e) { indeterminate(e.message); }
+    if (text !== null) toolsSource = orgSource(ws);
   }
   if (text === null) {
     const own = readVerifiedBlob(repo, base, '.quality-kernel/tools.json');
@@ -169,10 +169,10 @@ function loadToolsAtBase() {
     if (!own.absent) text = own.text;
   }
   if (text === null) {
-    const inWs = ws ? `no tools.json in the workspace (repos/${ws.name}/ at ${ws.sha.slice(0, 12)}) nor ` : 'no ';
+    const inWs = ws ? `no tools.json in the org config (${ws.dir}/.quality-kernel/repos/${ws.name}/) nor ` : 'no ';
     indeterminate(`${inWs}.quality-kernel/tools.json at base ${base} (the verify contract must be committed in the baseline)${ignoreHint('.quality-kernel/tools.json')}`);
   }
-  let j; try { j = JSON.parse(text); } catch (e) { indeterminate(`unreadable tools.json (${toolsSource.source}${toolsSource.sha ? ` ${toolsSource.sha.slice(0, 12)}` : ''}) at base ${base}: ${e.message}`); }
+  let j; try { j = JSON.parse(text); } catch (e) { indeterminate(`unreadable tools.json (${toolsSource.source}${toolsSource.pin ? ` ${toolsSource.pin.slice(0, 12)}` : ''}) at base ${base}: ${e.message}`); }
   if (!j || typeof j.verify !== 'string' || !j.verify.trim()) indeterminate('tools.json "verify" must be a non-empty string at base');
   if (!Array.isArray(j.productionGlobs) || j.productionGlobs.length === 0) indeterminate('tools.json "productionGlobs" must be a non-empty array at base');
   for (const g of j.productionGlobs) {

@@ -242,50 +242,53 @@ Copy the examples into your repo's `.quality-kernel/`:
 
 Discovering an org folder's repos, mapping who calls whom (`SYSTEM-MAP.md`) and keeping a short
 guide in the org-root `CLAUDE.md` moved to the **org-workspace** plugin (`/org-init`, `/org-learn`)
-in 0.10.0. quality-kernel keeps what verifies work: `/gate`, workspace mode below, and the referee's
+in 0.10.0. quality-kernel keeps what verifies work: `/gate`, org mode below, and the referee's
 opt-in **RED canary** (`--canary`): after a green run the verify command is re-run on head with every
 JS/TS/Python test file raising on load and must fail — it shows the command reacts to broken test
 files, not which tests it executes (a lint command that parses them also passes). Gate configs
 (`tools.json`) are written by hand.
 
-### Workspace mode (several repos in one org folder)
+### Org mode (several repos in one org folder — the system as a whole)
 
-An org folder can hold its repos side by side plus a control repo named `workspace`:
+An org folder holds its repos side by side. The **org-workspace** plugin keeps its guide: a short
+block in `<org>/CLAUDE.md` (for agents) and the same data in `<org>/.claude/org-workspace/guide.json`
+(for tools). quality-kernel reads the guide for WHICH repos form the system, and keeps their gate
+config outside every product repo:
 
 ```
 <org>/
-├── workspace/                      # its own git repo
-│   ├── workspace.json              # { "version": 1, "org": "...", "repos": { "<name>": { "role": "app", "base": "development", "harness": "<name>-qa" } }, "forbidden": [...] }
-│   └── repos/<name>/tools.json     # and critical-surface.json
+├── CLAUDE.md                                  # the org guide block (org-workspace)
+├── SYSTEM-MAP.md                              # who calls whom, cited (org-workspace)
+├── .claude/org-workspace/guide.json           # repos, roles, base branches, harnesses, forbidden
+├── .quality-kernel/repos/<name>/tools.json    # and critical-surface.json — written by hand
 ├── <name>/
 └── ...
 ```
 
-- **Explicit only:** pass `--workspace <dir>` to `route` / `referee` / `qk-gate` (`qk-org-gate`
-  always does). Without it nothing changes — there is no auto-discovery.
-- With it, a listed repo's `tools.json` / `critical-surface.json` come from
-  `workspace/repos/<name>/` and **win over the repo's own** (used only when the workspace has none).
-  A workspace that cannot serve the repo (not listed, forbidden, not `role: "app"`, no manifest,
-  an empty `--workspace` value) is indeterminate, never a silent fallback. The fallback to the
-  repo's own file is per file.
-- The workspace ref (`--workspace-ref`, default `main`) is pinned once to a commit SHA (a branch
-  as `origin/<ref>` and/or the local branch — both must agree when both exist — or a full SHA; tags
-  cannot shadow it) and every file is read at that SHA. Run route/referee through `qk-gate`, which
-  pins once, reports `workspace: { dir, ref, sha }` and re-checks after the run that the ref did not
-  move. The SHA is also in `route.configSource` and `referee.evidence.toolsSource`.
-- Gate a feature across every listed repo that has its branch:
-  `node scripts/qk-org-gate.mjs --workspace <org>/workspace --branch feature/<name>`
-  (exit 1 > 2 > 3 > 0; anything listed that cannot be verified = 2; a missing harness branch is a
-  note, not a block). It resolves every repo's refs before running any gate and re-checks them
-  after, so one repo's executed code cannot drop another repo from the feature.
-- **Trust limit:** this protects against a repo's own change under review. It does not protect
-  against whoever can commit to the workspace ref or chooses `--workspace-ref` — that party owns
-  every listed repo's contract. Code the gate executes runs with your rights (see "Honest limits"):
-  refs are pinned and config blob bytes hash-verified, but commit/tree objects are trusted, and dirs
-  shared through `linkPaths` (e.g. `node_modules`) and the plugin's own scripts are writable — so
-  code run while gating one repo can change what a LATER repo of the same `qk-org-gate` run reads,
-  or the workspace for a later run. Isolation per repo is the real fix for that class. A local-only
-  workspace is anchored only locally.
+- **Explicit only:** pass `--org <dir>` to `route` / `referee` / `qk-gate` (`qk-org-gate` always
+  does). Without it nothing changes — there is no auto-discovery.
+- With it, a listed app's `tools.json` / `critical-surface.json` come from
+  `<org>/.quality-kernel/repos/<name>/` and **win over the repo's own** (used only when the org has
+  none; the fallback is per file). An org that cannot serve the repo (not listed, forbidden, not
+  `role: "app"`, not directly under the org folder, no guide, an empty `--org`) is indeterminate,
+  never a silent fallback. Symlinks anywhere in the config are refused.
+- The config is pinned **by content**: `qk-gate` hashes the guide and every config file once
+  (`orgPin`), passes that pin to route and referee (each re-hashes and refuses a mismatch), reports
+  `org: { dir, pin }` and re-checks the pin after the run — a change during the run is indeterminate.
+- Gate a feature across every listed app that has its branch:
+  `node scripts/qk-org-gate.mjs --org <org> --branch feature/<name>`
+  (exit 1 > 2 > 3 > 0; anything listed that cannot be verified = 2; harness entries are not gated,
+  a missing harness branch is a note). It resolves every repo's refs before running any gate and
+  re-checks them and the pin after, so one repo's executed code cannot drop another from the feature.
+- **Working as one system:** `/forge` and `/develop` run inside an org folder use the guide and the
+  `SYSTEM-MAP.md` sections of the repos they touch to find who consumes what they change; those
+  consumers become acceptance criteria, and QA closes with `qk-org-gate` on the feature branch.
+- **Trust limit:** a repo's own change under review cannot touch its config (it lives outside every
+  repo). Whoever can write the org folder owns every listed repo's contract. Code the gate executes
+  runs with your rights (see "Honest limits"): dirs shared through `linkPaths` (e.g. `node_modules`),
+  git objects and the plugin's own scripts are writable, so code run while gating one repo can change
+  what a LATER repo of the same run reads — the pin catches config changes, not those. Isolation per
+  repo is the real fix for that class.
 
 ## Tools
 

@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { aggregate, normalizeExit } from './qk-org-gate.mjs';
 
-// qk-org-gate: one feature = the same branch name across the workspace's repos. Every listed repo
+// qk-org-gate: one feature = the same branch name across the org guide's app repos. Every listed repo
 // that has the branch is gated (qk-gate, base = merge-base with its declared base branch) and the
 // verdicts are aggregated into one exit code. Anything it cannot verify is exit 2, never skipped.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,35 +42,39 @@ const BROKEN = { 'src/code.mjs': 'export const f = () => 2;' };
 const CRITICAL = { 'src/auth/login.mjs': 'export const x = 1;' };
 
 // org(apps): apps = { name: { base, change, harness, harnessBranch, contract, spec } }.
-//   spec overrides the manifest entry verbatim (e.g. null, or a bad base); extraRepos adds raw
-//   manifest entries without creating a directory.
-function org(apps, { forbidden = [], extraRepos = {} } = {}) {
+//   spec overrides the guide entry verbatim (e.g. null, or a bad base); extraRepos adds raw guide
+//   entries without creating a directory. The org config is <root>/.claude/org-workspace/guide.json
+//   (written by org-workspace) plus <root>/.quality-kernel/repos/<name>/{tools,critical-surface}.json.
+export function writeOrgConfig(root, { repos, forbidden = [], files = {} }) {
+  write(root, '.claude/org-workspace/guide.json', JSON.stringify({ org: 'Org', repos, forbidden }));
+  for (const [p, c] of Object.entries(files)) write(root, `.quality-kernel/repos/${p}`, c);
+}
+function org(apps, { forbidden = [], extraRepos = [] } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'qk-org-')));
-  const repos = {};
-  const wsFiles = {};
+  const repos = [];
+  const files = {};
   for (const [name, a] of Object.entries(apps)) {
     const base = a.base || 'main';
     const dir = join(root, name);
     const git = repo(dir, APP_FILES, base);
     if (a.change) onBranch(git, dir, a.change);
-    repos[name] = 'spec' in a ? a.spec : { role: 'app', base, ...(a.harness ? { harness: a.harness } : {}) };
+    repos.push('spec' in a ? (a.spec === null ? null : { name, ...a.spec }) : { name, role: 'app', base });
     if (a.contract !== false) {
-      wsFiles[`repos/${name}/tools.json`] = JSON.stringify(TOOLS);
-      wsFiles[`repos/${name}/critical-surface.json`] = JSON.stringify(SURFACE);
+      files[`${name}/tools.json`] = JSON.stringify(TOOLS);
+      files[`${name}/critical-surface.json`] = JSON.stringify(SURFACE);
     }
     if (a.harness) {
+      repos.push({ name: a.harness, role: 'harness', base: 'main', harnessOf: name });
       const hdir = join(root, a.harness);
       const hgit = repo(hdir, { 'e2e.spec.js': '// e2e' });
       if (a.harnessBranch) onBranch(hgit, hdir, { 'e2e.spec.js': '// e2e updated' });
     }
   }
-  wsFiles['workspace.json'] = JSON.stringify({ version: 1, org: 'Org', repos: { ...repos, ...extraRepos }, forbidden });
-  const ws = join(root, 'workspace');
-  const wsGit = repo(ws, wsFiles);
-  return { root, ws, wsGit };
+  writeOrgConfig(root, { repos: [...repos, ...extraRepos], forbidden, files });
+  return { root };
 }
 function run(o, args = ['--branch', BRANCH]) {
-  const r = spawnSync('node', [orgGate, '--workspace', o.ws, ...args], { encoding: 'utf8' });
+  const r = spawnSync('node', [orgGate, '--org', o.root, ...args], { encoding: 'utf8' });
   let json = null;
   try { json = JSON.parse((r.stdout || '').trim().split('\n').filter(Boolean).pop()); } catch { /* null */ }
   return { code: r.status, json, stderr: r.stderr };
@@ -135,25 +139,12 @@ test('no listed repo has the branch -> exit 2', () => {
   assert.match(r.json.reason, /no listed repo has branch "feature\/x"/);
 });
 
-test('the workspace commit is pinned and recorded, and every repo was gated against it', () => {
+test('the org config is pinned once by content and every repo was gated against that pin', () => {
   const o = org({ a: { change: GOOD } });
   const r = run(o);
-  const sha = o.wsGit('rev-parse', 'refs/heads/main').stdout.trim();
-  assert.strictEqual(r.json.workspace.sha, sha);
-  assert.strictEqual(byName(r.json).a.configSha, sha);
+  assert.match(r.json.org.pin, /^[0-9a-f]{64}$/);
+  assert.strictEqual(byName(r.json).a.configPin, r.json.org.pin);
 });
-
-test('--workspace-ref selects the workspace commit', () => {
-  const o = org({ a: { change: GOOD } });
-  o.wsGit('switch', '-q', '-c', 'trusted');
-  o.wsGit('switch', '-q', 'main');
-  o.wsGit('rm', '-q', 'workspace.json'); o.wsGit('commit', '-qm', 'drop manifest on main');
-  assert.strictEqual(run(o).code, 2, 'control: main no longer has a manifest');
-  const r = run(o, ['--branch', BRANCH, '--workspace-ref', 'trusted']);
-  assert.strictEqual(r.code, 0, JSON.stringify(r.json));
-  assert.strictEqual(r.json.workspace.ref, 'trusted');
-});
-
 test('the base is the merge-base with the declared base branch, not its tip', () => {
   const o = org({ a: { change: GOOD } });
   const git = gitIn(join(o.root, 'a'));
@@ -188,13 +179,14 @@ test('a declared base branch that does not exist -> that repo is exit 2', () => 
   assert.match(byName(r.json).a.reason, /base branch "nope" not found/);
 });
 
-test('a missing base or a null entry -> exit 2 with a clear reason', () => {
-  const r = run(org({ a: { change: GOOD, spec: { role: 'app' } }, b: { change: GOOD, spec: null } }));
+test('a missing base is that repo\'s exit 2; an entry without a name makes the guide unusable (exit 2)', () => {
+  const r = run(org({ a: { change: GOOD, spec: { role: 'app' } }, b: { change: GOOD } }));
   assert.strictEqual(r.code, 2, JSON.stringify(r.json));
   assert.match(byName(r.json).a.reason, /no base branch declared/);
-  assert.strictEqual(byName(r.json).b.status, 'rejected');
+  const r2 = run(org({ a: { change: GOOD }, b: { change: GOOD, spec: null } }));
+  assert.strictEqual(r2.code, 2);
+  assert.match(r2.json.reason, /no usable org guide/);
 });
-
 test('revision syntax in the manifest base is refused', () => {
   const r = run(org({ a: { change: GOOD, spec: { role: 'app', base: 'main~1' } } }));
   assert.strictEqual(r.code, 2, JSON.stringify(r.json));
@@ -211,17 +203,17 @@ test('--branch must be a branch name (no revision syntax, no options)', () => {
 });
 
 test('a listed repo that is not cloned -> exit 2, not skipped', () => {
-  const r = run(org({ a: { change: GOOD } }, { extraRepos: { ghost: { role: 'app', base: 'main' } } }));
+  const r = run(org({ a: { change: GOOD } }, { extraRepos: [{ name: 'ghost', role: 'app', base: 'main' }] }));
   assert.strictEqual(r.code, 2, JSON.stringify(r.json));
   assert.match(byName(r.json).ghost.reason, /not found/);
 });
 
 test('a listed dir that is not a git repo -> exit 2', () => {
-  const o = org({ a: { change: GOOD } }, { extraRepos: { plain: { role: 'app', base: 'main' } } });
+  const o = org({ a: { change: GOOD } }, { extraRepos: [{ name: 'plain', role: 'app', base: 'main' }] });
   mkdirSync(join(o.root, 'plain'));
   const r = run(o);
   assert.strictEqual(r.code, 2, JSON.stringify(r.json));
-  assert.match(byName(r.json).plain.reason, /not a git repository/);
+  assert.match(byName(r.json).plain.reason, /no \.git directory of its own|not a git repository/);
 });
 
 test('an orphan feature branch (no merge-base) -> exit 2', () => {
@@ -234,25 +226,31 @@ test('an orphan feature branch (no merge-base) -> exit 2', () => {
   assert.match(byName(r.json).a.reason, /no merge-base/);
 });
 
-test('forbidden, invalid-name and non-app entries are rejected and never run', () => {
-  const o = org({ a: { change: GOOD }, c: { change: BROKEN }, h: { change: BROKEN, spec: { role: 'harness', base: 'main' } } },
-    { forbidden: ['c'], extraRepos: { '../x': { role: 'app', base: 'main' } } });
+test('forbidden, invalid-name and non-app entries are rejected and never run; harness entries are not gated', () => {
+  const o = org({ a: { change: GOOD }, c: { change: BROKEN }, d: { change: BROKEN, spec: { role: 'library', base: 'main' } }, h: { change: BROKEN, spec: { role: 'harness', base: 'main' } } },
+    { forbidden: ['c'], extraRepos: [{ name: '../x', role: 'app', base: 'main' }] });
   const r = run(o);
   assert.strictEqual(r.code, 2, JSON.stringify(r.json));
   const s = byName(r.json);
-  for (const n of ['c', '../x', 'h']) { assert.strictEqual(s[n].status, 'rejected', n); assert.strictEqual(s[n].gate, undefined, n); }
+  for (const n of ['c', '../x', 'd']) { assert.strictEqual(s[n].status, 'rejected', n); assert.strictEqual(s[n].gate, undefined, n); }
+  assert.strictEqual(s.h.status, 'skipped'); assert.strictEqual(s.h.gate, undefined);
   assert.strictEqual(s.a.exit, 0);
 });
 
+test('harness entries alone never make the feature indeterminate', () => {
+  const r = run(org({ a: { change: GOOD, harness: 'a-qa', harnessBranch: true } }));
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json));
+  assert.strictEqual(byName(r.json)['a-qa'].status, 'skipped');
+});
 test('a repo symlinked from outside the org folder is rejected', () => {
-  const o = org({ a: { change: GOOD } }, { extraRepos: { link: { role: 'app', base: 'main' } } });
+  const o = org({ a: { change: GOOD } }, { extraRepos: [{ name: 'link', role: 'app', base: 'main' }] });
   const outside = realpathSync(mkdtempSync(join(tmpdir(), 'qk-outside-')));
   const g = repo(join(outside, 'real'), APP_FILES);
   onBranch(g, join(outside, 'real'), GOOD);
   symlinkSync(join(outside, 'real'), join(o.root, 'link'));
   const r = run(o);
   assert.strictEqual(byName(r.json).link.status, 'rejected', JSON.stringify(r.json));
-  assert.match(byName(r.json).link.reason, /outside the org folder/);
+  assert.match(byName(r.json).link.reason, /is a symlink/);
 });
 
 test('repo names with spaces and parentheses work end to end', () => {
@@ -272,20 +270,18 @@ test('a forbidden harness is never checked, and says so', () => {
   assert.ok(r.json.notes.some((n) => /a: harness "a-qa" is forbidden/.test(n)), r.json.notes.join('; '));
 });
 
-test('repos are taken from the committed manifest only (worktree edits ignored)', () => {
+test('repos come from the org guide only: a repo dir the guide does not list is never gated', () => {
   const o = org({ a: { change: GOOD } });
   const z = join(o.root, 'z');
   onBranch(repo(z, APP_FILES), z, BROKEN);
-  write(o.ws, 'workspace.json', JSON.stringify({ version: 1, org: 'Org', repos: { a: { role: 'app', base: 'main' }, z: { role: 'app', base: 'main' } } }));
   const r = run(o);
   assert.strictEqual(r.code, 0, JSON.stringify(r.json));
   assert.deepStrictEqual(r.json.repos.map((x) => x.name), ['a']);
 });
-
-test('missing --branch or an unusable workspace -> exit 2', () => {
+test('missing --branch or an unusable org folder -> exit 2', () => {
   const o = org({ a: { change: GOOD } });
   assert.strictEqual(run(o, []).code, 2);
-  const r = spawnSync('node', [orgGate, '--workspace', join(o.root, 'missing'), '--branch', BRANCH], { encoding: 'utf8' });
+  const r = spawnSync('node', [orgGate, '--org', join(o.root, 'missing'), '--branch', BRANCH], { encoding: 'utf8' });
   assert.strictEqual(r.status, 2);
 });
 
@@ -297,7 +293,7 @@ test('aggregate: a ran result with no exit code is indeterminate', () => {
 test('invoked through a symlinked scripts dir it still runs (no silent exit 0)', () => {
   const link = join(realpathSync(mkdtempSync(join(tmpdir(), 'qk-link-'))), 'scripts');
   symlinkSync(here, link);
-  const r = spawnSync('node', [join(link, 'qk-org-gate.mjs'), '--workspace', '/nonexistent', '--branch', BRANCH], { encoding: 'utf8' });
+  const r = spawnSync('node', [join(link, 'qk-org-gate.mjs'), '--org', '/nonexistent', '--branch', BRANCH], { encoding: 'utf8' });
   assert.strictEqual(r.status, 2, `stdout=${r.stdout}`);
 });
 
@@ -328,34 +324,26 @@ test('every ref is resolved before any gate runs: a repo cannot drop another fro
   assert.ok(r.json.notes.some((n) => /b: .*moved during the run/.test(n)), r.json.notes.join('; '));
 });
 
-test('code executed by a gate that moves the workspace ref makes the feature indeterminate', () => {
+test('code executed by a gate that rewrites the org config makes the feature indeterminate', () => {
   const o = org({ a: { change: GOOD } });
-  const aDir = join(o.root, 'a');
-  const git = gitIn(aDir);
-  git('switch', '-q', BRANCH);
-  write(aDir, 'src/code.mjs', `import { execFileSync } from 'node:child_process';\n`
-    + `execFileSync('git', ['-C', ${JSON.stringify(o.ws)}, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'moved']);\n`
-    + `export const f = () => 1;`);
-  git('commit', '-qam', 'mover'); git('switch', '-q', 'main');
+  attack(o, 'a', `writeFileSync(${JSON.stringify(join(o.root, '.quality-kernel', 'repos', 'a', 'critical-surface.json'))}, JSON.stringify({ criticalGlobs: [], safeGlobs: ['docs/**', 'src/**'] }));`);
   const r = run(o);
   assert.strictEqual(r.code, 2, JSON.stringify(r.json));
-  assert.match(r.json.notes.join(' '), /workspace ref "main" moved during the run/);
+  assert.match(r.json.notes.join(' '), /the org config changed during the run/);
 });
-
-test('--workspace with an empty or missing value -> exit 2', () => {
+test('--org with an empty or missing value -> exit 2', () => {
   const o = org({ a: { change: GOOD } });
-  for (const args of [['--workspace', '', '--branch', BRANCH], ['--branch', BRANCH, '--workspace']]) {
-    const r = spawnSync('node', [orgGate, ...args], { encoding: 'utf8', cwd: o.ws });
+  for (const args of [['--org', '', '--branch', BRANCH], ['--branch', BRANCH, '--org']]) {
+    const r = spawnSync('node', [orgGate, ...args], { encoding: 'utf8', cwd: o.root });
     assert.strictEqual(r.status, 2, `${JSON.stringify(args)}: ${r.stdout}`);
   }
 });
 
-test('each repo reports the workspace commit it was gated with, equal to the pinned sha', () => {
+test('each repo reports the org config pin it was gated with, equal to the pinned one', () => {
   const o = org({ a: { change: GOOD }, b: { change: GOOD } });
   const r = run(o);
-  for (const x of r.json.repos) assert.strictEqual(x.configRef, r.json.workspace.sha, x.name);
+  for (const x of r.json.repos) assert.strictEqual(x.configPin, r.json.org.pin, x.name);
 });
-
 test('a feature branch that exists only on origin, or diverged from it, is exit 2 (not skipped)', () => {
   const o = org({ a: { change: GOOD }, b: { change: GOOD }, c: { change: GOOD } });
   for (const n of ['b', 'c']) {
@@ -373,17 +361,15 @@ test('a feature branch that exists only on origin, or diverged from it, is exit 
 });
 
 test('an invalid harness name is noted and never looked up', () => {
-  const r = run(org({ a: { change: GOOD, spec: { role: 'app', base: 'main', harness: '../outside-qa' } } }));
+  const r = run(org({ a: { change: GOOD } }, { extraRepos: [{ name: '../outside-qa', role: 'harness', base: 'main', harnessOf: 'a' }] }));
   assert.ok(r.json.notes.some((n) => /a: invalid harness name "..\/outside-qa"/.test(n)), r.json.notes.join('; '));
 });
-
-test('a workspace path that is only a subfolder of the workspace repo -> exit 2', () => {
+test('an --org folder without an org guide -> exit 2 naming the missing guide', () => {
   const o = org({ a: { change: GOOD } });
-  mkdirSync(join(o.ws, 'repos', 'sub'), { recursive: true });
-  const r = spawnSync('node', [orgGate, '--workspace', join(o.ws, 'repos'), '--branch', BRANCH], { encoding: 'utf8' });
+  const r = spawnSync('node', [orgGate, '--org', join(o.root, 'a'), '--branch', BRANCH], { encoding: 'utf8' });
   assert.strictEqual(r.status, 2, r.stdout);
+  assert.match(r.stdout, /no usable org guide/);
 });
-
 test('a manifest whose "forbidden" is not an array -> exit 2', () => {
   const r = run(org({ a: { change: GOOD } }, { forbidden: { a: 1 } }));
   assert.strictEqual(r.code, 2, JSON.stringify(r.json));
@@ -401,36 +387,26 @@ function attack(o, name, body, { broken = false } = {}) {
 }
 const sh = (dir, ...a) => `execFileSync('git', ['-C', ${JSON.stringify(dir)}, ${a.map((x) => JSON.stringify(x)).join(', ')}], { stdio: 'ignore' });`;
 
-test("a forged workspace blob for the next repo's contract is caught (never exit 0)", () => {
+test("a weakened config for the next repo, written during the run, is never trusted (never exit 0)", () => {
   const o = org({ a: { change: GOOD }, b: { change: BROKEN } });
-  const forgeJs = `const oid = execFileSync('git', ['-C', ${JSON.stringify(o.ws)}, 'rev-parse', 'main:repos/b/tools.json'], { encoding: 'utf8' }).trim();`
-    + ` const p = ${JSON.stringify(join(o.ws, '.git', 'objects'))} + '/' + oid.slice(0, 2) + '/' + oid.slice(2);`
-    + ` const body = Buffer.from(JSON.stringify({ verify: 'true', productionGlobs: ['src/**'] }));`
-    + ` chmodSync(p, 0o644); writeFileSync(p, deflateSync(Buffer.concat([Buffer.from('blob ' + body.length + '\\0'), body])));`;
-  attack(o, 'a', forgeJs);
+  attack(o, 'a', `writeFileSync(${JSON.stringify(join(o.root, '.quality-kernel', 'repos', 'b', 'tools.json'))}, JSON.stringify({ verify: 'true', productionGlobs: ['src/**'] }));`);
   const r = run(o);
   assert.notStrictEqual(r.code, 0, JSON.stringify(r.json));
   const b = byName(r.json).b;
   assert.notStrictEqual(b.exit, 0, JSON.stringify(b));
-  assert.match(String(b.reason), /does not hash to its id|immutable base harness failed/);
+  assert.match(String(b.offPin || ''), /not the pinned/);
+  assert.match(r.json.notes.join(' '), /the org config changed during the run/);
 });
-
-test('every repo is gated against the pinned workspace sha, even if the ref moves to a weaker commit', () => {
+test('a config symlinked away during the run is refused, never followed', () => {
   const o = org({ a: { change: GOOD }, b: { change: BROKEN } });
-  const weak = `const { execFileSync: x } = { execFileSync };`
-    + ` x('git', ['-C', ${JSON.stringify(o.ws)}, 'switch', '-q', '-c', 'weak-' + process.pid], { stdio: 'ignore' });`
-    + ` writeFileSync(${JSON.stringify(join(o.ws, 'repos', 'b', 'tools.json'))}, JSON.stringify({ verify: 'true', productionGlobs: ['src/**'] }));`
-    + ` x('git', ['-C', ${JSON.stringify(o.ws)}, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qam', 'weak'], { stdio: 'ignore' });`
-    + ` const w = x('git', ['-C', ${JSON.stringify(o.ws)}, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();`
-    + ` x('git', ['-C', ${JSON.stringify(o.ws)}, 'switch', '-q', 'main'], { stdio: 'ignore' });`
-    + ` x('git', ['-C', ${JSON.stringify(o.ws)}, 'update-ref', 'refs/heads/main', w], { stdio: 'ignore' });`;
-  attack(o, 'a', weak);
+  const weak = join(o.root, 'weak-tools.json');
+  writeFileSync(weak, JSON.stringify({ verify: 'true', productionGlobs: ['src/**'] }));
+  const target = join(o.root, '.quality-kernel', 'repos', 'b', 'tools.json');
+  attack(o, 'a', `const { unlinkSync, symlinkSync } = await import('node:fs'); unlinkSync(${JSON.stringify(target)}); symlinkSync(${JSON.stringify(weak)}, ${JSON.stringify(target)});`);
   const r = run(o);
-  assert.strictEqual(byName(r.json).b.exit, 1, JSON.stringify(r.json));
-  for (const x of r.json.repos) assert.strictEqual(x.configSha, r.json.workspace.sha, x.name);
-  assert.strictEqual(r.code, 1);
+  assert.notStrictEqual(byName(r.json).b.exit, 0, JSON.stringify(r.json));
+  assert.notStrictEqual(r.code, 0);
 });
-
 test('a moved ref on a GREEN repo makes it indeterminate (exit 2), never a pass', () => {
   const o = org({ a: { change: GOOD }, b: { change: GOOD } });
   attack(o, 'a', sh(join(o.root, 'b'), 'branch', '-D', BRANCH));
@@ -467,37 +443,36 @@ test('a moved ref on a critical (exit 3) repo makes it 2, not 3', () => {
   assert.strictEqual(r.code, 2);
 });
 
-test('a real failure stays exit 1 when the workspace ref moves', () => {
+test('a real failure stays exit 1 when the org config changes during the run', () => {
   const o = org({ a: { change: GOOD } });
-  attack(o, 'a', sh(o.ws, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'moved'), { broken: true });
+  attack(o, 'a', `writeFileSync(${JSON.stringify(join(o.root, '.quality-kernel', 'repos', 'a', 'extra.json'))}, '{}');`, { broken: true });
   const r = run(o);
   assert.strictEqual(r.code, 1, JSON.stringify(r.json));
-  assert.match(r.json.notes.join(' '), /workspace ref "main" moved during the run/);
+  assert.match(r.json.notes.join(' '), /the org config changed during the run/);
 });
-
 test('a manifest whose "forbidden" holds non-string entries -> exit 2', () => {
   assert.strictEqual(run(org({ a: { change: GOOD } }, { forbidden: [['a']] })).code, 2);
 });
 
-test("per-file fallback in an org run: repo-own tools.json + workspace surface only -> gated normally (exit 0)", () => {
+test("per-file fallback in an org run: repo-own tools.json + org surface only -> gated normally (exit 0)", () => {
   const o = org({ a: { change: GOOD, contract: false } });
   const aDir = join(o.root, 'a'); const g = gitIn(aDir);
   write(aDir, '.quality-kernel/tools.json', JSON.stringify(TOOLS)); g('add', '-A'); g('commit', '-qm', 'own tools');
   g('switch', '-q', BRANCH); g('merge', '-q', '--no-edit', 'main'); g('switch', '-q', 'main');
-  write(o.ws, 'repos/a/critical-surface.json', JSON.stringify(SURFACE)); o.wsGit('add', '-A'); o.wsGit('commit', '-qm', 'surface only');
+  write(o.root, '.quality-kernel/repos/a/critical-surface.json', JSON.stringify(SURFACE));
   const r = run(o);
   assert.strictEqual(r.code, 0, JSON.stringify(r.json));
   assert.strictEqual(byName(r.json).a.offPin, undefined);
 });
 
-test('offPin: a workspace-sourced verdict not taken at the pinned sha is never trusted (0->2, 3->2, 1 stays 1)', () => {
-  // Copy the scripts and replace qk-gate with a stub that reports a foreign workspace sha.
+test('offPin: an org-sourced verdict not taken at the pinned config is never trusted (0->2, 3->2, 1 stays 1)', () => {
+  // Copy the scripts and replace qk-gate with a stub that reports a foreign org pin.
   const o = org({ a: { change: GOOD } });
   for (const stubExit of [0, 3, 1]) {
     const dir = join(realpathSync(mkdtempSync(join(tmpdir(), 'qk-stub-'))), 'scripts');
     cpSync(here, dir, { recursive: true });
-    writeFileSync(join(dir, 'qk-gate.mjs'), `process.stdout.write(JSON.stringify({ gate: 'x', referee: { reason: 'stub', evidence: { toolsSource: { source: 'workspace', ref: 'f'.repeat(40), sha: 'f'.repeat(40) } } } }) + '\\n'); process.exit(${stubExit});\n`);
-    const r = spawnSync('node', [join(dir, 'qk-org-gate.mjs'), '--workspace', o.ws, '--branch', BRANCH], { encoding: 'utf8' });
+    writeFileSync(join(dir, 'qk-gate.mjs'), `process.stdout.write(JSON.stringify({ gate: 'x', referee: { reason: 'stub', evidence: { toolsSource: { source: 'org', org: 'x', pin: 'f'.repeat(64) } } } }) + '\\n'); process.exit(${stubExit});\n`);
+    const r = spawnSync('node', [join(dir, 'qk-org-gate.mjs'), '--org', o.root, '--branch', BRANCH], { encoding: 'utf8' });
     const json = JSON.parse(r.stdout.trim().split('\n').pop());
     assert.strictEqual(r.status, stubExit === 1 ? 1 : 2, `stub ${stubExit}: ${r.stdout}`);
     assert.match(byName(json).a.offPin, /not the pinned/);

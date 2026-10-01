@@ -200,3 +200,19 @@ test('an existing SYSTEM-MAP.md is backed up before it is replaced', () => {
   const backups = readdirSync(join(root, '.claude', 'org-workspace', 'backups'));
   assert.ok(backups.includes('SYSTEM-MAP.md.s1'), backups.join(','));
 });
+
+test('apply also writes the machine copy .claude/org-workspace/guide.json (what quality-kernel reads)', () => {
+  const root = org();
+  run(root);
+  assert.deepStrictEqual(JSON.parse(readFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), 'utf8')), GUIDE);
+});
+
+// A guide update without a new map (the usual /org-learn case) keeps the last map's summary.
+test('re-applying without --integrations keeps the who-calls-whom summary of the last map', () => {
+  const root = org();
+  run(root, { edges: [EDGE] });
+  run(root, null, { ...GUIDE, threads: [{ text: 'a new thread', source: 's' }] });
+  const s = claudeOf(root);
+  assert.match(s, /- `web` → `api`: 1/);
+  assert.match(s, /a new thread/);
+});

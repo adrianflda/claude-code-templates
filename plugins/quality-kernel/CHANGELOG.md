@@ -15,8 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The automatic gate-config generator (M1: ws-propose / ws-verify / ws-command) is retired — it
   failed its adversarial gate five times and is not worth its risk for a handful of repos; write
   `tools.json` by hand. Its history stays in git (commits de74879a, 671ac559, 5d39245e).
-- Kept: the referee's opt-in RED canary (`--canary`, `scripts/canary.mjs`), workspace mode
-  (`--workspace`, `qk-org-gate`) and `orgRepoDir` in workspace.mjs.
+- Kept: the referee's opt-in RED canary (`--canary`, `scripts/canary.mjs`).
+
+### Changed — workspace mode becomes org mode (no workspace repo)
+- `--workspace <repo> [--workspace-ref]` is replaced by `--org <dir>`: the repos of the system come
+  from the org guide that org-workspace writes (`<org>/.claude/org-workspace/guide.json`), and each
+  app's gate config lives in `<org>/.quality-kernel/repos/<name>/{tools,critical-surface}.json`,
+  outside every product repo (`scripts/org.mjs` replaces `workspace.mjs`).
+- The config is pinned by content (`orgPin`, sha256 of the guide and every config file): qk-gate
+  pins once and passes `--org-pin` to route and referee (each refuses a mismatch; a caller-supplied
+  pin is ignored), and re-checks after the run. `qk-org-gate --org <dir> --branch <name>` plans,
+  runs and re-checks every listed app; harness entries are not gated.
+- Symlinks anywhere in the org config are refused; a listed repo must be a plain repo directly
+  under the org folder with its own `.git` (`orgRepoDir`).
+- "Working as one system": `/forge` and `/develop` read the org guide and the `SYSTEM-MAP.md`
+  sections of the repos they touch; cross-repo consumers become acceptance criteria (specifier) and
+  QA closes with `qk-org-gate`.
+- Not yet reviewed adversarially (committed at Adrián's request to move on): the org-mode trust
+  change (git-pinned config -> content-pinned files outside the repos). Real run: mbvs-client-v2
+  gate pass in org mode with the RED canary red (26 test files sabotaged), 2026-10-01.
 
 ## [0.9.0] - 2026-10-01
 
