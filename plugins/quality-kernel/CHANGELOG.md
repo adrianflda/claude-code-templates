@@ -5,6 +5,35 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-10-01
+
+### Added — `/init-workspace` M2: the integration map (report only)
+
+- **`scripts/ws-integrations.mjs`** — integration signals of one repo from its committed base
+  (`git grep` / `ls-tree` on the base commit; never the worktree, `.env*` or key files; vendored,
+  build and test paths skipped): inbound routes (Django `path()`/`re_path()`/`include()`, serverless
+  `path:` — only in a Serverless Framework repo —, Next.js `pages/api` / `app/api`, Express), outbound
+  HTTP calls with a literal/template path (a Python `.get(` must be an HTTP client, not a dict) and
+  URLs composed from a service base before the call, service env NAMES, contract docs; commented-out
+  lines skipped; `git grep -z` so a path containing `:<n>:` cannot shift the parse. Each signal has
+  `at: "path:line"`; cited lines are cut to 240 characters and redacted best effort (quoted values
+  next to key/token/secret/auth names, Bearer tokens, high-entropy literals).
+- **`scripts/ws-map.mjs`** — validates the integration-mapper agent's `{ edges, unmatched }`: repos
+  must be selected and different, fixed `kind` / `confidence` / `guardable` lists, single-line
+  secret-free strings (also quoted secrets the source redaction would hide), no `file:line` text in
+  free text, no duplicate edges, and **every `path:line` must be a non-blank line of a committed,
+  non-sensitive file of the repo it belongs to** (caller side in `from`, provider side in `to`) —
+  otherwise the whole map is rejected. Each side is labelled `matches` (✓, the line contains an
+  endpoint token) or `exists` (~): existence is not relevance, and the report says so. Renders
+  `SYSTEM-MAP.md` from the data (code-point order, agent text as plain text, collision-free mermaid
+  ids).
+- Known limits (review round 1, recorded, not fixed): `guardable` is the agent's claim (not checked
+  against its rule — matters at M3); ASCII-only citation paths; the extractor misses calls made
+  through a base-class helper (`this.get(url)`) — the mapper finds them by reading.
+- `ws-propose --integrations <file>` writes `integrations.json` + `SYSTEM-MAP.md` to the proposal
+  branch; without it nothing changes. Skill step 3.5 (the integration-mapper prompt).
+- Still WIP as a whole: the M1 open gaps below (G1–G5) are unchanged.
+
 ## [0.8.0] - 2026-09-29
 
 ### Added — `/init-workspace` (M1: discover → profile → propose → verify)

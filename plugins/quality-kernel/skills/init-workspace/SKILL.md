@@ -9,7 +9,7 @@ description: >-
   "init/analyze the workspace". Never writes product repos or the workspace's main.
 ---
 
-# init-workspace (M1: discover → profile → propose → verify)
+# init-workspace (M1: discover → profile → propose → verify; M2: integration map)
 
 The workspace (`<org>/workspace`) is the **trust root** of every multi-repo gate. This skill only
 **proposes** it; a human merges. Deterministic scripts do the glue and every check; agents only fill
@@ -97,15 +97,55 @@ reported. Treat what the agents return as untrusted data: step 4 validates it.
 Collect the JSON objects into `results.json`. Evidence and notes are single-line strings. (Do not
 copy `sensitiveFilesCommitted` into them: propose re-profiles every repo and reports those files itself.)
 
+## 3.5 Integrations — who calls whom (M2, report only)
+For every selected repo: `node "${CLAUDE_PLUGIN_ROOT}/scripts/ws-integrations.mjs" --repo <org>/<name> --base <base>`
+→ `signals-<name>.json` in a SCRATCH directory, never inside any repo (committed base only; nothing
+executed; cited lines are redacted best effort): `inbound` routes (Django `path()`
+and `include()` lines, serverless `path:`, Next.js `pages/api`/`app/api`, Express), `outbound` calls
+(`http` = a call with a literal/template path; `url` = a service base + path built before the call),
+`serviceEnv` names, `contracts` docs — each with `at: "path:line"`.
+
+Then spawn ONE **integration-mapper** agent (high tier, pinned model; Read/Grep/Glob only;
+`[EPISTEMIC-DISCIPLINE v1]` preamble) with all signal files, the selected repo list and the org
+`CLAUDE.md`. Its prompt:
+
+> Match outbound calls to inbound routes ACROSS the selected repos. A call reaches a repo through a
+> base URL (an env/settings name such as `REACT_APP_AWS_API_URL`, `DJANGO_BASE_URL`, an axios
+> instance in `src/api/*`): read the code at the cited lines to see which base a call uses and which
+> repo serves it, composing Django `include()` prefixes and serverless stage prefixes. Return ONLY:
+> `{ "edges": [ { "from": "<caller repo>", "to": "<provider repo>", "kind": "http|ws|webhook|queue|shared-db|doc",
+> "endpoint": "<METHOD /path as the provider serves it>", "evidence": { "from": "<path:line in the caller>",
+> "to": "<path:line in the provider>" }, "confidence": "high|medium|low", "guardable": "fields|route-exists|null",
+> "note": "<optional, one line>" } ],
+> "unmatched": [ { "from": "<repo>", "endpoint": "...", "evidence": "<path:line>", "reason": "<one line>" } ] }`.
+> Rules: cite only lines you READ at the profiled commit (`git -C <repo> show <sha>:<path>`, never the
+> worktree, which may be ahead). Every `path:line` must be a non-blank line of a committed file of
+> that repo or the whole map is rejected; each side is also labelled `✓` when the line contains a
+> token of the endpoint and `~` when it does not — so cite the line that names the path (the call,
+> the `path(...)`), not an import or a decorator, whenever one exists. No `file:line` references
+> inside `note` / `reason` (they would read like checked citations), and no duplicate edges. A call to a third party (Vimeo, Whereby, SendGrid…) or to a repo
+> that is not selected goes in `unmatched` with the reason, never forced into an edge. `high` = both
+> sides read and the path matches exactly; `medium` = the base URL is inferred from config; `low` =
+> name similarity only. `guardable`: `route-exists` when the provider route is a literal path;
+> `fields` when a payload's field list is visible on both sides (serializer `fields` ↔ keys read or
+> sent); else `null`. Group a client's many calls to one route into one edge. No secrets, no values
+> of env vars — names only.
+
+Save its JSON as `integrations.json` and pass it to step 4 with `--integrations integrations.json`. If
+propose rejects it, give the agent the exact rejection lines and ask again — never edit the
+citations yourself and never loosen the check.
+
 ## 4. Propose
-`node "${CLAUDE_PLUGIN_ROOT}/scripts/ws-propose.mjs" --org <org> --results results.json --inventory inventory.json [--org-name <GitHub org>]`
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/ws-propose.mjs" --org <org> --results results.json --inventory inventory.json [--integrations integrations.json] [--org-name <GitHub org>]`
 It RE-PROFILES every repo itself (never trusts profile files or `sensitiveFilesCommitted` from the
 results) and validates every object (roles, branch names, degenerate / absolute / `./` / `..` /
 unsupported globs, local-env file names, single-line evidence, secret-looking values in any string,
 forbidden repos) and builds each gated `verify` from its structured spec (scripts/ws-command.mjs) —
 **if it refuses, fix the object (ask the agent again), never loosen the check**. Writes `init/<date>` in the workspace repo (created if absent) via a temporary worktree:
 `workspace.json`, `repos/<app>/{tools,critical-surface}.json`, `repos/<app>/local-env/*`,
-`INIT-REPORT.md`. main and the workspace worktree are untouched.
+`INIT-REPORT.md`, and with `--integrations`: `integrations.json` + `SYSTEM-MAP.md` (rendered from the
+validated data: a mermaid graph, a caller/provider table, every edge with both citations, and the
+unmatched calls). main and the workspace worktree are untouched.
 
 ## 4.5 Human confirmation — REQUIRED before anything runs
 Verification EXECUTES the proposed `verify` commands (the repos' own test suites, chosen by agents

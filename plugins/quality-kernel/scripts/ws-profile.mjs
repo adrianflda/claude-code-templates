@@ -20,7 +20,7 @@ const SENSITIVE_BASENAME = [
   /recovery-codes/i, /^id_(rsa|dsa|ecdsa|ed25519)/i, /^secrets?\.(json|ya?ml|env|txt|toml)$/i, /service-account.*\.json$/i,
   /project_key.*\.json$/i, /adminsdk.*\.json$/i, /^\.npmrc$/i, /^\.pgpass$/i, /^\.netrc$/i, /^kubeconfig/i,
 ];
-const isSensitive = (p) => /(^|\/)\.aws\//.test(p) || SENSITIVE_BASENAME.some((re) => re.test(p.split('/').pop()));
+export const isSensitive = (p) => /(^|\/)\.aws\//.test(p) || SENSITIVE_BASENAME.some((re) => re.test(p.split('/').pop()));
 // Redact secret-looking values in command strings copied into the profile (e.g. npm test scripts).
 const SECRET_TOKENS = [/\bAKIA[0-9A-Z]{16}\b/g, /\bASIA[0-9A-Z]{16}\b/g, /\bgh[pousr]_[A-Za-z0-9]{20,}/g, /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
   /\bsk[-_](live|test)?[-_]?[A-Za-z0-9]{16,}/g, /\bxox[baprs]-[A-Za-z0-9-]{10,}/g, /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g];
@@ -60,7 +60,7 @@ function envRefs(dir, sha) {
 
 const hasRef = (dir, ref) => git(dir, ['rev-parse', '--verify', '-q', '--end-of-options', `${ref}^{commit}`]).status === 0;
 
-function resolveBase(dir, base) {
+export function resolveBase(dir, base) {
   const candidates = base ? [base] : BASE_PREFERENCE;
   for (const b of candidates) {
     for (const ref of [`refs/remotes/origin/${b}`, `refs/heads/${b}`]) if (hasRef(dir, ref)) return { base: b, ref };

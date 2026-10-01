@@ -21,6 +21,7 @@ import { isRepoName, orgRepoDir, readWorkspaceManifest } from './workspace.mjs';
 import { isEntrypoint } from './entrypoint.mjs';
 import { buildVerify } from './ws-command.mjs';
 import { profile as profileRepo } from './ws-profile.mjs';
+import { validateIntegrations, normalize, renderSystemMap } from './ws-map.mjs';
 
 const ROLES = ['app', 'harness', 'library', 'docs', 'other'];
 const STATES = ['native', 'docker-existing', 'needs-local-env', 'no-tests'];
@@ -168,7 +169,7 @@ const isOwnRepo = (dir) => { const t = git(dir, ['rev-parse', '--show-toplevel']
 const hasRef = (dir, ref) => git(dir, ['rev-parse', '--verify', '-q', '--end-of-options', ref]).status === 0;
 const KNOWN_TOOLS_KEYS = new Set(['$comment', 'verify', 'verifySpec', 'productionGlobs', 'testGlobs', 'linkPaths', 'localEnv']);
 
-export function propose({ org, date, results, author, orgName = null, forbidden = [], skipped = [] } = {}) {
+export function propose({ org, date, results, author, orgName = null, forbidden = [], skipped = [], integrations = null } = {}) {
   if (!org || !existsSync(org)) throw new Error(`org folder not found: ${org}`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) throw new Error('date must be YYYY-MM-DD');
   for (const f of forbidden) if (!isRepoName(f)) throw new Error(`invalid forbidden name: ${f}`);
@@ -205,6 +206,16 @@ export function propose({ org, date, results, author, orgName = null, forbidden 
   // Skipped entries come from the inventory: plain names, single-line, secret-free reasons only.
   const safeSkipped = (Array.isArray(skipped) ? skipped : []).filter((x) => x && isRepoName(x.name) && typeof x.reason === 'string')
     .map((x) => ({ name: x.name, reason: secretIn(x.reason) ? '(reason withheld: secret-looking text)' : x.reason.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300) }));
+  // Integration map (M2): validated against the committed base each repo was just profiled at.
+  let map = null;
+  if (integrations !== null) {
+    const mapRepos = Object.fromEntries((Array.isArray(results) ? results : [])
+      .filter((r) => r && isRepoName(r.name) && profiles[r.name] && profiles[r.name].facts)
+      .map((r) => [r.name, { dir: join(org, r.name), sha: profiles[r.name].facts.sha, base: profiles[r.name].facts.base }]));
+    const { errors: mapProblems, checks } = validateIntegrations(integrations, { repos: mapRepos, secretIn });
+    problems.push(...mapProblems.map((m) => `integrations: ${m}`));
+    if (!mapProblems.length) map = { repos: Object.fromEntries(Object.entries(mapRepos).map(([n, r]) => [n, { base: r.base, sha: r.sha }])), ...normalize(integrations, checks) };
+  }
   if (problems.length) throw new Error(`invalid profiler output:\n- ${problems.join('\n- ')}`);
 
   let created = false;
@@ -258,6 +269,10 @@ export function propose({ org, date, results, author, orgName = null, forbidden 
     const data = { date, branch, results, sensitive, skipped: [...safeSkipped, ...droppedForbidden.map((n) => ({ name: n, reason: 'removed from repos: forbidden' }))], gated, verification: null };
     put('init-report.json', JSON.stringify(data, null, 2) + '\n');
     put('INIT-REPORT.md', renderReport(data));
+    if (map) {
+      put('integrations.json', JSON.stringify({ $comment: `Proposed by /init-workspace ${date}. Review before merging.`, date, ...map }, null, 2) + '\n');
+      put('SYSTEM-MAP.md', renderSystemMap({ date, branch, ...map }));
+    }
     git(wt, ['add', '-A']);
     const c = git(wt, [...commitArgs(author), 'commit', '-q', '-m', `✨ feat: workspace proposal from /init-workspace (${date})`]);
     if (c.status !== 0) throw new Error(`cannot commit the proposal: ${(c.stderr || '').trim()}`);
@@ -283,7 +298,8 @@ if (isEntrypoint(import.meta.url)) {
     const skipped = inv ? inv.candidates.filter((c) => c.listed !== false && !c.suggested).map((c) => ({ name: c.name, reason: `${c.kind || (c.forbidden ? 'forbidden' : 'excluded')}${c.reasons && c.reasons.length ? ` — ${c.reasons.join('; ')}` : ''}` })) : [];
     const forbidden = [...(opt('--forbid') ? opt('--forbid').split(',') : []), ...(inv && Array.isArray(inv.forbidden) ? inv.forbidden : [])];
     // sensitiveFilesCommitted in results.json is ignored: propose re-profiles each repo itself.
-    const r = propose({ org: opt('--org'), date: opt('--date') || new Date().toISOString().slice(0, 10), results: results.map(({ sensitiveFilesCommitted, ...x }) => x), orgName: opt('--org-name') || null, forbidden: [...new Set(forbidden)], skipped });
+    const integrations = opt('--integrations') ? JSON.parse(readFileSync(opt('--integrations'), 'utf8')) : null;
+    const r = propose({ org: opt('--org'), date: opt('--date') || new Date().toISOString().slice(0, 10), results: results.map(({ sensitiveFilesCommitted, ...x }) => x), orgName: opt('--org-name') || null, forbidden: [...new Set(forbidden)], skipped, integrations });
     process.stdout.write(JSON.stringify(r, null, 2) + '\n');
   } catch (e) { process.stderr.write(`${e.message}\n`); process.exit(2); }
 }

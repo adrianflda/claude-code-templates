@@ -1,5 +1,5 @@
 ---
-description: Initialize the org workspace for multi-repo quality-kernel — discover and profile the repos, verify each proposed gate config by re-execution, and write the proposal to a new workspace branch for human review.
+description: Initialize the org workspace for multi-repo quality-kernel — discover and profile the repos, map who calls whom (SYSTEM-MAP.md, every connection cited on both sides), verify each proposed gate config by re-execution, and write the proposal to a new workspace branch for human review.
 argument-hint: "[--org <dir>] [--repos a,b,c] [--exclude x,y]"
 ---
 
@@ -14,6 +14,8 @@ system, their base branches, how their tests run and what is critical.
 - The tool writes nothing into product repos (verification runs with `--no-ledger`; the suites run in
   temp copies — only `linkPaths` such as `node_modules` are the real dirs, where a suite may cache).
   The proposal goes to a NEW branch `init/<date>` of `<org>/workspace`; never write or merge its `main`.
+- The integration map (`SYSTEM-MAP.md`, `integrations.json`) is report only: it is built from the
+  committed code, every citation is checked, and nothing in it is enforced yet.
 - Before verification, show the user every proposed `verify` command and wait for an explicit OK —
   verification executes them. Then every gate config is re-executed and labelled; report the labels
   as they are.

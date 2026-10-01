@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.8.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.9.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see `docs/agentic-harness/validation-panel.*`).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -210,7 +210,7 @@ Automatic, always on (no invocation needed):
   "done" claim can be checked against a real verification event newer than the
   last edit. v0 records; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.8.0)
+## Gate status — teeth vs. prose (v0.9.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
@@ -261,7 +261,17 @@ human. Entries must be plain repos under the org folder with their own `.git` (n
 alternates or linked worktree). A repo whose
 tests need services it cannot start locally gets a dockerization proposal under
 `repos/<name>/local-env/`. Nothing is trusted until a human merges the branch into `main`.
-Spec: `docs/agentic-harness/spec-init-workspace.v1.md` (M1; the integration map is M2).
+**Integration map (M2, 0.9.0, report only).** `scripts/ws-integrations.mjs` extracts each repo's
+inbound routes, outbound calls, service env names and contract docs from its committed base (each
+with `path:line`; nothing executed); one integration-mapper agent matches them across the selected
+repos; `ws-propose --integrations` checks that every cited line is a non-blank line of a committed
+file of the right repo (a citation to a missing file or line rejects the map) and labels each side
+`✓` (the line contains a token of the endpoint) or `~` (it only exists). That is what is checked —
+a line that exists is not proof it is the right one, so `~` citations need a human read. It writes
+`integrations.json` + `SYSTEM-MAP.md` (mermaid graph, caller/provider table, every edge with both
+labelled citations, unmatched calls; agent text rendered as plain text) to the proposal branch.
+Nothing is enforced yet — seams are M3.
+Spec: `docs/agentic-harness/spec-init-workspace.v1.md` (M1, M2; seams are M3).
 
 ### Workspace mode (several repos in one org folder)
 
