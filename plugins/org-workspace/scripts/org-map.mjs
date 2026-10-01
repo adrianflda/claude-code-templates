@@ -1,6 +1,6 @@
-// /init-workspace phase 2 output — the integration map (M2, report only: no seams, nothing executed).
+// /org-init output — the integration map (report only: nothing executed, nothing enforced).
 //
-// The integration-mapper agent matches the signals of ws-integrations.mjs across the selected repos
+// The integration-mapper agent matches the signals of org-integrations.mjs across the selected repos
 // and returns { edges, unmatched }. This module validates that JSON deterministically and renders
 // SYSTEM-MAP.md from it (never the agent's prose):
 //   - every repo named is one of the selected, profiled repos, and an edge joins two different repos;
@@ -13,11 +13,11 @@
 //   - kinds, confidence and guardable come from fixed lists; strings are single-line, bounded and
 //     secret-free; `file:line` references inside free text lose their line number (only evidence
 //     citations are checked, so nothing else may look checked).
-// Spec: docs/agentic-harness/spec-init-workspace.v1.md §4 phase 2, §8 (guardable seam types).
+// guardable: which seam type could later guard the edge (fields / route-exists) — a hint only.
 
 import { readVerifiedBlob } from './safe-git.mjs';
-import { isSensitive } from './ws-profile.mjs';
-import { hasValueSecret } from './ws-integrations.mjs';
+import { isSensitive } from './org-profile.mjs';
+import { hasValueSecret } from './org-integrations.mjs';
 
 export const KINDS = ['http', 'ws', 'webhook', 'queue', 'shared-db', 'doc'];
 const CONFIDENCE = ['high', 'medium', 'low'];
@@ -152,8 +152,8 @@ export function renderSystemMap({ date, branch, repos, edges, unmatched }) {
   const both = edges.filter((x) => x.check && x.check.from === 'matches' && x.check.to === 'matches').length;
   const L = [
     `# System map — ${date}`, '',
-    `Proposed by \`/init-workspace\` on branch \`${tick(branch)}\` — NOT merged. Report only: nothing here is`,
-    'enforced yet (seams are M3).', '',
+    `Written by \`/org-init\` from the committed code of each repo (${tick(branch)}). Report only: nothing here`,
+    'is enforced. Read only the section of the repos your task touches.', '',
     'How far each connection is checked: both cited lines exist (non-blank) in the committed code of the',
     'right repo. `✓` = the cited line also contains a token of the endpoint; `~` = the line exists but is',
     'an indirect citation (an `include()`, a decorator, a call through a variable) — read it before relying',

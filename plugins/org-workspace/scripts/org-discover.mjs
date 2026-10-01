@@ -1,18 +1,21 @@
 #!/usr/bin/env node
-// /init-workspace phase 0 — discover the repos of an org folder and classify them.
+// /org-init phase 0 — discover the repos of an org folder and classify them.
 //
 // Reads git METADATA only (is it a work tree, remote, branches, top-level entry names of HEAD);
 // never file contents. Plain files at the org root (credentials, keys, notes) are not listed, and
 // hidden dirs are skipped. With an explicit repo list, every other dir is reported by name only and
 // never opened.
 //
-// Usage: ws-discover.mjs --org <dir> [--repos a,b] [--exclude x,y] [--forbid q,r]
-// Prints the inventory JSON. Spec: docs/agentic-harness/spec-init-workspace.v1.md §4 phase 0.
+// Forbidden repos come from --forbid and from the org guide block in <org>/CLAUDE.md; they are
+// listed by name and never opened.
+//
+// Usage: org-discover.mjs --org <dir> [--repos a,b] [--exclude x,y] [--forbid q,r]
+// Prints the inventory JSON.
 
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { git } from './safe-git.mjs';
-import { isRepoName, readWorkspaceManifest } from './workspace.mjs';
+import { isRepoName, readGuideForbidden } from './org-guide.mjs';
 import { isEntrypoint } from './entrypoint.mjs';
 
 const BASE_CANDIDATES = ['development', 'dev', 'develop', 'staging', 'main', 'master'];
@@ -75,7 +78,6 @@ function analyze(org, name, entries) {
   if (HARNESS_NAME.test(name)) hints.push('name');
   for (const f of topNames) if (HARNESS_FILE.test(f)) hints.push(f);
   c.harness = { likely: hints.length > 0, hints };
-  if (name === 'workspace') { c.kind = 'workspace'; c.reasons.push(topNames.includes('workspace.json') ? 'the workspace control repo' : 'the workspace control repo (no manifest on HEAD yet)'); }
   if (c.kind === 'repo' && COPY_NAME.test(name)) { c.kind = 'copy'; c.reasons.push('name marks it as a copy'); }
   return c;
 }
@@ -88,20 +90,9 @@ export function discover({ org, repos, exclude = [], forbid = [] } = {}) {
   const entries = all.map((e) => e.name);
   const dirs = all.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name).sort();
 
-  // The deny set comes FIRST, so forbidden / excluded dirs are never opened. An existing workspace
-  // whose committed manifest is unusable must not silently deny nothing: fail closed.
-  const wsDir = join(root, 'workspace');
-  let ws = null;
-  if (existsSync(wsDir)) {
-    const top = out(wsDir, ['rev-parse', '--show-toplevel']);
-    if (!top || realpathSync(top) !== realpathSync(wsDir)) throw new Error('workspace/ is not a git repository of its own — its rules cannot be trusted; make it a repo (or remove it) before running init');
-    if (!hasRef(wsDir, 'refs/heads/main')) throw new Error('the workspace repo has no main branch — the trusted rules are read from main only');
-    ws = readWorkspaceManifest(wsDir, 'main');
-    const hasManifest = git(wsDir, ['cat-file', '-e', 'main:workspace.json']).status === 0;
-    if (!ws && hasManifest) throw new Error(`workspace/workspace.json on main is unusable (not version 1, or a malformed repos/forbidden list) — fix it before running init; the deny list cannot be trusted`);
-  }
+  // The deny set comes FIRST, so forbidden / excluded dirs are never opened.
   const forbiddenBy = new Map(forbid.map((n) => [n, 'option']));
-  if (ws) for (const n of ws.forbidden) if (!forbiddenBy.has(n)) forbiddenBy.set(n, 'workspace');
+  for (const n of readGuideForbidden(root)) if (!forbiddenBy.has(n)) forbiddenBy.set(n, 'CLAUDE.md');
 
   const listed = Array.isArray(repos) && repos.length ? [...new Set(repos)] : null;
   const candidates = [];
@@ -111,7 +102,7 @@ export function discover({ org, repos, exclude = [], forbid = [] } = {}) {
     return null;
   };
   if (listed) {
-    for (const name of dirs) if (!listed.includes(name)) candidates.push(name === 'workspace' && ws ? { name, listed: false, readForRules: true } : { name, listed: false });
+    for (const name of dirs) if (!listed.includes(name)) candidates.push({ name, listed: false });
     for (const name of listed) candidates.push(denied(name) || analyze(root, name, entries));
   } else {
     for (const name of dirs) candidates.push(denied(name) || analyze(root, name, entries));
@@ -136,7 +127,7 @@ export function discover({ org, repos, exclude = [], forbid = [] } = {}) {
     c.forbidden = false;
     c.suggested = c.kind === 'repo';
   }
-  return { org: root, selectionMode: listed ? 'listed' : 'all', workspace: ws ? { dir: ws.dir, sha: ws.sha } : null, forbidden: [...forbiddenBy.keys()].sort(), candidates };
+  return { org: root, selectionMode: listed ? 'listed' : 'all', forbidden: [...forbiddenBy.keys()].sort(), candidates };
 }
 
 if (isEntrypoint(import.meta.url)) {

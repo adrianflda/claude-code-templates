@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.9.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.10.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see `docs/agentic-harness/validation-panel.*`).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -210,7 +210,7 @@ Automatic, always on (no invocation needed):
   "done" claim can be checked against a real verification event newer than the
   last edit. v0 records; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.9.0)
+## Gate status — teeth vs. prose (v0.10.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
@@ -238,40 +238,15 @@ Copy the examples into your repo's `.quality-kernel/`:
   blast-radius override. If absent, `/forge` treats anything outside
   docs/tests/styling/tooling as critical (fail-safe).
 
-### `/init-workspace` — set up workspace mode
+### Org orientation lives in `org-workspace`
 
-`/init-workspace [--org <dir>] [--repos a,b,c] [--exclude x,y]` is the init step for working across
-repos: it discovers the org folder's repos (`scripts/ws-discover.mjs`, git metadata only; with
-`--repos` nothing else is opened), profiles each one from its committed base branch
-(`scripts/ws-profile.mjs`; `.env*` / key files are reported by name, never read), has one read-only
-agent per repo propose the gate config with file:line evidence (skill `init-workspace`), validates
-that output deterministically and writes it to a NEW branch `init/<date>` of `<org>/workspace`
-(`scripts/ws-propose.mjs`; a gated `verify` must be backed by the repo's own declared test script,
-make target or compose file). After a human approves the listed commands, it re-executes every
-proposed gate config (`scripts/ws-verify.mjs --approved <sha>`, `--no-ledger --canary`) and commits
-the labels (verified / not-proven / runs-but-fails / cannot-run-here / no-gate-config). `verified`
-requires the RED canary: the same command, re-run with every test file raising on load, must fail
-(`scripts/canary.mjs`; the referee's `--canary` flag, opt-in, so `/gate` is unchanged). It shows the
-command exits non-zero when its test files are broken — NOT that it executes them (open gap G1: a
-lint/typecheck command that only parses them also passes; `CI=true` can select skips) nor which
-tests execute: a repo script that
-skips tests or only collects them still passes, and that is the human approval's call. Agent-chosen
-env is limited to `CI=true|1`, `NODE_ENV=test`, `TZ=UTC`; anything else a suite needs is added by a
-human. Entries must be plain repos under the org folder with their own `.git` (no symlink, gitfile,
-alternates or linked worktree). A repo whose
-tests need services it cannot start locally gets a dockerization proposal under
-`repos/<name>/local-env/`. Nothing is trusted until a human merges the branch into `main`.
-**Integration map (M2, 0.9.0, report only).** `scripts/ws-integrations.mjs` extracts each repo's
-inbound routes, outbound calls, service env names and contract docs from its committed base (each
-with `path:line`; nothing executed); one integration-mapper agent matches them across the selected
-repos; `ws-propose --integrations` checks that every cited line is a non-blank line of a committed
-file of the right repo (a citation to a missing file or line rejects the map) and labels each side
-`✓` (the line contains a token of the endpoint) or `~` (it only exists). That is what is checked —
-a line that exists is not proof it is the right one, so `~` citations need a human read. It writes
-`integrations.json` + `SYSTEM-MAP.md` (mermaid graph, caller/provider table, every edge with both
-labelled citations, unmatched calls; agent text rendered as plain text) to the proposal branch.
-Nothing is enforced yet — seams are M3.
-Spec: `docs/agentic-harness/spec-init-workspace.v1.md` (M1, M2; seams are M3).
+Discovering an org folder's repos, mapping who calls whom (`SYSTEM-MAP.md`) and keeping a short
+guide in the org-root `CLAUDE.md` moved to the **org-workspace** plugin (`/org-init`, `/org-learn`)
+in 0.10.0. quality-kernel keeps what verifies work: `/gate`, workspace mode below, and the referee's
+opt-in **RED canary** (`--canary`): after a green run the verify command is re-run on head with every
+JS/TS/Python test file raising on load and must fail — it shows the command reacts to broken test
+files, not which tests it executes (a lint command that parses them also passes). Gate configs
+(`tools.json`) are written by hand.
 
 ### Workspace mode (several repos in one org folder)
 
@@ -303,10 +278,6 @@ An org folder can hold its repos side by side plus a control repo named `workspa
   (exit 1 > 2 > 3 > 0; anything listed that cannot be verified = 2; a missing harness branch is a
   note, not a block). It resolves every repo's refs before running any gate and re-checks them
   after, so one repo's executed code cannot drop another repo from the feature.
-- **`/init-workspace` human approval is PROSE-ONLY-ACCEPTED:** `ws-verify --approved <sha>` proves
-  only that the caller knows the proposal sha — the agent shares the user's rights, so the real gates
-  are that a `verify` can only be built from the repo's own declared facts (`ws-command.mjs`) and
-  Claude Code's permission prompt on the Bash call.
 - **Trust limit:** this protects against a repo's own change under review. It does not protect
   against whoever can commit to the workspace ref or chooses `--workspace-ref` — that party owns
   every listed repo's contract. Code the gate executes runs with your rights (see "Honest limits"):

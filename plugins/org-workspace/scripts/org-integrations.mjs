@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// /init-workspace phase 2 (deterministic part) — integration signals of ONE repo, read from its
+// /org-init (deterministic part) — integration signals of ONE repo, read from its
 // committed base branch with `git grep` / `git ls-tree` on the base commit (never the worktree;
 // .env* and key files are never searched). Each signal carries `at: "path:line"` so the
-// integration-mapper agent can cite it, and ws-propose can check every cited line exists.
+// integration-mapper agent can cite it, and org-guide can check every cited line exists.
 //   inbound     routes the repo serves: Django path()/re_path() (include() lines too, raw — prefixes
 //               are composed by the agent), serverless `path:`, Next.js pages/api + app/api,
 //               Express app/router.METHOD
@@ -16,13 +16,13 @@
 // by <redacted>. That is best effort — the agent may Read the file anyway — so the signal files are
 // written to a scratch dir only, never into any repo.
 //
-// Usage: ws-integrations.mjs --repo <dir> [--base <branch>]
-// Spec: docs/agentic-harness/spec-init-workspace.v1.md §4 phase 2.
+// Usage: org-integrations.mjs --repo <dir> [--base <branch>]
+// Report only: nothing here is enforced.
 
 import { basename } from 'node:path';
 import { git } from './safe-git.mjs';
 import { isEntrypoint } from './entrypoint.mjs';
-import { profile, redact, isSensitive } from './ws-profile.mjs';
+import { profile, redact, isSensitive } from './org-profile.mjs';
 
 const MAX_PER_KIND = 1500;
 const MAX_TEXT = 240;
@@ -50,7 +50,7 @@ function grep(dir, sha, pattern, pathspecs) {
   return out;
 }
 const at = (h) => `${h.path}:${h.line}`;
-// Stronger than ws-profile's redact (which only knows NAME=value): what a source line can carry.
+// Stronger than org-profile redact (which only knows NAME=value): what a source line can carry.
 const SECRETISH = String.raw`(?:[A-Za-z0-9_-]*(?:key|token|secret|passw(?:or)?d|pwd|auth(?:orization)?|credential|api[-_]?key|session|cookie)[A-Za-z0-9_-]*)`;
 const QUOTED_AFTER_SECRET_NAME = new RegExp(String.raw`(['"\`]?${SECRETISH}['"\`]?\s*[:=]\s*)(['"\`])([^'"\`]{4,})\2`, 'gi');
 const BEARER = /\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/g;

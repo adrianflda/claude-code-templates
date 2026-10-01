@@ -94,7 +94,7 @@ const DEFAULT_LINK_PATHS = []; // opt-in: linking worktree dirs is a trust assum
 
 function emit(v) { process.stdout.write(JSON.stringify(v) + '\n'); }
 function ledgerAppend(repoDir, record) {
-  if (noLedger) return; // e.g. /init-workspace verification must not write into product repos
+  if (noLedger) return; // e.g. a config check that must not write into product repos
   try {
     const dir = join(repoDir, '.quality-kernel');
     mkdirSync(dir, { recursive: true });
@@ -529,7 +529,7 @@ let canary = null;
 if (canaryMode && green) {
   const isTarget = canaryMatcher(tools.testGlobs);
   const targets = headEntries.filter((e) => e.type === 'blob' && (e.mode === '100644' || e.mode === '100755') && isTarget(e.path));
-  // Structured outcome for callers (ws-verify): `canary.proven` is false when the command was never
+  // Structured outcome for callers: `canary.proven` is false when the command was never
   // seen RED, whatever the wording of `reason`.
   const unproven = (why, extra = {}) => {
     emit({ pass: false, indeterminate: true, canary: { proven: false, ...extra }, evidence: null, reason: `RED canary: ${why}` });

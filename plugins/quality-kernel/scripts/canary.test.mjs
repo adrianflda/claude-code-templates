@@ -11,7 +11,7 @@ import { sabotage, canaryMatcher } from './canary.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const referee = join(here, 'referee.mjs');
 
-// A committed repo whose base and head are the same commit (the /init-workspace verify case).
+// A committed repo whose base and head are the same commit (verifying a config at one commit).
 function repoWith(tools, files) {
   const tmp = mkdtempSync(join(tmpdir(), 'qk-canary-'));
   const git = (...a) => spawnSync('git', ['-C', tmp, ...a], { encoding: 'utf8' });

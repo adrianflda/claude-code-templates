@@ -6,9 +6,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, chmodSync, readFil
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { discover } from './ws-discover.mjs';
+import { discover } from './org-discover.mjs';
+import { BEGIN, END } from './org-guide.mjs';
 
-// Phase 0 of /init-workspace: list the org folder's repos and classify them, reading git metadata
+// Phase 0 of /org-init: list the org folder's repos and classify them, reading git metadata
 // only (never file contents). With an explicit repo list, nothing else is opened.
 const here = dirname(fileURLToPath(import.meta.url));
 const gitIn = (dir) => (...a) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
@@ -59,17 +60,23 @@ test('only repos are suggested; copies, worktrees, plain dirs and forbidden repo
   assert.strictEqual(s.plain.suggested, false);
 });
 
-test("forbidden repos from an existing workspace's committed main are carried over", () => {
+test('forbidden repos recorded in the CLAUDE.md org guide are carried over and never opened', () => {
   const org = orgDir();
   repo(org, 'app'); repo(org, 'app-qa');
-  repo(org, 'workspace', { files: { 'workspace.json': JSON.stringify({ version: 1, org: 'O', repos: { app: { role: 'app', base: 'main' } }, forbidden: ['app-qa'] }) } });
-  const s = byName(discover({ org }));
+  writeFileSync(join(org, 'CLAUDE.md'), `# Org rules\n\n${BEGIN}\n## Org guide\n\n- Forbidden (never open, run or write): \`app-qa\`, \`other-qa\`\n${END}\n`);
+  const inv = discover({ org });
+  const s = byName(inv);
   assert.strictEqual(s['app-qa'].forbidden, true);
-  assert.strictEqual(s['app-qa'].forbiddenBy, 'workspace');
-  assert.strictEqual(s.workspace.kind, 'workspace');
-  assert.strictEqual(s.workspace.suggested, false);
+  assert.strictEqual(s['app-qa'].forbiddenBy, 'CLAUDE.md');
+  assert.strictEqual(s['app-qa'].opened, false);
+  assert.deepStrictEqual(inv.forbidden, ['app-qa', 'other-qa']);
 });
 
+test('a forbidden line OUTSIDE the managed block is not read as a rule', () => {
+  const org = orgDir(); repo(org, 'app'); repo(org, 'app-qa');
+  writeFileSync(join(org, 'CLAUDE.md'), '- Forbidden (never open, run or write): `app`\n');
+  assert.strictEqual(byName(discover({ org })).app.forbidden, false);
+});
 test('hidden dirs and plain files are not listed at all (no credential file names in the output)', () => {
   const org = orgDir();
   repo(org, 'app');
@@ -130,7 +137,7 @@ test('invalid names in --repos are refused (no path traversal)', () => {
 test('CLI prints the inventory as JSON', () => {
   const org = orgDir();
   repo(org, 'app');
-  const r = spawnSync('node', [join(here, 'ws-discover.mjs'), '--org', org, '--repos', 'app'], { encoding: 'utf8' });
+  const r = spawnSync('node', [join(here, 'org-discover.mjs'), '--org', org, '--repos', 'app'], { encoding: 'utf8' });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.strictEqual(JSON.parse(r.stdout).candidates[0].name, 'app');
 });
@@ -146,7 +153,7 @@ function loggingGit() {
   chmodSync(join(bin, 'git'), 0o755);
   return { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, calls: () => { try { return readFileSync(log, 'utf8'); } catch { return ''; } } };
 }
-const cli = (args, env) => spawnSync('node', [join(here, 'ws-discover.mjs'), ...args], { encoding: 'utf8', env });
+const cli = (args, env) => spawnSync('node', [join(here, 'org-discover.mjs'), ...args], { encoding: 'utf8', env });
 
 test('listed mode: non-listed dirs get zero git calls (instrumented git)', () => {
   const org = orgDir(); repo(org, 'app'); repo(org, 'other');
@@ -170,20 +177,10 @@ test('all mode: forbidden and excluded dirs are listed by name and never opened'
 
 test('forbidden names are exposed at the top level, also in listed mode', () => {
   const org = orgDir(); repo(org, 'app'); repo(org, 'qa-team');
-  repo(org, 'workspace', { files: { 'workspace.json': JSON.stringify({ version: 1, org: 'O', repos: {}, forbidden: ['ws-forbidden'] }) } });
+  writeFileSync(join(org, 'CLAUDE.md'), `${BEGIN}\n- Forbidden (never open, run or write): \`guide-forbidden\`\n${END}\n`);
   const inv = discover({ org, repos: ['app'], forbid: ['qa-team'] });
-  assert.deepStrictEqual(inv.forbidden, ['qa-team', 'ws-forbidden']);
-  assert.deepStrictEqual(byName(inv).workspace, { name: 'workspace', listed: false, readForRules: true });
+  assert.deepStrictEqual(inv.forbidden, ['guide-forbidden', 'qa-team']);
 });
-
-test('an existing workspace/ whose manifest is unusable fails closed (the deny list must not vanish)', () => {
-  for (const manifest of [{ version: 2, repos: {}, forbidden: ['qa'] }, { version: 1, repos: {}, forbidden: 'qa' }]) {
-    const org = orgDir(); repo(org, 'app');
-    repo(org, 'workspace', { files: { 'workspace.json': JSON.stringify(manifest) } });
-    assert.throws(() => discover({ org }), /workspace\.json.*unusable/);
-  }
-});
-
 test('listed names: symlinks are refused and names must match the dir entry exactly', () => {
   const org = orgDir(); repo(org, 'Client');
   const outside = realpathSync(mkdtempSync(join(tmpdir(), 'qk-out-')));
@@ -213,23 +210,6 @@ test('credentials are stripped from every remote form', () => {
 });
 
 // --- round 3 ---
-test('R3.4: a workspace/ that is a plain dir, or a repo without a main branch, fails closed', () => {
-  const org = orgDir(); repo(org, 'app');
-  mkdirSync(join(org, 'workspace')); writeFileSync(join(org, 'workspace', 'workspace.json'), JSON.stringify({ version: 1, repos: {}, forbidden: ['app'] }));
-  assert.throws(() => discover({ org }), /workspace\/ is not a git repository of its own/);
-  const org2 = orgDir(); repo(org2, 'app');
-  const w = repo(org2, 'workspace', { files: { 'workspace.json': JSON.stringify({ version: 1, repos: {}, forbidden: ['app'] }) } });
-  w.git('branch', '-m', 'main', 'master');
-  assert.throws(() => discover({ org: org2 }), /no main branch/);
-});
-
-test('R3.4: a workspace control repo without a manifest yet is kind "workspace", not a suggested repo', () => {
-  const org = orgDir(); repo(org, 'app'); repo(org, 'workspace', { files: { 'README.md': 'control' } });
-  const s = byName(discover({ org }));
-  assert.strictEqual(s.workspace.kind, 'workspace');
-  assert.strictEqual(s.workspace.suggested, false);
-});
-
 test('R3.4: a symlink inside the org pointing at a forbidden repo is refused, never opened', () => {
   const org = orgDir(); repo(org, 'q', { remote: 'https://h/o/q.git' });
   symlinkSync(join(org, 'q'), join(org, 'lnk'));

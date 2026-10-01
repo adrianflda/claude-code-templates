@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// /init-workspace phase 1 (deterministic part) — facts about ONE repo, read from its committed base
+// /org-init (deterministic part) — facts about ONE repo, read from its committed base
 // branch (ls-tree + hash-verified blobs), never from the worktree. The contents of .env files and
 // key material are never read; their committed paths are reported so a human can act on them.
 // Judgment (role, verify command, globs, critical surface) is the repo-profiler agent's job; this
 // script gives it verifiable facts to start from.
 //
-// Usage: ws-profile.mjs --repo <dir> [--base <branch>]
-// Prints the profile JSON. Spec: docs/agentic-harness/spec-init-workspace.v1.md §4 phases 1/1a.
+// Usage: org-profile.mjs --repo <dir> [--base <branch>]
+// Prints the profile JSON.
 
 import { existsSync, realpathSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -38,10 +38,8 @@ const DOCKERFILE = /(^|\/)Dockerfile[^/]*$/;
 const NPM_FRAMEWORKS = ['react', 'react-scripts', 'next', 'express', 'jest', 'vitest', 'mocha', 'cypress', 'serverless', 'typescript'];
 
 // Environment variable NAMES the committed code reads (never values): `process.env.X`,
-// `process.env['X']`, `os.environ['X']`, `os.environ.get('X')`, `os.getenv('X')`. Informational only:
-// the profiler agent cites it when a suite needs a variable (e.g. a JWT_SECRET read at import) so a
-// human can add a dummy value; ws-command never lets the agent set it. Found with `git grep` on the
-// base commit, so the worktree is never read.
+// `process.env['X']`, `os.environ['X']`, `os.environ.get('X')`, `os.getenv('X')`. Informational:
+// it tells an agent which variables a suite needs. Found with `git grep` on the base commit.
 const ENV_REF_PATTERNS = [
   String.raw`process\.env\.[A-Z][A-Z0-9_]*`,
   String.raw`process\.env\[['"][A-Z][A-Z0-9_]*['"]\]`,

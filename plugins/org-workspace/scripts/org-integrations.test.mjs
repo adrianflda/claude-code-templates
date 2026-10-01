@@ -6,9 +6,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { extract } from './ws-integrations.mjs';
+import { extract } from './org-integrations.mjs';
 
-// Phase 2 (deterministic part) of /init-workspace: integration signals of ONE repo from its
+// Phase 2 (deterministic part) of /org-init: integration signals of ONE repo from its
 // committed base, each with path:line — never the worktree, never .env/key files, nothing executed.
 const here = dirname(fileURLToPath(import.meta.url));
 const gitIn = (dir) => (...a) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
@@ -105,10 +105,10 @@ test('secret-looking values on a cited line are redacted', () => {
 
 test('CLI prints the signals JSON; a missing repo is exit 2', () => {
   const { dir } = repo({ 'src/a.js': "axios.get('/x/');\n" });
-  const ok = spawnSync('node', [join(here, 'ws-integrations.mjs'), '--repo', dir], { encoding: 'utf8' });
+  const ok = spawnSync('node', [join(here, 'org-integrations.mjs'), '--repo', dir], { encoding: 'utf8' });
   assert.strictEqual(ok.status, 0, ok.stderr);
   assert.strictEqual(JSON.parse(ok.stdout).outbound[0].at, 'src/a.js:1');
-  const bad = spawnSync('node', [join(here, 'ws-integrations.mjs'), '--repo', join(dir, 'nope')], { encoding: 'utf8' });
+  const bad = spawnSync('node', [join(here, 'org-integrations.mjs'), '--repo', join(dir, 'nope')], { encoding: 'utf8' });
   assert.strictEqual(bad.status, 2);
 });
 

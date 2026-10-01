@@ -282,7 +282,7 @@ test('a symlink entry at a config path is refused (not parsed as config)', () =>
   assert.throws(() => showWorkspaceFile(findWorkspace(app.dir, { workspace: ws.dir }), 'tools.json'), /not a regular file/);
 });
 
-// orgRepoDir: the guard /init-workspace propose and verify use before a repo is opened or run.
+// orgRepoDir: a repo entry must be a plain repo directly under the org folder, with its own .git.
 const orgRoot = () => realpathSync(mkdtempSync(join(tmpdir(), 'qk-orgdir-')));
 test('orgRepoDir: a plain repo directly under the org folder is accepted', () => {
   const org = orgRoot(); repo(org, 'app');

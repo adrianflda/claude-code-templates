@@ -6,9 +6,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { profile } from './ws-profile.mjs';
+import { profile } from './org-profile.mjs';
 
-// Phase 1 (deterministic part) of /init-workspace: facts about ONE repo read from its committed
+// Phase 1 (deterministic part) of /org-init: facts about ONE repo read from its committed
 // base branch — never the worktree, never the contents of .env / key files.
 const here = dirname(fileURLToPath(import.meta.url));
 const gitIn = (dir) => (...a) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
@@ -107,7 +107,7 @@ test('an unreadable manifest is an error, not a silent empty profile', () => {
 
 test('CLI prints the profile JSON', () => {
   const { dir } = repo({ 'package.json': pkg({ scripts: { test: 'jest' } }), 'a.test.js': 'x' });
-  const r = spawnSync('node', [join(here, 'ws-profile.mjs'), '--repo', dir], { encoding: 'utf8' });
+  const r = spawnSync('node', [join(here, 'org-profile.mjs'), '--repo', dir], { encoding: 'utf8' });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.strictEqual(JSON.parse(r.stdout).localEnv.hint, 'native');
 });

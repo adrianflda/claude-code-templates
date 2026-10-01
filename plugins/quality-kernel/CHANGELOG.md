@@ -5,6 +5,19 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-01
+
+### Removed — `/init-workspace` moved out
+- Org orientation (discover, profile, integration signals, the map, SYSTEM-MAP.md) moved to the new
+  **org-workspace** plugin, which writes a short guide block into the org-root `CLAUDE.md` instead
+  of a workspace repo. Removed here: `commands/init-workspace.md`, skill `init-workspace`,
+  `scripts/ws-{discover,profile,integrations,map,propose,verify,command}.mjs` and their tests.
+- The automatic gate-config generator (M1: ws-propose / ws-verify / ws-command) is retired — it
+  failed its adversarial gate five times and is not worth its risk for a handful of repos; write
+  `tools.json` by hand. Its history stays in git (commits de74879a, 671ac559, 5d39245e).
+- Kept: the referee's opt-in RED canary (`--canary`, `scripts/canary.mjs`), workspace mode
+  (`--workspace`, `qk-org-gate`) and `orgRepoDir` in workspace.mjs.
+
 ## [0.9.0] - 2026-10-01
 
 ### Added — `/init-workspace` M2: the integration map (report only)

@@ -35,8 +35,8 @@ export const isRepoName = (name) => typeof name === 'string' && NAME.test(name);
 // The directory of a listed repo, only when it is a real directory directly under the org folder:
 // never a symlink (it may point outside the org or at a forbidden repo, and discover never lists one),
 // its real path must be exactly <real org>/<name> (also catches a case-folded name), and its git
-// directory must be its own `.git` (see below). Used by
-// /init-workspace propose and verify before a repo is opened or run. Returns { dir } or { error }.
+// directory must be its own `.git` (see below). Check it before a listed repo is opened or run.
+// Returns { dir } or { error }.
 export function orgRepoDir(org, name) {
   if (!isRepoName(name)) return { error: `"${name}" is not a plain repo name` };
   const dir = join(org, name);
