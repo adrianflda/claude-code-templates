@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { git, readVerifiedBlob } from './safe-git.mjs';
-import { isRepoName, readWorkspaceManifest } from './workspace.mjs';
+import { isRepoName, orgRepoDir, readWorkspaceManifest } from './workspace.mjs';
 import { isEntrypoint } from './entrypoint.mjs';
 import { buildVerify } from './ws-command.mjs';
 import { profile as profileRepo } from './ws-profile.mjs';
@@ -189,15 +189,19 @@ export function propose({ org, date, results, author, orgName = null, forbidden 
   // Re-profile every repo here (never trust the caller's profile files).
   const profiles = {};
   const sensitive = {};
+  const entryProblems = [];
   for (const r of Array.isArray(results) ? results : []) {
     if (!r || !isRepoName(r.name) || allForbidden.includes(r.name) || typeof r.base !== 'string') continue;
+    // Never open a symlinked or out-of-org entry: it could be a forbidden repo or one outside the org.
+    const entry = orgRepoDir(org, r.name);
+    if (entry.error) { entryProblems.push(`${r.name}: ${entry.error}`); profiles[r.name] = { error: entry.error }; continue; }
     try {
-      const p = profileRepo({ dir: join(org, r.name), base: r.base });
+      const p = profileRepo({ dir: entry.dir, base: r.base });
       profiles[r.name] = { facts: p };
       sensitive[r.name] = p.sensitiveFilesCommitted;
     } catch (err) { profiles[r.name] = { error: err.message }; }
   }
-  const problems = validate(results, { knownApps: existing ? Object.keys(existing.repos).filter((n) => !allForbidden.includes(n)) : [], forbidden: allForbidden, profiles });
+  const problems = [...entryProblems, ...validate(results, { knownApps: existing ? Object.keys(existing.repos).filter((n) => !allForbidden.includes(n)) : [], forbidden: allForbidden, profiles })];
   // Skipped entries come from the inventory: plain names, single-line, secret-free reasons only.
   const safeSkipped = (Array.isArray(skipped) ? skipped : []).filter((x) => x && isRepoName(x.name) && typeof x.reason === 'string')
     .map((x) => ({ name: x.name, reason: secretIn(x.reason) ? '(reason withheld: secret-looking text)' : x.reason.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300) }));

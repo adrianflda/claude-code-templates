@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync, realpathSync, readdi
 import { deflateSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { findWorkspace, showWorkspaceFile, resolveWorkspaceRef, readWorkspaceManifest, isRepoName } from './workspace.mjs';
+import { findWorkspace, showWorkspaceFile, resolveWorkspaceRef, readWorkspaceManifest, isRepoName, orgRepoDir } from './workspace.mjs';
 
 // An org folder: <root>/app (a product repo) and <root>/workspace (the control repo).
 const gitIn = (dir) => (...a) => spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
@@ -280,4 +280,46 @@ test('a symlink entry at a config path is refused (not parsed as config)', () =>
   symlinkSync('{"verify":"true"}', join(ws.dir, 'repos', 'app', 'tools.json'));
   ws.git('add', 'repos/app/tools.json'); ws.git('commit', '-qm', 'symlink config');
   assert.throws(() => showWorkspaceFile(findWorkspace(app.dir, { workspace: ws.dir }), 'tools.json'), /not a regular file/);
+});
+
+// orgRepoDir: the guard /init-workspace propose and verify use before a repo is opened or run.
+const orgRoot = () => realpathSync(mkdtempSync(join(tmpdir(), 'qk-orgdir-')));
+test('orgRepoDir: a plain repo directly under the org folder is accepted', () => {
+  const org = orgRoot(); repo(org, 'app');
+  assert.deepStrictEqual(orgRepoDir(org, 'app'), { dir: join(org, 'app') });
+});
+
+test('orgRepoDir: missing, non-plain name, plain file and symlinked entries are refused', () => {
+  const org = orgRoot(); repo(org, 'app');
+  writeFileSync(join(org, 'file'), 'x');
+  symlinkSync(join(org, 'app'), join(org, 'alias'));
+  assert.match(orgRepoDir(org, 'ghost').error, /repo not found/);
+  assert.match(orgRepoDir(org, '../app').error, /not a plain repo name/);
+  assert.match(orgRepoDir(org, 'file').error, /not a directory/);
+  assert.match(orgRepoDir(org, 'alias').error, /is a symlink/);
+});
+
+test('orgRepoDir: a case-folded name (App for app) is refused on a case-insensitive file system', (t) => {
+  const org = orgRoot(); repo(org, 'app');
+  if (!existsSync(join(org, 'APP'))) { t.skip('case-sensitive file system: App is simply not found'); return; }
+  assert.match(orgRepoDir(org, 'App').error, /resolves to .*\/app, not .*\/App/);
+});
+
+// Round-4 finding H1: a `.git` gitfile let an innocent name read and run a forbidden repo.
+test('orgRepoDir: a .git gitfile pointing at another repository (e.g. a forbidden one) is refused', () => {
+  const org = orgRoot(); repo(org, 'secret-qa');
+  mkdirSync(join(org, 'innocent'));
+  writeFileSync(join(org, 'innocent', '.git'), 'gitdir: ../secret-qa/.git\n');
+  assert.match(orgRepoDir(org, 'innocent').error, /gitfile/);
+});
+
+test('orgRepoDir: a symlinked .git, an object alternates file and a linked worktree are refused', () => {
+  const org = orgRoot(); const qa = repo(org, 'secret-qa');
+  mkdirSync(join(org, 'linked')); symlinkSync(join(org, 'secret-qa', '.git'), join(org, 'linked', '.git'));
+  assert.match(orgRepoDir(org, 'linked').error, /\.git is a symlink/);
+  const borrow = repo(org, 'borrow');
+  writeFileSync(join(borrow.dir, '.git', 'objects', 'info', 'alternates'), join(org, 'secret-qa', '.git', 'objects') + '\n');
+  assert.match(orgRepoDir(org, 'borrow').error, /alternates/);
+  qa.git('worktree', 'add', '-q', join(org, 'wt'));
+  assert.match(orgRepoDir(org, 'wt').error, /gitfile/);
 });

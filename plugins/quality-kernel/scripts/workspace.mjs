@@ -20,8 +20,8 @@
 //    locally. The real fix for this class is per-repo isolation, not more checks.
 //  - Without --workspace nothing here runs: single-repo behaviour is unchanged. Run route/referee
 //    through qk-gate so both use the same pinned commit.
-import { existsSync, realpathSync, statSync } from 'node:fs';
-import { basename } from 'node:path';
+import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { git, readVerifiedBlob } from './safe-git.mjs';
 
 const MANIFEST_VERSION = 1;
@@ -31,6 +31,39 @@ const FILE = /^(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
 const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export const isRepoName = (name) => typeof name === 'string' && NAME.test(name);
+
+// The directory of a listed repo, only when it is a real directory directly under the org folder:
+// never a symlink (it may point outside the org or at a forbidden repo, and discover never lists one),
+// its real path must be exactly <real org>/<name> (also catches a case-folded name), and its git
+// directory must be its own `.git` (see below). Used by
+// /init-workspace propose and verify before a repo is opened or run. Returns { dir } or { error }.
+export function orgRepoDir(org, name) {
+  if (!isRepoName(name)) return { error: `"${name}" is not a plain repo name` };
+  const dir = join(org, name);
+  let st;
+  try { st = lstatSync(dir); } catch { return { error: `repo not found at ${dir}` }; }
+  if (st.isSymbolicLink()) return { error: `${dir} is a symlink — refused (it may point outside the org folder or at a forbidden repo)` };
+  if (!st.isDirectory()) return { error: `${dir} is not a directory` };
+  let real, root;
+  try { real = realpathSync.native(dir); root = realpathSync.native(org); } catch (err) { return { error: `cannot resolve ${dir}: ${err.code || err.message}` }; }
+  if (real !== join(root, name)) return { error: `${dir} resolves to ${real}, not ${join(root, name)} — refused` };
+  // Pin the repository itself, not just the path: a `.git` gitfile (`gitdir: ../forbidden/.git`), a
+  // symlinked `.git`, a GIT_DIR/common-dir elsewhere or an object alternates file would make this
+  // name read and run ANOTHER repo's committed code (e.g. a forbidden one). Linked worktrees are
+  // refused for the same reason: gate the main checkout.
+  const dotGit = join(real, '.git');
+  let g;
+  try { g = lstatSync(dotGit); } catch { return { error: `${dir} has no .git directory of its own — refused` }; }
+  if (!g.isDirectory()) return { error: `${dir}/.git is ${g.isSymbolicLink() ? 'a symlink' : 'a gitfile (a linked worktree or a pointer to another repository)'} — refused` };
+  for (const flag of ['--absolute-git-dir', '--git-common-dir']) {
+    const r = git(real, ['rev-parse', '--path-format=absolute', flag]);
+    let got = null;
+    try { got = r.status === 0 ? realpathSync.native(r.stdout.trim()) : null; } catch { got = null; }
+    if (got !== dotGit) return { error: `${dir}: git ${flag.replace(/^--/, '')} is ${got || 'unresolvable'}, not its own .git — refused` };
+  }
+  if (existsSync(join(dotGit, 'objects', 'info', 'alternates'))) return { error: `${dir}: its object store borrows objects from another repository (objects/info/alternates) — refused` };
+  return { dir };
+}
 const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
 // The real top level of the git work tree containing dir, or null.

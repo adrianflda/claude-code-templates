@@ -37,6 +37,27 @@ const COMPOSE = /^docker-compose[^/]*\.ya?ml$|^compose[^/]*\.ya?ml$/;
 const DOCKERFILE = /(^|\/)Dockerfile[^/]*$/;
 const NPM_FRAMEWORKS = ['react', 'react-scripts', 'next', 'express', 'jest', 'vitest', 'mocha', 'cypress', 'serverless', 'typescript'];
 
+// Environment variable NAMES the committed code reads (never values): `process.env.X`,
+// `process.env['X']`, `os.environ['X']`, `os.environ.get('X')`, `os.getenv('X')`. Informational only:
+// the profiler agent cites it when a suite needs a variable (e.g. a JWT_SECRET read at import) so a
+// human can add a dummy value; ws-command never lets the agent set it. Found with `git grep` on the
+// base commit, so the worktree is never read.
+const ENV_REF_PATTERNS = [
+  String.raw`process\.env\.[A-Z][A-Z0-9_]*`,
+  String.raw`process\.env\[['"][A-Z][A-Z0-9_]*['"]\]`,
+  String.raw`environ(\.get)?[[(] *['"][A-Z][A-Z0-9_]*['"]`,
+  String.raw`getenv\( *['"][A-Z][A-Z0-9_]*['"]`,
+];
+const SOURCE_PATHSPECS = ['*.js', '*.jsx', '*.mjs', '*.cjs', '*.ts', '*.tsx', '*.py'].map((g) => `:(glob)**/${g}`);
+function envRefs(dir, sha) {
+  const r = git(dir, ['grep', '-h', '-o', '-I', '-E', ...ENV_REF_PATTERNS.flatMap((p) => ['-e', p]), sha, '--',
+    ...SOURCE_PATHSPECS, ':(exclude,glob)**/node_modules/**', ':(exclude,glob)**/vendor/**'], { maxBuffer: 16 * 1024 * 1024 });
+  if (r.status !== 0) return []; // 1 = no match
+  const names = new Set();
+  for (const hit of r.stdout.split('\n')) { const m = /([A-Z][A-Z0-9_]*)['"]?\]?\s*\)?$/.exec(hit.replace(/^[^:]*:/, '')); if (m) names.add(m[1]); }
+  return [...names].sort().slice(0, 300);
+}
+
 const hasRef = (dir, ref) => git(dir, ['rev-parse', '--verify', '-q', '--end-of-options', `${ref}^{commit}`]).status === 0;
 
 function resolveBase(dir, base) {
@@ -123,6 +144,7 @@ export function profile({ dir, base } = {}) {
     stack: { languages, frameworks: [...frameworks].sort() },
     manifests,
     testScripts: { npm, make: testTargets, python: { manage: managePy } },
+    envRefs: envRefs(dir, sha),
     testFiles: { count: testFileList.length, conventions, samples: testFileList.slice(0, 5) },
     ci: files.filter((p) => CI.test(p)).sort(),
     docker: { compose, dockerfiles },

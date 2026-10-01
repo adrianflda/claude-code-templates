@@ -10,11 +10,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added — `/init-workspace` (M1: discover → profile → propose → verify)
 
 > **Status: WORK IN PROGRESS — not ready to use or install.** M1 failed its adversarial review gate
-> three times (2026-09-30): an agent-chosen `verify` spec built from the repo's own facts can still be
-> a no-op that gets labelled `verified` (e.g. `MAKEFLAGS=n make test`, `npx --no cross-env`), and
-> propose / verify follow symlinks. Planned fix: a RED canary in ws-verify (the command must FAIL on
-> a sabotaged copy before it can be `verified`), an env allow list, npx limited to the command
-> position of a declared script, symlink refusal in propose / verify.
+> five times (last: 2026-10-01, round 5, score 62). Paused by decision: committed as WIP, work moves
+> on to M2. What round 4–5 changed (each RED-first, 407 tests green):
+> - **RED canary** (`scripts/canary.mjs`, referee `--canary`, always on in ws-verify): after a green
+>   run the command is re-run on head with every JS/TS/Python test file raising on load; it must exit
+>   non-zero, else `not-proven` (also: no test file to sabotage, or the chain rewrote the sabotaged
+>   files). Structured `canary.proven`. Opt-in in the referee: `/gate` and `qk-org-gate` unchanged.
+> - Agent-chosen `env` fixed to `CI=true|1`, `NODE_ENV=test`, `TZ=UTC`; anything else a suite needs is
+>   added by a human (profile fact `envRefs` only informs that note).
+> - npx `bin` must be the command position of a declared test script (wrappers/builtins refused);
+>   emitted as `npx --no -- <bin> ...`.
+> - Entries must be plain repos under the org folder with their own `.git` (`orgRepoDir`: no
+>   symlink, gitfile, symlinked `.git`, linked worktree, alternates).
+> - Real org (2026-09-30): client-v2 and admin-tools `verified` (27 / 112 test files sabotaged,
+>   canary exit 1); aws-services `runs-but-fails` (a real 2000 ms mocha timeout in associate.test.ts).
+>
+> **Open gaps (why it is not ready):**
+> - **G1 (blocking):** the canary only checks exit != 0. A lint/typecheck command that a declared
+>   test script runs (`npx --no -- eslint`, `npm run pretest` = `tsc --noEmit`, `test:lint`) parses the
+>   sabotaged files, fails, and is labelled `verified` with zero tests run (reproduced by the critic).
+>   Planned fix: a runtime nonce — the sabotage throws a string built at run time and the canary is
+>   proven only if that string appears in the output; also refuse lint/typecheck heads and pre/post
+>   hook scripts in ws-command.
+> - **G2:** `CI=true` (agent-allowed) can select skips (`skip: !!process.env.CI`) invisible to the canary.
+> - **G3:** a real `.git` whose `objects/` / `refs/` are symlinks into another repo is accepted by
+>   `orgRepoDir`; a byte copy of a forbidden repo under a new name cannot be detected by any path check.
+> - **G4:** ws-verify labels `verified` when the canary is absent (should require `canary.proven === true`);
+>   INIT-REPORT.md does not show the verify command and its script body for gated repos (the human
+>   sees them only if the agent shows them at approval); a flaky exit != 0 counts as "proven".
+> - **G5 (test gaps, QA round 5):** the `--git-common-dir` pin in `orgRepoDir` (a `.git/commondir`
+>   redirect) works but has no test — deleting it leaves the suite green; no test makes
+>   `canary.proven` disagree with the reason text; restore detection is tested with one file only.
+> - Older, still open: npx cache fallback without node_modules, compose service vs file, quadratic
+>   `redact()`, DB_PWD-style redaction misses, `validate()` keeps unknown keys, `commandHeads` quoting.
 - **`commands/init-workspace.md` + skill `init-workspace`** — the init step for multi-repo work: the
   workspace it proposes is what `/gate --workspace`, `qk-org-gate`, `/forge` and `/develop` use.
 - **`scripts/ws-discover.mjs`** — lists and classifies the org folder's repos (repo / worktree /

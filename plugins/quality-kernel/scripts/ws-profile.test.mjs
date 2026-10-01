@@ -175,3 +175,21 @@ test('R3.6: URL credentials, --password values and bare tokens in npm test scrip
   for (const leak of ['Pr0dPw99', 'ghp_z', 'AKIAZ', 'xoxb-z', 'sk-z', 'eyJaaaa', 'quoted value']) assert.ok(!out.includes(leak), leak);
   assert.match(p.testScripts.npm.test, /jest/);
 });
+
+test('envRefs: env NAMES the committed code reads (JS/TS/Python), never values, never the worktree or node_modules', () => {
+  const { dir } = repo({
+    'package.json': pkg({ scripts: { test: 'mocha' } }),
+    'app/constants/index.ts': "const s = process.env.JWT_SECRET; const t = process.env['API_TOKEN_NAME']; const v = process.env.lower_case;",
+    'settings.py': "import os\nA = os.environ['DB_NAME']\nB = os.environ.get('CACHE_TTL')\nC = os.getenv(\"LOG_LEVEL\", 'x')",
+    'node_modules/dep/index.js': 'process.env.FROM_NODE_MODULES',
+    'docs/notes.md': 'process.env.FROM_DOCS',
+  });
+  writeFileSync(join(dir, 'app/worktree-only.ts'), 'process.env.WORKTREE_ONLY');
+  const p = profile({ dir });
+  assert.deepStrictEqual(p.envRefs, ['API_TOKEN_NAME', 'CACHE_TTL', 'DB_NAME', 'JWT_SECRET', 'LOG_LEVEL']);
+});
+
+test('envRefs: a repo whose code reads no env is an empty list', () => {
+  const { dir } = repo({ 'package.json': pkg({ scripts: { test: 'jest' } }), 'src/a.js': 'export const x = 1;' });
+  assert.deepStrictEqual(profile({ dir }).envRefs, []);
+});

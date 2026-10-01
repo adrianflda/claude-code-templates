@@ -53,6 +53,24 @@ test('a suite that runs but fails at base is "runs-but-fails" (a finding, not a 
   assert.strictEqual(label(verify({ org: s.org, branch: s.branch, approved: s.approved, author: AUTHOR }), 'a').label, 'runs-but-fails');
 });
 
+// Round-3 vector: a verify command that passes whatever the tests say. The repo's own `npm test`
+// swallows failures here; the RED canary (every test file raising) must still expose it.
+test('a suite that stays green with every test file raising is "not-proven", never "verified"', () => {
+  const s = setup({ a: { files: { 'package.json': JSON.stringify({ scripts: { test: 'node --test guard.test.mjs || true' } }) } } });
+  const l = label(verify({ org: s.org, branch: s.branch, approved: s.approved, author: AUTHOR }), 'a');
+  assert.strictEqual(l.label, 'not-proven', JSON.stringify(l));
+  assert.match(l.reason, /RED canary stayed green/);
+  assert.match(gitIn(s.ws)('show', `${s.branch}:INIT-REPORT.md`).stdout, /\| a \| app \| development \| native \| tools\.json \+ critical-surface\.json \| not-proven \|/);
+});
+
+test('an app whose suite has no test file the canary can sabotage is "not-proven"', () => {
+  const s = setup({ a: { files: { 'package.json': JSON.stringify({ scripts: { test: 'node src/code.mjs' } }) }, result: { testGlobs: ['src/**/*.none'] } } });
+  gitIn(join(s.org, 'a'))('rm', '-q', 'guard.test.mjs'); gitIn(join(s.org, 'a'))('commit', '-qm', 'no tests');
+  const l = label(verify({ org: s.org, branch: s.branch, approved: s.approved, author: AUTHOR }), 'a');
+  assert.strictEqual(l.label, 'not-proven', JSON.stringify(l));
+  assert.match(l.reason, /no JS\/TS\/Python test file to sabotage/);
+});
+
 test('an app without a gate config (needs-local-env) is labelled, not run', () => {
   const s = setup({ a: { result: { verify: null, localEnv: { state: 'needs-local-env', proposal: { verify: 'x', files: { 'README.md': 'why' } } } } } });
   assert.strictEqual(label(verify({ org: s.org, branch: s.branch, approved: s.approved, author: AUTHOR }), 'a').label, 'no-gate-config');
@@ -188,4 +206,20 @@ test('the base is origin/<base> when it exists (not a stale local branch)', () =
   write(wt, 'src/code.mjs', 'export const f = () => 1;'); wg('commit', '-qam', 'fixed on origin'); wg('push', '-q', 'origin', 'development');
   ag('fetch', '-q', 'origin');
   assert.strictEqual(label(verify({ org: s.org, branch: s.branch, approved: s.approved, author: AUTHOR }), 'a').label, 'verified');
+});
+
+// Round-3 finding 2: verify EXECUTED a repo outside the org folder through a symlinked entry.
+test('a symlinked entry is never run: cannot-run-here, and the outside repo executes nothing', async () => {
+  const { symlinkSync, renameSync } = await import('node:fs');
+  const s = setup({ a: {} });
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'qk-ver-outside-')));
+  const marker = join(outside, 'EXECUTED');
+  renameSync(join(s.org, 'a'), join(outside, 'a'));
+  write(join(outside, 'a'), 'package.json', JSON.stringify({ scripts: { test: `node -e "require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')" && node --test guard.test.mjs` } }));
+  gitIn(join(outside, 'a'))('commit', '-qam', 'marker');
+  symlinkSync(join(outside, 'a'), join(s.org, 'a'));
+  const l = label(verify({ org: s.org, branch: s.branch, approved: s.approved, author: AUTHOR }), 'a');
+  assert.strictEqual(l.label, 'cannot-run-here', JSON.stringify(l));
+  assert.match(l.reason, /is a symlink/);
+  assert.strictEqual(existsSync(marker), false, 'the outside repo ran nothing');
 });

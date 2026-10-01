@@ -6,8 +6,14 @@
 // OK), and the config at the branch tip (workspace.json + repos/) must be identical to that commit's.
 // For each app with repos/<name>/tools.json it runs qk-gate on the repo's base branch tip (base..base:
 // the suite runs twice in the referee's temp trees), pinned to the proposal, with --no-ledger so
-// nothing is written into the product repo. Labels:
-//   verified         the suite ran and passed
+// nothing is written into the product repo, and with --canary: a green suite is re-run with every
+// test file raising and must go RED, or the command is not proven to run tests. Labels:
+//   verified         the suite ran and passed, and failed on the sabotaged copy (RED canary: it loads
+//                    test files and propagates their failure — which tests execute is the human
+//                    approval's call, e.g. a repo script that skips or only collects tests still passes)
+//   not-proven       the suite passed but the RED canary stayed green (the command does not react to broken test files
+//                    or swallows its failure), there was no test file to sabotage, or the chain
+//                    restored the sabotaged files
 //   runs-but-fails   the suite ran and failed on today's base (a finding: flaky or broken suite)
 //   cannot-run-here  it could not run (Docker unavailable, missing tool, timeout, repo/base missing)
 //   no-gate-config   no tools.json was proposed (needs-local-env / no-tests)
@@ -24,7 +30,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { git, readVerifiedBlob } from './safe-git.mjs';
-import { readWorkspaceManifest, resolveWorkspaceRef, isRepoName } from './workspace.mjs';
+import { readWorkspaceManifest, resolveWorkspaceRef, orgRepoDir } from './workspace.mjs';
 import { renderReport } from './ws-propose.mjs';
 import { isEntrypoint } from './entrypoint.mjs';
 
@@ -50,8 +56,10 @@ function verifyApp(org, ws, sha, name, spec) {
   if (r.absent) return { name, label: 'no-gate-config', reason: 'no tools.json proposed for this repo' };
   let tools = {};
   try { tools = JSON.parse(r.text); } catch { return { name, label: 'cannot-run-here', reason: 'tools.json is not valid JSON' }; }
-  const dir = join(org, name);
-  if (!isRepoName(name) || !existsSync(dir)) return { name, label: 'cannot-run-here', reason: `repo not found at ${dir}` };
+  // Never run a symlinked or out-of-org entry (it could execute a repo discover never listed).
+  const entry = orgRepoDir(org, name);
+  if (entry.error) return { name, label: 'cannot-run-here', reason: entry.error };
+  const dir = entry.dir;
   const base = spec && spec.base;
   const tip = base && (commitOf(dir, `refs/remotes/origin/${base}`) || commitOf(dir, `refs/heads/${base}`));
   if (!tip) return { name, label: 'cannot-run-here', reason: `base branch "${base}" not found` };
@@ -59,12 +67,13 @@ function verifyApp(org, ws, sha, name, spec) {
     const d = dockerAvailable();
     if (!d.ok) return { name, label: 'cannot-run-here', base, baseSha: tip, reason: `docker is not available here (${d.why})` };
   }
-  const g = spawnSync('node', [join(here, 'qk-gate.mjs'), '--repo', dir, '--base', tip, '--head', tip, '--workspace', ws, '--workspace-ref', sha, '--no-ledger'], { encoding: 'utf8' });
+  const g = spawnSync('node', [join(here, 'qk-gate.mjs'), '--repo', dir, '--base', tip, '--head', tip, '--workspace', ws, '--workspace-ref', sha, '--no-ledger', '--canary'], { encoding: 'utf8' });
   let v = null;
   try { v = JSON.parse((g.stdout || '').trim().split('\n').filter(Boolean).pop()); } catch { /* null */ }
   const reason = (v && v.referee && v.referee.reason) || (v && v.notes && v.notes.join(' ')) || `qk-gate exit ${g.status}`;
   // exit 3 = the suite passed but a critical change needs the breaker; base..base changes nothing.
-  const label = g.status === 0 || g.status === 3 ? 'verified' : g.status === 1 ? 'runs-but-fails' : 'cannot-run-here';
+  const canaryUnproven = !!(v && v.referee && v.referee.canary && v.referee.canary.proven === false);
+  const label = canaryUnproven ? 'not-proven' : g.status === 0 || g.status === 3 ? 'verified' : g.status === 1 ? 'runs-but-fails' : 'cannot-run-here';
   return { name, label, exit: g.status, base, baseSha: tip, reason: label === 'runs-but-fails' ? `the suite failed when re-executed on ${base} (a broken or flaky suite): ${reason}` : reason };
 }
 

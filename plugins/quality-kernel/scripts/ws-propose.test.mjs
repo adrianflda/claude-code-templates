@@ -101,7 +101,7 @@ test('structured verify: built only from the re-profiled facts of the repo', () 
     Makefile: 'test-all:\n\techo\n', 'docker-compose.test.yml': 'services: {}',
   };
   const cases = [
-    [{ runner: 'npx', bin: 'react-scripts', args: ['test', '--watchAll=false'], env: { CI: 'true' } }, 'CI=true npx --no react-scripts test --watchAll=false'],
+    [{ runner: 'npx', bin: 'react-scripts', args: ['test', '--watchAll=false'], env: { CI: 'true' } }, 'CI=true npx --no -- react-scripts test --watchAll=false'],
     [{ runner: 'npm-script', script: 'test:unit' }, 'npm run test:unit'],
     [{ runner: 'make', target: 'test-all' }, 'make test-all'],
     [{ runner: 'compose', file: 'docker-compose.test.yml', service: 'tests' }, 'docker compose -f docker-compose.test.yml run --rm tests'],
@@ -293,4 +293,29 @@ test('A14: the CLI takes forbidden names from the inventory (listed mode too) an
   const rep = show(ws, b, 'INIT-REPORT.md');
   assert.match(rep, /`\.env`/); assert.match(rep, /app \(Copy\)/);
   assert.ok(show(ws, b, 'init-report.json'));
+});
+
+// Round-3 finding 2: propose followed symlinks that discover refuses.
+test('a symlinked entry pointing outside the org folder is refused before it is opened', async () => {
+  const { symlinkSync } = await import('node:fs');
+  const org = orgDir();
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'qk-prop-outside-')));
+  makeRepo(outside, 'ext');
+  symlinkSync(join(outside, 'ext'), join(org, 'ext'));
+  assert.throws(() => propose({ org, date: '2026-09-30', results: [{ ...APP, name: 'ext' }], author: AUTHOR }), /ext: .*is a symlink/);
+  assert.strictEqual(existsSync(join(org, 'workspace')), false, 'nothing written');
+});
+
+test('a symlink to a forbidden repo is refused before anything is opened', async () => {
+  const { symlinkSync } = await import('node:fs');
+  const org = orgDir({ repos: { 'secret-app': DEFAULT_FILES } });
+  symlinkSync(join(org, 'secret-app'), join(org, 'lnk'));
+  assert.throws(() => propose({ org, date: '2026-09-30', results: [{ ...APP, name: 'lnk' }], author: AUTHOR, forbidden: ['secret-app'] }), /lnk: .*is a symlink/);
+});
+
+test('a non-gated symlinked entry (verify: null) is refused too, not listed in workspace.json', async () => {
+  const { symlinkSync } = await import('node:fs');
+  const org = orgDir({ repos: { app: DEFAULT_FILES } });
+  symlinkSync(join(org, 'app'), join(org, 'app-qa-local'));
+  assert.throws(() => propose({ org, date: '2026-09-30', results: [APP, HARNESS], author: AUTHOR }), /app-qa-local: .*is a symlink/);
 });

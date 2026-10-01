@@ -26,7 +26,11 @@
 // prod-indistinguishable environment closes these. Symlinks in a committed tree => indeterminate.
 //
 // Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>] [--workspace <dir>] [--workspace-ref <ref>]
-//         (with an explicit --workspace, the workspace's contract for this repo wins; see workspace.mjs)
+//         [--no-ledger] [--canary]
+//         (with an explicit --workspace, the workspace's contract for this repo wins; see workspace.mjs;
+//         --canary: after a green run, re-run on head with every test file raising — it must go RED;
+//         this shows the command exits non-zero when test files are broken — NOT that it executes
+//         them (a linter that parses them passes too) nor which tests run)
 // Exit:   0 = PASS · 1 = real FAIL · 2 = indeterminate (fail-closed)
 
 import { spawnSync } from 'node:child_process';
@@ -37,6 +41,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
 import { git, readVerifiedBlob } from './safe-git.mjs';
 import { findWorkspace, showWorkspaceFile, workspaceSource, repoSource } from './workspace.mjs';
+import { canaryMatcher, sabotage } from './canary.mjs';
 
 // CONVERGENCE FIX (panel v2.6 root cause): there is NO silent "inert" / "harness-by-name" allow-list
 // of changes the gate skips — that path-name allow-list always leaked a real runtime input (a prompt
@@ -101,7 +106,7 @@ function indeterminate(reason) { emit({ pass: false, indeterminate: true, eviden
 
 // --- args ---
 const args = process.argv.slice(2);
-let repo = null, base = null, head = 'HEAD', workspaceDir, workspaceRef, noLedger = false;
+let repo = null, base = null, head = 'HEAD', workspaceDir, workspaceRef, noLedger = false, canaryMode = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--repo') repo = args[++i];
   else if (args[i] === '--base') base = args[++i];
@@ -109,6 +114,7 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--workspace') workspaceDir = args[++i] ?? ''; // present without a value = empty -> fails closed
   else if (args[i] === '--workspace-ref') workspaceRef = args[++i];
   else if (args[i] === '--no-ledger') noLedger = true; // audit-only: never affects the verdict
+  else if (args[i] === '--canary') canaryMode = true; // a green run must also be seen RED (canary.mjs)
 }
 if (!repo) indeterminate('missing --repo <dir>');
 if (!existsSync(repo) || !statSync(repo).isDirectory()) indeterminate(`repo not found or not a directory: ${repo}`);
@@ -515,13 +521,60 @@ let headExit;
 try { setup(headTree, 'head'); headExit = run(tools.verify, headTree, 'verify (head as-is)'); }
 finally { rmSync(headTree, { recursive: true, force: true }); }
 
-const pass = trustedExit === 0 && headExit === 0 && (acceptanceExit === null || acceptanceExit === 0);
-ledgerAppend(repo, { verify: tools.verify, tools_source: toolsSource, acceptance: tools.acceptance, base, head, trusted_exit: trustedExit, head_exit: headExit, acceptance_exit: acceptanceExit, pass });
+const green = trustedExit === 0 && headExit === 0 && (acceptanceExit === null || acceptanceExit === 0);
+
+// RED CANARY (--canary): the same command on head, with every test file raising on load, must fail.
+// A command that still exits 0 runs no tests, so its green proves nothing (canary.mjs).
+let canary = null;
+if (canaryMode && green) {
+  const isTarget = canaryMatcher(tools.testGlobs);
+  const targets = headEntries.filter((e) => e.type === 'blob' && (e.mode === '100644' || e.mode === '100755') && isTarget(e.path));
+  // Structured outcome for callers (ws-verify): `canary.proven` is false when the command was never
+  // seen RED, whatever the wording of `reason`.
+  const unproven = (why, extra = {}) => {
+    emit({ pass: false, indeterminate: true, canary: { proven: false, ...extra }, evidence: null, reason: `RED canary: ${why}` });
+    process.exit(2);
+  };
+  if (!targets.length) unproven('head has no JS/TS/Python test file to sabotage, so this command cannot be shown to ever fail', { sabotaged: 0, exit: null });
+  const tree = buildHeadTree();
+  let canaryExit;
+  try {
+    const sabotaged = new Map();
+    for (const e of targets) {
+      const dest = safeJoin(tree, e.path);
+      if (!dest || lstatSync(dest).isSymbolicLink()) unproven(`cannot sabotage "${e.path}"`, { sabotaged: 0, exit: null });
+      const bytes = sabotage(e.path, readFileSync(dest));
+      writeFileSync(dest, bytes);
+      sabotaged.set(dest, bytes);
+    }
+    setup(tree, 'canary');
+    canaryExit = run(tools.verify, tree, 'RED canary (head with every test file raising)');
+    // A setup/verify step that restores the test files would undo the sabotage unseen.
+    for (const [dest, bytes] of sabotaged) {
+      let now = null;
+      try { now = lstatSync(dest).isFile() ? readFileSync(dest) : null; } catch { now = null; }
+      if (!now || !now.equals(bytes)) unproven(`the verify/setup chain rewrote or removed a sabotaged test file ("${dest.slice(tree.length + 1)}") — the canary result cannot be trusted`, { sabotaged: targets.length, exit: canaryExit });
+    }
+  } finally { rmSync(tree, { recursive: true, force: true }); }
+  canary = { proven: canaryExit !== 0, exit: canaryExit, sabotaged: targets.length };
+}
+const canaryGreen = !!canary && canary.exit === 0;
+const pass = green && !canaryGreen;
+ledgerAppend(repo, { verify: tools.verify, tools_source: toolsSource, acceptance: tools.acceptance, base, head, trusted_exit: trustedExit, head_exit: headExit, acceptance_exit: acceptanceExit, ...(canary ? { canary_exit: canary.exit } : {}), pass });
+if (canaryGreen) {
+  emit({
+    pass: false, indeterminate: true, canary,
+    evidence: { verify: tools.verify, toolsSource, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head, overlaidTests: [...changedTest], canary },
+    reason: `RED canary stayed green: "${tools.verify}" exited 0 with all ${canary.sabotaged} test file(s) raising on load — it loads no test file (or swallows its failure), so its green proves nothing`,
+  });
+  process.exit(2);
+}
 emit({
   pass,
-  evidence: { verify: tools.verify, toolsSource, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head, overlaidTests: [...changedTest] },
+  evidence: { verify: tools.verify, toolsSource, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head, overlaidTests: [...changedTest], ...(canary ? { canary } : {}) },
+  ...(canary ? { canary } : {}),
   reason: pass
-    ? `verified: base harness × head production green + head-as-is green${acceptanceExit === null ? '' : ' + acceptance oracle green'} (re-executed)`
+    ? `verified: base harness × head production green + head-as-is green${acceptanceExit === null ? '' : ' + acceptance oracle green'}${canary ? ` + RED canary red (exit ${canary.exit}, ${canary.sabotaged} test file(s) sabotaged)` : ''} (re-executed)`
     : trustedExit !== 0
       ? `the immutable base harness failed (exit ${trustedExit}) against head production — the change likely neutered/removed its tests or broke covered code (re-executed)`
       : headExit !== 0

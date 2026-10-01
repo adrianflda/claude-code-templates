@@ -248,8 +248,17 @@ agent per repo propose the gate config with file:line evidence (skill `init-work
 that output deterministically and writes it to a NEW branch `init/<date>` of `<org>/workspace`
 (`scripts/ws-propose.mjs`; a gated `verify` must be backed by the repo's own declared test script,
 make target or compose file). After a human approves the listed commands, it re-executes every
-proposed gate config (`scripts/ws-verify.mjs --approved <sha>`, `--no-ledger`) and commits the labels
-(verified / runs-but-fails / cannot-run-here / no-gate-config). A repo whose
+proposed gate config (`scripts/ws-verify.mjs --approved <sha>`, `--no-ledger --canary`) and commits
+the labels (verified / not-proven / runs-but-fails / cannot-run-here / no-gate-config). `verified`
+requires the RED canary: the same command, re-run with every test file raising on load, must fail
+(`scripts/canary.mjs`; the referee's `--canary` flag, opt-in, so `/gate` is unchanged). It shows the
+command exits non-zero when its test files are broken — NOT that it executes them (open gap G1: a
+lint/typecheck command that only parses them also passes; `CI=true` can select skips) nor which
+tests execute: a repo script that
+skips tests or only collects them still passes, and that is the human approval's call. Agent-chosen
+env is limited to `CI=true|1`, `NODE_ENV=test`, `TZ=UTC`; anything else a suite needs is added by a
+human. Entries must be plain repos under the org folder with their own `.git` (no symlink, gitfile,
+alternates or linked worktree). A repo whose
 tests need services it cannot start locally gets a dockerization proposal under
 `repos/<name>/local-env/`. Nothing is trusted until a human merges the branch into `main`.
 Spec: `docs/agentic-harness/spec-init-workspace.v1.md` (M1; the integration map is M2).
