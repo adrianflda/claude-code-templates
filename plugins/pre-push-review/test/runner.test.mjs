@@ -403,6 +403,8 @@ test('a commit that is on another remote but not on the pushed one is still revi
   git(other, 'init', '-q', '--bare');
   git(repo, 'remote', 'add', 'mirror', other);
   git(repo, 'push', '-q', '--no-verify', 'mirror', 'feat');
+  git(repo, 'fetch', '-q', 'mirror');
+  assert.equal(git(repo, 'rev-parse', 'refs/remotes/mirror/feat'), featSha, 'precondition: mirror is known to have feat');
   const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\n`, ['origin', 'url']);
   assert.equal(r.code, 0, r.stderr);
   assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, featSha]]);
@@ -474,19 +476,23 @@ test('pushing to a URL: a commit already on a configured remote is still reviewe
   assert.deepEqual(r.calls.map((c) => c.args), [['--range', EMPTY_TREE, featSha]]);
 });
 
-test('several tips on the target remote: the base is their common attachment point', () => {
-  const { repo, mainSha, featSha } = repoWithRemote();
-  // origin also has `rel`, one commit ahead of main; feat forked from main and does not contain rel.
+test('several tips on the target remote: a new branch built on one of them is based on it', () => {
+  const { repo, mainSha } = repoWithRemote();
+  // origin has `rel` (main + 1). The new branch `topic` builds on rel, so rel's commit is already
+  // on the target and must not be reviewed again: the base is rel, not main.
   git(repo, 'switch', '-q', '-c', 'rel', mainSha);
   write(repo, { 'rel.js': 'r\n' });
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'rel');
+  const relSha = git(repo, 'rev-parse', 'HEAD');
   git(repo, 'push', '-q', '--no-verify', 'origin', 'rel');
   git(repo, 'fetch', '-q', 'origin');
-  // An update of an existing remote ref, with the remote's tip known locally.
-  git(repo, 'push', '-q', '--no-verify', 'origin', `${mainSha}:refs/heads/feat`);
-  git(repo, 'fetch', '-q', 'origin');
-  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${mainSha}\n`);
+  git(repo, 'switch', '-q', '-c', 'topic');
+  write(repo, { 'topic.js': 't\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'topic');
+  const topicSha = git(repo, 'rev-parse', 'HEAD');
+  const r = runWithArgs(repo, `refs/heads/topic ${topicSha} refs/heads/topic ${ZERO}\n`);
   assert.equal(r.code, 0, r.stderr);
-  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, featSha]]);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', relSha, topicSha]]);
 });
