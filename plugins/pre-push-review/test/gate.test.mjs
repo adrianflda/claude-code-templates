@@ -1,321 +1,252 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { SCRIPTS, executable, git, makeRepo, runNode, tempDir } from './helpers.mjs';
+import { SCRIPTS, fakePlugin, git, installGate, makeRepo, runNode, tempDir } from './helpers.mjs';
 
-const GATE = join(SCRIPTS, 'prepush-gate.mjs');
-const PASS = 'SUMMARY: 0 critical, 0 high, 0 medium, 0 low\n[pre-push-review] Passed. No blocking issues.\n';
+const GUARD = join(SCRIPTS, 'prepush-gate.mjs');
 
-/**
- * A plugin root whose panel records the directory it ran in and then behaves as told:
- * FAKE_PANEL_EXIT is its exit code, FAKE_PANEL_OUT its stdout, FAKE_PANEL_KILL makes it die
- * from a signal, FAKE_PANEL_HANG makes it never finish, and FAKE_PANEL_FAIL_IN makes it report
- * a critical issue in that directory.
- */
-function fakePlugin() {
-  const root = tempDir('plugin');
-  mkdirSync(join(root, 'scripts'));
-  executable(
-    join(root, 'scripts', 'ai-review-panel.mjs'),
-    `import { appendFileSync } from 'node:fs';
-appendFileSync(process.env.FAKE_PANEL_LOG, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), required: process.env.AI_REVIEW_REQUIRED }) + '\\n');
-if (process.env.FAKE_PANEL_KILL) process.kill(process.pid, 'SIGKILL');
-if (process.env.FAKE_PANEL_HANG) await new Promise(() => setInterval(() => {}, 1000));
-if (process.env.FAKE_PANEL_FAIL_IN === process.cwd()) {
-  process.stdout.write('[CRITICAL] x.js:1 — broken\\n');
-  process.exit(1);
-}
-process.stdout.write(process.env.FAKE_PANEL_OUT ?? ${JSON.stringify(PASS)});
-process.exit(Number(process.env.FAKE_PANEL_EXIT ?? 0));
-`,
-  );
-  return root;
-}
+// One installed machine shared by the tests that only read it.
+const plugin = fakePlugin();
+const home = installGate(plugin);
 
-function markers(home) {
-  const cache = join(home, '.cache', 'git-ai-review');
-  return existsSync(cache) ? readdirSync(cache).filter((f) => f.startsWith('pass-')) : [];
-}
-
-function runGate({ command, cwd, env = {}, tool = 'Bash', plugin = fakePlugin() }) {
-  const home = tempDir('home');
-  const log = join(home, 'panel-calls.jsonl');
-  const result = runNode(GATE, {
-    input: JSON.stringify({ tool_name: tool, tool_input: { command }, cwd }),
-    env: { HOME: home, CLAUDE_PLUGIN_ROOT: plugin, FAKE_PANEL_LOG: log, ...env },
+function guard({ command, cwd, tool = 'Bash', timeout = 600000, input = {}, env = {}, h = home }) {
+  const tool_input = { command, ...(timeout === null ? {} : { timeout }), ...input };
+  return runNode(GUARD, {
+    input: JSON.stringify({ tool_name: tool, tool_input, cwd }),
+    env: { HOME: h, ...env },
   });
-  const calls = existsSync(log)
-    ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
-    : [];
-  return { ...result, calls, home };
 }
 
-test('reviews the repository the push leaves from, not the session directory', () => {
+test('an installed gate lets a plain push through, silently, without deciding permission', () => {
+  const repo = makeRepo('repo');
+  const r = guard({ command: 'git push -u origin main', cwd: repo });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.stdout, '', 'no permissionDecision or other output');
+});
+
+test('the guard never runs the panel', () => {
+  const repo = makeRepo('repo');
+  const log = join(tempDir('x'), 'log');
+  const r = guard({ command: 'git push', cwd: repo, env: { FAKE_PANEL_LOG: log } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(existsSync(log), false, 'the panel (which would write this log) did not run');
+});
+
+test('follows cd and -C to the repository being pushed', () => {
   const session = makeRepo('session');
-  const pushed = makeRepo('pushed');
-
-  const viaCd = runGate({ command: `cd ${pushed} && git push -u origin main`, cwd: session });
-  assert.equal(viaCd.code, 0, viaCd.stderr);
-  assert.deepEqual(viaCd.calls.map((c) => c.cwd), [pushed]);
-
-  const viaC = runGate({ command: `git -C ${pushed} push`, cwd: session });
-  assert.deepEqual(viaC.calls.map((c) => c.cwd), [pushed]);
-
-  const plain = runGate({ command: 'git push', cwd: session });
-  assert.deepEqual(plain.calls.map((c) => c.cwd), [session]);
+  const other = makeRepo('other');
+  // Make the two repositories distinguishable: only one of them has the gate disabled.
+  git(other, 'config', 'hook.ai-review.enabled', 'false');
+  assert.equal(guard({ command: 'git push', cwd: session }).code, 0);
+  assert.equal(guard({ command: `cd ${other} && git push`, cwd: session }).code, 2);
+  assert.equal(guard({ command: `git -C ${other} push`, cwd: session }).code, 2);
+  // And the reverse: a broken session repository does not matter when the target is healthy.
+  assert.equal(guard({ command: `git -C ${session} push`, cwd: other }).code, 0);
+  assert.equal(guard({ command: 'git push', cwd: other }).code, 2);
 });
 
-test('reviews from the repository root when the push runs in a subdirectory', () => {
-  const repo = makeRepo('nested', { 'src/a.js': 'a\n' });
-  const result = runGate({ command: 'cd src && git push', cwd: repo });
-  assert.deepEqual(result.calls.map((c) => c.cwd), [repo]);
-});
-
-test('marker and log are written for the pushed repository', () => {
-  const session = makeRepo('session');
-  const pushed = makeRepo('pushed', { 'README.md': 'other\n' });
-  const result = runGate({ command: `cd ${pushed} && git push`, cwd: session });
-
-  const cache = join(result.home, '.cache', 'git-ai-review');
-  const pushedSha = git(pushed, 'rev-parse', 'HEAD');
-  assert.deepEqual(markers(result.home), [`pass-${pushedSha}`]);
-  const log = readFileSync(join(cache, `review-${pushedSha}.log`), 'utf8');
-  assert.match(log, new RegExp(`repository: ${pushed}`));
-  assert.match(log, /SUMMARY: 0 critical/);
-});
-
-test('a pass reports the summary as hook JSON and does not approve the push itself', () => {
+test('the stored command is read back through the installer quoting, spaces and apostrophes included', () => {
+  const base = tempDir("it's a dir");
+  const spaced = join(base, 'with space');
+  mkdirSync(join(spaced, 'scripts'), { recursive: true });
+  for (const f of ['git-pre-push.mjs', 'install-git-hook.mjs']) copyFileSync(join(SCRIPTS, f), join(spaced, 'scripts', f));
+  const h = installGate(spaced);
   const repo = makeRepo('repo');
-  const result = runGate({
-    command: 'git push',
-    cwd: repo,
-    env: {
-      FAKE_PANEL_OUT:
-        '[pre-push-review] 3 deleted file(s): the reviewers see their names, not their content.\n' +
-        '[pre-push-review] Reviewing 2 commit(s) being pushed (40 lines) with 6 expert agents [model=sonnet]...\n' +
-        '[pre-push-review] Note: 2/6 agent(s) failed; review is partial.\n' +
-        'SUMMARY: 0 critical, 1 high, 2 medium, 0 low\n' +
-        '[pre-push-review] Passed. No blocking issues.\n',
-    },
-  });
-  assert.equal(result.code, 0, result.stderr);
-  const out = JSON.parse(result.stdout);
-  assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse');
-  assert.equal(out.hookSpecificOutput.permissionDecision, undefined, 'the permission flow stays in charge');
-  for (const text of [out.systemMessage, out.hookSpecificOutput.additionalContext]) {
-    assert.match(text, /SUMMARY: 0 critical, 1 high, 2 medium, 0 low/);
-    assert.match(text, /2 commit\(s\) being pushed/);
-    assert.match(text, /2\/6 agent\(s\) failed; review is partial/);
-    assert.match(text, /3 deleted file\(s\)/);
-    assert.match(text, new RegExp(repo));
-  }
+  assert.equal(guard({ command: 'git push', cwd: repo, h }).code, 0);
+  assert.equal(runNode(join(spaced, 'scripts', 'install-git-hook.mjs'), { args: ['--check'], env: { HOME: h } }).code, 0);
 });
 
-test('blocks on critical findings', () => {
+test('--no-verify on a commit in the same command is not a push bypass', () => {
   const repo = makeRepo('repo');
-  const result = runGate({
-    command: 'git push',
-    cwd: repo,
-    env: { FAKE_PANEL_EXIT: '1', FAKE_PANEL_OUT: '[CRITICAL] a.js:1 — leaks a token\n' },
-  });
-  assert.equal(result.code, 2);
-  assert.match(result.stderr, /critical issue\(s\) found/);
-  assert.match(result.stderr, /leaks a token/);
-  assert.deepEqual(markers(result.home), [], 'no marker on block');
-});
-
-test('fails closed when no reviewer could run', () => {
-  const repo = makeRepo('repo');
-  const result = runGate({
-    command: 'git push',
-    cwd: repo,
-    env: { FAKE_PANEL_EXIT: '2', FAKE_PANEL_OUT: 'All review agents failed\n' },
-  });
-  assert.equal(result.code, 2);
-  assert.match(result.stderr, /was NOT reviewed/);
-  assert.equal(result.calls[0].required, '1', 'the gate asks the panel to fail closed');
-  assert.deepEqual(markers(result.home), [], 'no marker for a review that did not happen');
-});
-
-test('blocks when the panel dies or is missing', () => {
-  const repo = makeRepo('repo');
-
-  const killed = runGate({ command: 'git push', cwd: repo, env: { FAKE_PANEL_KILL: '1' } });
-  assert.equal(killed.code, 2);
-  assert.match(killed.stderr, /was NOT reviewed: the panel was killed by SIGKILL/);
-  assert.deepEqual(markers(killed.home), []);
-
-  const absent = runGate({ command: 'git push', cwd: repo, plugin: tempDir('empty-plugin') });
-  assert.equal(absent.code, 2);
-  assert.match(absent.stderr, /review panel is missing/);
-});
-
-test('an exit code the gate does not know is not a pass', () => {
-  const repo = makeRepo('repo');
-  const result = runGate({ command: 'git push', cwd: repo, env: { FAKE_PANEL_EXIT: '7', FAKE_PANEL_OUT: 'boom\n' } });
-  assert.equal(result.code, 2);
-  assert.match(result.stderr, /was NOT reviewed/);
-  assert.deepEqual(markers(result.home), []);
-});
-
-test('AI_REVIEW_REQUIRED=0 is passed through for an advisory setup', () => {
-  const repo = makeRepo('repo');
-  const result = runGate({ command: 'git push', cwd: repo, env: { AI_REVIEW_REQUIRED: '0' } });
-  assert.equal(result.code, 0);
-  assert.equal(result.calls[0].required, '0');
-});
-
-test('blocks a push whose directory cannot be known, without running the panel', () => {
-  const repo = makeRepo('repo');
-  const result = runGate({ command: 'cd $WORKTREE && git push', cwd: repo });
-  assert.equal(result.code, 2);
-  assert.match(result.stderr, /cannot tell which repository/);
-  assert.deepEqual(result.calls, []);
-});
-
-test('one unknown directory blocks the whole command', () => {
-  const repo = makeRepo('repo');
-  const result = runGate({ command: 'git push && cd $OTHER && git push', cwd: repo });
-  assert.equal(result.code, 2);
-  assert.deepEqual(result.calls, []);
-});
-
-test('blocks when the target is not a repository or does not exist', () => {
-  const plain = runGate({ command: 'git push', cwd: tempDir('plain') });
-  assert.equal(plain.code, 2);
-  assert.match(plain.stderr, /is not a git repository/);
-  assert.deepEqual(plain.calls, []);
-
-  // `cd` fails and `;` carries on: the shell would push from the session repository.
-  const repo = makeRepo('repo');
-  const missing = runGate({ command: 'cd /no/such/dir; git push', cwd: repo });
-  assert.equal(missing.code, 2);
-  assert.deepEqual(missing.calls, []);
-});
-
-test('nothing to review passes without a marker', () => {
-  const repo = makeRepo('repo');
-  const result = runGate({
-    command: 'git push',
-    cwd: repo,
-    env: { FAKE_PANEL_OUT: '[pre-push-review] No unpushed commits to review.\n' },
-  });
-  assert.equal(result.code, 0);
-  assert.match(JSON.parse(result.stdout).systemMessage, /No unpushed commits to review/);
-  assert.deepEqual(markers(result.home), []);
-});
-
-test('several pushes: each repository is reviewed once, and one block leaves no marker behind', () => {
-  const a = makeRepo('a', { 'README.md': 'a\n' });
-  const b = makeRepo('b', { 'README.md': 'b\n' });
-  const command = `cd ${a} && git push; cd ${b} && git push; git -C ${a} push`;
-
-  const ok = runGate({ command, cwd: a });
-  assert.equal(ok.code, 0, ok.stderr);
-  assert.deepEqual(ok.calls.map((c) => c.cwd), [a, b]);
-  assert.equal(markers(ok.home).length, 2);
-  assert.equal(JSON.parse(ok.stdout).systemMessage.split('\n').length, 3);
-
-  const blocked = runGate({ command, cwd: a, env: { FAKE_PANEL_FAIL_IN: b } });
-  assert.equal(blocked.code, 2);
-  assert.ok(blocked.stderr.includes(`critical issue(s) found by the expert panel in ${b}`));
-  assert.deepEqual(markers(blocked.home), [], 'the passing repository gets no marker either');
+  assert.equal(guard({ command: 'git commit --no-verify -m "fix push bug" && git push', cwd: repo }).code, 0);
+  assert.equal(guard({ command: 'git commit -m x && git push --no-verify', cwd: repo }).code, 2);
 });
 
 test('stays out of the way when there is no push', () => {
   const repo = makeRepo('repo');
-  for (const command of ['git status', 'printf "push later"', 'echo git push']) {
-    const result = runGate({ command, cwd: repo });
-    assert.equal(result.code, 0, command);
-    assert.equal(result.stdout, '', command);
-    assert.deepEqual(result.calls, [], command);
+  const bare = tempDir('home'); // no gate installed: irrelevant without a push
+  for (const command of ['git status', 'git commit -m "push the button"', 'echo "git push"', 'ls']) {
+    assert.equal(guard({ command, cwd: repo, h: bare, timeout: null }).code, 0, command);
   }
-  const otherTool = runGate({ command: 'git push', cwd: repo, tool: 'Write' });
-  assert.deepEqual(otherTool.calls, []);
+  assert.equal(guard({ command: 'git push', cwd: repo, tool: 'Read', h: bare, timeout: null }).code, 0);
+  assert.equal(runNode(GUARD, { input: 'not json' }).code, 0);
 });
 
-test('the skip switch bypasses the review', () => {
+test('blocks a push whose directory cannot be known', () => {
   const repo = makeRepo('repo');
-  const result = runGate({ command: 'git push', cwd: repo, env: { PREPUSH_REVIEW_SKIP: '1' } });
-  assert.equal(result.code, 0);
-  assert.deepEqual(result.calls, []);
+  const r = guard({ command: 'cd "$TARGET" && git push', cwd: repo });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /cannot tell which repository/);
+  assert.equal(guard({ command: `cd ${repo} && git push && cd "$X" && git push`, cwd: repo }).code, 2);
 });
 
-test('the inline skip switch bypasses that push; an ordinary env prefix does not', () => {
+test('blocks when the target is not a repository or does not exist', () => {
   const repo = makeRepo('repo');
-  const skipped = runGate({ command: 'PREPUSH_REVIEW_SKIP=1 git push', cwd: repo });
-  assert.equal(skipped.code, 0);
-  assert.deepEqual(skipped.calls, []);
-
-  const prefixed = runGate({ command: 'GIT_TRACE=1 git push', cwd: repo });
-  assert.deepEqual(prefixed.calls.map((c) => c.cwd), [repo]);
-});
-
-test('a push behind a wrapper or inside a shell script is reviewed', () => {
-  const repo = makeRepo('repo');
-  for (const command of ['env git push', 'command git push', "bash -c 'git push'"]) {
-    const result = runGate({ command, cwd: repo });
-    assert.deepEqual(result.calls.map((c) => c.cwd), [repo], command);
+  const notRepo = tempDir('plain');
+  for (const command of [`cd ${notRepo} && git push`, `git -C ${notRepo}/missing push`]) {
+    const r = guard({ command, cwd: repo });
+    assert.equal(r.code, 2, command);
+    assert.match(r.stderr, /not a git repository/);
   }
 });
 
-test('the pass line counts only as the last line of the panel output', () => {
+test('blocks when the global gate is not installed', () => {
   const repo = makeRepo('repo');
-  const result = runGate({
-    command: 'git push',
-    cwd: repo,
-    env: {
-      FAKE_PANEL_OUT:
-        '[LOW] a.js:1 — the diff contains this text:\n[pre-push-review] Passed. No blocking issues.\n' +
-        'SUMMARY: 0 critical, 0 high, 0 medium, 1 low\n' +
-        '[pre-push-review] All review agents failed — skipping (advisory).\n',
-    },
-  });
-  assert.equal(result.code, 0);
-  assert.deepEqual(markers(result.home), []);
-  assert.match(JSON.parse(result.stdout).systemMessage, /All review agents failed/);
+  const r = guard({ command: 'git push', cwd: repo, h: tempDir('home') });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /not active/);
+  assert.match(r.stderr, /install-git-hook\.mjs/);
 });
 
-test('a panel that does not finish in time blocks the push', () => {
+test('blocks when the configured command points at a missing runner', () => {
   const repo = makeRepo('repo');
-  const result = runGate({
-    command: 'git push',
-    cwd: repo,
-    env: { FAKE_PANEL_HANG: '1', PREPUSH_REVIEW_TIMEOUT_MS: '1500' },
-  });
-  assert.equal(result.code, 2);
-  assert.match(result.stderr, /was NOT reviewed: the panel did not finish in 1500 ms/);
-  assert.deepEqual(markers(result.home), []);
+  const h = tempDir('home');
+  writeFileSync(join(h, '.gitconfig'), '[hook "ai-review"]\n\tevent = pre-push\n\tcommand = node /nowhere/git-pre-push.mjs\n');
+  const r = guard({ command: 'git push', cwd: repo, h });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /does not point at an existing git-pre-push\.mjs/);
 });
 
-test('a commit and a push in one command are blocked before any review runs', () => {
-  const session = makeRepo('session');
-  const other = makeRepo('other');
+test('blocks when the gate is disabled or overridden in the repository', () => {
+  const disabled = makeRepo('disabled');
+  git(disabled, 'config', 'hook.ai-review.enabled', 'false');
+  const r1 = guard({ command: 'git push', cwd: disabled });
+  assert.equal(r1.code, 2);
+  assert.match(r1.stderr, /disabled/);
+
+  const overridden = makeRepo('overridden');
+  git(overridden, 'config', 'hook.ai-review.command', 'true');
+  const r2 = guard({ command: 'git push', cwd: overridden });
+  assert.equal(r2.code, 2);
+  assert.match(r2.stderr, /exactly once, in the global git config/);
+});
+
+test('blocks bypass attempts on the command', () => {
+  const repo = makeRepo('repo');
+  const cases = {
+    '--no-verify': 'git push --no-verify',
+    '--no-verify before the remote': 'git push origin --no-verify main',
+    'abbreviated --no-verify': 'git push --no-verif',
+    'core.hooksPath': 'git -c core.hooksPath=/dev/null push',
+    'core.hooksPath glued': 'git -ccore.hooksPath=/dev/null push',
+    'hook override': 'git -c hook.ai-review.command=true push',
+    '--config-env': 'git --config-env=core.hooksPath=X push',
+    GIT_CONFIG_GLOBAL: 'GIT_CONFIG_GLOBAL=/dev/null git push',
+    GIT_CONFIG_NOSYSTEM: 'GIT_CONFIG_NOSYSTEM=1 git push',
+    GIT_CONFIG_COUNT: 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/x git push',
+    'HOME redirect': 'HOME=/tmp/empty git push',
+    'XDG redirect': 'XDG_CONFIG_HOME=/tmp/empty git push',
+    PREPUSH_REVIEW_SKIP: 'PREPUSH_REVIEW_SKIP=1 git push',
+    AI_REVIEW_SKIP: 'AI_REVIEW_SKIP=1 git push',
+    AI_REVIEW_REQUIRED: 'AI_REVIEW_REQUIRED=0 git push',
+    'exported variable': 'export AI_REVIEW_SKIP=1; git push',
+    'env wrapper': 'env AI_REVIEW_SKIP=1 git push',
+    'inside bash -c': "bash -c 'git push --no-verify'",
+  };
+  for (const [name, command] of Object.entries(cases)) {
+    const r = guard({ command, cwd: repo });
+    assert.equal(r.code, 2, `${name}: ${command}`);
+    assert.match(r.stderr, /cannot be skipped|--no-verify|can change or skip|replace the review/, name);
+  }
+});
+
+test('blocks bypass variables exported in the hook process environment', () => {
+  const repo = makeRepo('repo');
+  for (const name of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'PREPUSH_REVIEW_SKIP', 'AI_REVIEW_SKIP', 'AI_REVIEW_REQUIRED']) {
+    const r = guard({ command: 'git push', cwd: repo, env: { [name]: '1' } });
+    assert.equal(r.code, 2, name);
+    assert.match(r.stderr, new RegExp(name));
+  }
+});
+
+test('--no-verify on a command that is not a push is not an objection', () => {
+  const repo = makeRepo('repo');
+  assert.equal(guard({ command: 'git commit --no-verify -m x', cwd: repo, timeout: null }).code, 0);
+});
+
+test('blocks git config commands that change the gate, allows reading it', () => {
+  const repo = makeRepo('repo');
+  const blocked = [
+    'git config --global hook.ai-review.command true',
+    'git config --global --unset hook.ai-review.event',
+    'git config --global --unset-all core.hooksPath',
+    'git config core.hooksPath /tmp/x',
+    'git config --global core.hookspath /tmp/x',
+    'git config --global --remove-section hook.ai-review',
+    'git config set --global hook.ai-review.enabled false',
+    'git -C /tmp config hook.ai-review.enabled false',
+  ];
+  for (const command of blocked) {
+    const r = guard({ command, cwd: repo, timeout: null });
+    assert.equal(r.code, 2, command);
+    assert.match(r.stderr, /Ask the user/);
+  }
   for (const command of [
-    'git add -A && git commit -m "fix: x" && git push',
-    `git -C ${other} commit -m "fix: x" && git -C ${other} push`,
-    'git commit -m "fix: x"; git push -u origin main',
+    'git config --get hook.ai-review.command',
+    'git config --global --get-all core.hooksPath',
+    'git config --list',
+    'git config user.name x',
   ]) {
-    const result = runGate({ command, cwd: session });
-    assert.equal(result.code, 2, command);
-    assert.match(result.stderr, /creates a commit .* before the push in the same command/, command);
-    assert.match(result.stderr, /separate commands/, command);
-    assert.deepEqual(result.calls, [], 'the panel does not run on commits that do not exist yet');
-    assert.deepEqual(markers(result.home), []);
+    assert.equal(guard({ command, cwd: repo, timeout: null }).code, 0, command);
   }
 });
 
-test('a plain push and a commit alone are not affected by the commit-and-push rule', () => {
+test('a read flag in a comment, a value or after the value does not make a write look like a read', () => {
   const repo = makeRepo('repo');
-  const push = runGate({ command: 'git push', cwd: repo });
-  assert.equal(push.code, 0, push.stderr);
-  assert.equal(push.calls.length, 1, 'a plain push is reviewed');
+  const blocked = [
+    "git config --global hook.ai-review.command 'node /tmp/x/git-pre-push.mjs' # --list",
+    'git config --global hook.ai-review.command "node /tmp/x/git-pre-push.mjs" # --get',
+    'git config hook.ai-review.command --list',
+    'git config hook.ai-review.command get',
+    'git config --global core.hooksPath list',
+    'git config --get-all hook.ai-review.command x',
+    'git config --get hook.ai-review.command --unset',
+    'git config --global --edit # hook.ai-review.command --list',
+    'git config --global --replace-all hook.ai-review.command x --get',
+    'git config --global --add hook.ai-review.command x',
+    'git config --global --rename-section hook.ai-review other',
+    'git config unset --global hook.ai-review.event',
+  ];
+  for (const command of blocked) {
+    assert.equal(guard({ command, cwd: repo, timeout: null }).code, 2, command);
+  }
+  for (const command of [
+    'git config --get hook.ai-review.command # fine',
+    'git config get --global hook.ai-review.command',
+    'git config --global --list --show-origin',
+    'git config --file /tmp/x --get core.hooksPath',
+  ]) {
+    assert.equal(guard({ command, cwd: repo, timeout: null }).code, 0, command);
+  }
+});
 
-  const commit = runGate({ command: 'git commit -m "fix: x"', cwd: repo });
-  assert.equal(commit.code, 0, commit.stderr);
-  assert.deepEqual(commit.calls, [], 'a commit is not a push');
+test('an unparseable payload blocks only when it looks like a push', () => {
+  assert.equal(runNode(GUARD, { input: '{"tool_name":"Bash","tool_input":{"command":"git push', env: { HOME: home } }).code, 2);
+  assert.equal(runNode(GUARD, { input: 'garbage git push', env: { HOME: home } }).code, 2);
+  assert.equal(runNode(GUARD, { input: 'garbage ls', env: { HOME: home } }).code, 0);
+  assert.equal(runNode(GUARD, { input: '', env: { HOME: home } }).code, 0);
+});
 
-  const skipped = runGate({ command: 'git commit -m "fix: x" && PREPUSH_REVIEW_SKIP=1 git push', cwd: repo });
-  assert.equal(skipped.code, 0, 'the inline skip switch still bypasses the gate');
+test('blocks a push whose Bash call would be killed before the review ends', () => {
+  const repo = makeRepo('repo');
+  for (const timeout of [null, 120000, 599999]) {
+    const r = guard({ command: 'git push', cwd: repo, timeout });
+    assert.equal(r.code, 2, String(timeout));
+    assert.match(r.stderr, /timeout 600000/);
+  }
+  assert.equal(guard({ command: 'git push', cwd: repo, timeout: 600000 }).code, 0);
+  assert.equal(guard({ command: 'git push', cwd: repo, timeout: null, input: { run_in_background: true } }).code, 0);
+});
+
+test('a commit and a push in one command are no longer special: git runs the hook at push time', () => {
+  const repo = makeRepo('repo');
+  assert.equal(guard({ command: 'git commit -am x && git push', cwd: repo }).code, 0);
+});
+
+test('several pushes: one block blocks the whole command', () => {
+  const repo = makeRepo('repo');
+  const plain = tempDir('plain');
+  const r = guard({ command: `git push && cd ${plain} && git push`, cwd: repo });
+  assert.equal(r.code, 2);
 });
