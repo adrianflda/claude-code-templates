@@ -56,6 +56,8 @@ let reviewMode = 'staged';
 let baseBranch = '';
 let prNumber = '';
 let postToPr = false;
+let rangeBase = '';
+let rangeHead = '';
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--branch') reviewMode = 'branch';
   else if (args[i] === '--base' && args[i + 1]) {
@@ -64,6 +66,18 @@ for (let i = 0; i < args.length; i++) {
     baseBranch = args[++i];
     reviewMode = 'branch';
   }
+  else if (args[i] === '--range' && args[i + 1] && args[i + 2]) {
+    // Exact commits being pushed, as computed by the git pre-push runner from git's own ref
+    // list: base is the parent of the oldest pushed commit (or the empty tree), head the
+    // pushed tip. Both must be full object names: they are interpolated into git commands.
+    rangeBase = args[++i];
+    rangeHead = args[++i];
+    if (!/^[0-9a-f]{40,64}$/.test(rangeBase) || !/^[0-9a-f]{40,64}$/.test(rangeHead)) {
+      console.error('[pre-push-review] --range needs two full object names: <base> <head>');
+      process.exit(2);
+    }
+    reviewMode = 'range';
+  }
   else if (args[i] === '--pr' && args[i + 1]) {
     prNumber = args[++i];
     postToPr = true;
@@ -71,7 +85,7 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === '--post') postToPr = true;
   else if (args[i] === '--help' || args[i] === '-h') {
     console.log(
-      'Usage: node ai-review-panel.mjs [--branch] [--base <branch>] [--pr <n>] [--post]',
+      'Usage: node ai-review-panel.mjs [--branch] [--base <branch>] [--range <base> <head>] [--pr <n>] [--post]',
     );
     process.exit(0);
   }
@@ -356,6 +370,11 @@ if (reviewMode === 'staged') {
   diff = run(`git diff --cached ${DIFF_FLAGS} ${PATHSPEC}`);
   if (!diff) diff = run(`git diff ${DIFF_FLAGS} ${PATHSPEC}`);
   description = 'staged/unstaged changes';
+} else if (reviewMode === 'range') {
+  const baseIsCommit = run(`git cat-file -t ${rangeBase}`) === 'commit';
+  const count = run(`git rev-list --count ${rangeHead}${baseIsCommit ? ` ^${rangeBase}` : ''}`) || '?';
+  description = `${count} commit(s) being pushed`;
+  diff = run(`git diff ${rangeBase} ${rangeHead} ${DIFF_FLAGS} ${PATHSPEC}`);
 } else {
   // Review EXACTLY the commits being pushed — those not yet on any remote. This is
   // project-agnostic (no base-branch guessing) and matches what `git push` will send,

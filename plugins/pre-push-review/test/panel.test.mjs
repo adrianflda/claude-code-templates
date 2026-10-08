@@ -161,3 +161,45 @@ test('when no reviewer can run: exit 2 if required, exit 0 if advisory', () => {
   assert.equal(advisory.code, 0);
   assert.match(advisory.stderr, /All review agents failed/);
 });
+
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+test('--range from the empty tree reviews a root commit (first push to an empty remote)', () => {
+  const repo = makeRepo('root', { 'first.js': 'export const first = 1;\n' });
+  const head = git(repo, 'rev-parse', 'HEAD');
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--range', EMPTY_TREE, head], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Reviewing 1 commit\(s\) being pushed/);
+  assert.match(claude.prompts(), /export const first = 1;/);
+});
+
+test('--range reviews the given head, not HEAD', () => {
+  const repo = makeRepo('range', { 'a.js': 'a\n' });
+  const base = git(repo, 'rev-parse', 'HEAD');
+  git(repo, 'switch', '-q', '-c', 'feat');
+  write(repo, { 'feat.js': 'export const onFeat = true;\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'feat');
+  const head = git(repo, 'rev-parse', 'HEAD');
+  git(repo, 'switch', '-q', 'main');
+  write(repo, { 'main.js': 'export const onMain = true;\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'main');
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--range', base, head], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(claude.prompts(), /onFeat/);
+  assert.doesNotMatch(claude.prompts(), /onMain/);
+});
+
+test('--range refuses anything but full object names', () => {
+  const repo = makeRepo('bad');
+  for (const args of [['--range', 'HEAD~1', 'HEAD'], ['--range', 'abc', 'def'], ['--range', `${EMPTY_TREE};id`, EMPTY_TREE]]) {
+    const result = runNode(PANEL, { args, cwd: repo });
+    assert.equal(result.code, 2, args.join(' '));
+    assert.match(result.stderr, /--range needs two full object names/);
+  }
+});

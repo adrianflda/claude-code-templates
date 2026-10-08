@@ -3,9 +3,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { executable, fakePlugin, git, installGate, makeRepo, runNode, tempDir } from './helpers.mjs';
+import { executable, fakePlugin, git, installGate, makeRepo, runNode, tempDir, write } from './helpers.mjs';
 
 const ZERO = '0'.repeat(40);
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 function runRunner({ plugin = fakePlugin(), env = {}, input, cwd = makeRepo('repo') } = {}) {
   const home = tempDir('home');
@@ -20,12 +21,12 @@ function runRunner({ plugin = fakePlugin(), env = {}, input, cwd = makeRepo('rep
   return { ...r, calls, home, cwd, sha };
 }
 
-test('passes when the panel passes, runs it with --branch in the repo root, and streams its output', () => {
+test('passes when the panel passes, runs it on the pushed range in the repo root, and streams its output', () => {
   const repo = makeRepo('repo', { 'src/a.js': 'a\n' });
   const sub = join(repo, 'src');
   const r = runRunner({ cwd: sub });
   assert.equal(r.code, 0, r.stderr);
-  assert.deepEqual(r.calls.map((c) => [c.cwd, c.args, c.required]), [[repo, ['--branch'], '1']]);
+  assert.deepEqual(r.calls.map((c) => [c.cwd, c.args, c.required]), [[repo, ['--range', EMPTY_TREE, r.sha], '1']]);
   assert.match(r.stderr, /Passed\. No blocking issues\./, 'panel output reaches the terminal');
 });
 
@@ -113,7 +114,7 @@ test('SIGTERM to the runner kills the panel and its child', async () => {
     env: { ...process.env, HOME: home, FAKE_PANEL_LOG: calls, FAKE_PANEL_GRANDCHILD: '1', FAKE_PANEL_HANG: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  child.stdin.end(`refs/heads/main ${'b'.repeat(40)} refs/heads/main ${ZERO}\n`);
+  child.stdin.end(`refs/heads/main ${git(cwd, 'rev-parse', 'HEAD')} refs/heads/main ${ZERO}\n`);
   for (let i = 0; i < 100 && !existsSync(`${calls}.child`); i += 1) await new Promise((r) => setTimeout(r, 50));
   child.kill('SIGTERM');
   const status = await new Promise((res) => child.on('close', res));
@@ -231,4 +232,267 @@ test('real git push --no-verify is the one way past the gate (documented limit)'
   const r = s.push({ FAKE_PANEL_EXIT: '1' }, '--no-verify');
   assert.equal(r.status, 0, r.stderr);
   assert.equal(s.calls(), 0);
+});
+
+// --- Exactly what is pushed: the range comes from git's ref list, not from HEAD ---------------
+
+/** A repo with a bare remote holding `main`, plus a local branch `feat` with one more commit. */
+function repoWithRemote() {
+  const repo = makeRepo('pushed', { 'a.js': 'a\n' });
+  const remote = tempDir('remote');
+  git(remote, 'init', '-q', '--bare');
+  git(repo, 'remote', 'add', 'origin', remote);
+  git(repo, 'push', '-q', '--no-verify', 'origin', 'main');
+  const mainSha = git(repo, 'rev-parse', 'HEAD');
+  git(repo, 'switch', '-q', '-c', 'feat');
+  write(repo, { 'b.js': 'b\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'feat');
+  const featSha = git(repo, 'rev-parse', 'HEAD');
+  git(repo, 'switch', '-q', 'main');
+  return { repo, mainSha, featSha };
+}
+
+function runWithArgs(cwd, input, args = ['origin', 'url']) {
+  const home = tempDir('home');
+  const log = join(home, 'panel-calls.jsonl');
+  const r = runNode(join(fakePlugin(), 'scripts', 'git-pre-push.mjs'), {
+    cwd,
+    args,
+    input,
+    env: { HOME: home, FAKE_PANEL_LOG: log },
+  });
+  const calls = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];
+  return { ...r, calls };
+}
+
+test('first push to an empty remote reviews every commit, from the empty tree', () => {
+  const repo = makeRepo('fresh', { 'a.js': 'a\n' });
+  write(repo, { 'b.js': 'b\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'second');
+  const sha = git(repo, 'rev-parse', 'HEAD');
+  const r = runWithArgs(repo, `refs/heads/main ${sha} refs/heads/main ${ZERO}\n`, ['origin', '/nowhere']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', EMPTY_TREE, sha]]);
+});
+
+test('a branch that is not checked out is reviewed, not HEAD', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  assert.equal(git(repo, 'rev-parse', 'HEAD'), mainSha, 'HEAD is main');
+  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  // feat is new to the remote: its own commit only, based on what the remote already has.
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, featSha]]);
+});
+
+test('an existing remote ref is reviewed from the remote tip to the pushed tip', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/main ${mainSha}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, featSha]]);
+});
+
+test('pushing commits the remote already has (a new name for them) runs no review', () => {
+  const { repo, mainSha } = repoWithRemote();
+  const r = runWithArgs(repo, `refs/heads/copy ${mainSha} refs/heads/copy ${ZERO}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.calls.length, 0);
+  assert.match(r.stderr, /already has every pushed commit/);
+});
+
+test('two refs are each reviewed once', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  git(repo, 'switch', '-q', '-c', 'other', mainSha);
+  write(repo, { 'c.js': 'c\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'other');
+  const otherSha = git(repo, 'rev-parse', 'HEAD');
+  const input =
+    `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\n` +
+    `refs/heads/other ${otherSha} refs/heads/other ${ZERO}\n` +
+    `refs/heads/feat ${featSha} refs/heads/feat2 ${ZERO}\n`;
+  const r = runWithArgs(repo, input);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [
+    ['--range', mainSha, featSha],
+    ['--range', mainSha, otherSha],
+  ]);
+});
+
+test('one blocking range blocks the whole push', () => {
+  const { repo, featSha } = repoWithRemote();
+  const home = tempDir('home');
+  const r = runNode(join(fakePlugin(), 'scripts', 'git-pre-push.mjs'), {
+    cwd: repo,
+    args: ['origin', 'url'],
+    input: `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\n`,
+    env: { HOME: home, FAKE_PANEL_LOG: join(home, 'l'), FAKE_PANEL_EXIT: '1', FAKE_PANEL_OUT: '[CRITICAL] b.js:1 - x\n' },
+  });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /PUSH BLOCKED/);
+});
+
+test('a pushed sha this repository does not have blocks instead of skipping', () => {
+  const repo = makeRepo('repo');
+  const r = runWithArgs(repo, `refs/heads/main ${'b'.repeat(40)} refs/heads/main ${ZERO}\n`);
+  assert.equal(r.code, 1);
+  assert.equal(r.calls.length, 0);
+  assert.match(r.stderr, /cannot list the commits/);
+});
+
+test('a ref list that is not usable falls back to the panel\'s own --branch guess', () => {
+  const repo = makeRepo('repo');
+  const r = runWithArgs(repo, 'garbage line here\n');
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--branch']]);
+});
+
+test('real git push of a branch that is not checked out sends the panel that branch', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  const home = installGate(fakePlugin());
+  const log = join(home, 'panel-calls.jsonl');
+  const env = { ...process.env, HOME: home, FAKE_PANEL_LOG: log };
+  for (const name of Object.keys(env)) if (/^(GIT_CONFIG|AI_REVIEW_|PREPUSH_REVIEW_)/.test(name)) delete env[name];
+  const r = spawnSync('git', ['push', 'origin', 'feat'], { cwd: repo, encoding: 'utf8', env });
+  assert.equal(r.status, 0, r.stderr);
+  const calls = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(calls.map((c) => c.args), [['--range', mainSha, featSha]]);
+});
+
+test('only the second of two ranges blocks: the whole push is blocked, and both were reviewed', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  git(repo, 'switch', '-q', '-c', 'other', mainSha);
+  write(repo, { 'c.js': 'c\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'other');
+  const otherSha = git(repo, 'rev-parse', 'HEAD');
+  const home = tempDir('home');
+  const log = join(home, 'l');
+  const r = runNode(join(fakePlugin(), 'scripts', 'git-pre-push.mjs'), {
+    cwd: repo,
+    args: ['origin', 'url'],
+    input: `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\nrefs/heads/other ${otherSha} refs/heads/other ${ZERO}\n`,
+    env: { HOME: home, FAKE_PANEL_LOG: log, FAKE_PANEL_FAIL_HEAD: otherSha },
+  });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /broken on this range/);
+  assert.equal(readFileSync(log, 'utf8').trim().split('\n').length, 2);
+});
+
+test('only the first of two ranges blocks: a later pass does not undo the block', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  git(repo, 'switch', '-q', '-c', 'other', mainSha);
+  write(repo, { 'c.js': 'c\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'other');
+  const otherSha = git(repo, 'rev-parse', 'HEAD');
+  const home = tempDir('home');
+  const r = runNode(join(fakePlugin(), 'scripts', 'git-pre-push.mjs'), {
+    cwd: repo,
+    args: ['origin', 'url'],
+    input: `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\nrefs/heads/other ${otherSha} refs/heads/other ${ZERO}\n`,
+    env: { HOME: home, FAKE_PANEL_LOG: join(home, 'l'), FAKE_PANEL_FAIL_HEAD: featSha },
+  });
+  assert.equal(r.code, 1);
+});
+
+test('a commit that is on another remote but not on the pushed one is still reviewed', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  const other = tempDir('other');
+  git(other, 'init', '-q', '--bare');
+  git(repo, 'remote', 'add', 'mirror', other);
+  git(repo, 'push', '-q', '--no-verify', 'mirror', 'feat');
+  git(repo, 'fetch', '-q', 'mirror');
+  assert.equal(git(repo, 'rev-parse', 'refs/remotes/mirror/feat'), featSha, 'precondition: mirror is known to have feat');
+  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\n`, ['origin', 'url']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, featSha]]);
+});
+
+test('a remote tip this repository does not have falls back to "not on that remote"', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${'c'.repeat(40)}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, featSha]]);
+});
+
+test('clock skew plus a merge does not hide pushed commits (base is the merge base, not "parent of the last listed")', () => {
+  const { repo, mainSha } = repoWithRemote();
+  const at = (date, ...args) => {
+    const r = spawnSync('git', args, {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+    });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  git(repo, 'switch', '-q', '-c', 'work', mainSha);
+  write(repo, { 'f.js': 'f\n' });
+  git(repo, 'add', '-A');
+  at('2005-01-01T00:00:00Z', 'commit', '-q', '-m', 'F');
+  const f = git(repo, 'rev-parse', 'HEAD');
+  write(repo, { 'b.js': 'b\n' });
+  git(repo, 'add', '-A');
+  at('2020-01-01T00:00:00Z', 'commit', '-q', '-m', 'B');
+  git(repo, 'switch', '-q', '-c', 'g', f);
+  write(repo, { 'g.js': 'g\n' });
+  git(repo, 'add', '-A');
+  at('2001-01-01T00:00:00Z', 'commit', '-q', '-m', 'G');
+  git(repo, 'switch', '-q', 'work');
+  at('2021-01-01T00:00:00Z', 'merge', '-q', '--no-edit', 'g');
+  const head = git(repo, 'rev-parse', 'HEAD');
+  const listed = git(repo, 'rev-list', head, '--not', '--remotes=origin').split('\n');
+  const parentOfLast = git(repo, 'rev-parse', `${listed.at(-1)}^`);
+  assert.equal(parentOfLast, f, 'precondition: the old rule would have used F as the base');
+  const r = runWithArgs(repo, `refs/heads/work ${head} refs/heads/work ${ZERO}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, head]]);
+});
+
+test('a pushed merge of two new branches is reviewed from where they left the remote', () => {
+  const { repo, mainSha } = repoWithRemote();
+  git(repo, 'switch', '-q', '-c', 'side', mainSha);
+  write(repo, { 'side.js': 's\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'side');
+  git(repo, 'switch', '-q', 'feat');
+  git(repo, 'merge', '-q', '--no-edit', 'side');
+  const head = git(repo, 'rev-parse', 'HEAD');
+  const r = runWithArgs(repo, `refs/heads/feat ${head} refs/heads/feat ${ZERO}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, head]]);
+});
+
+test('pushing to a URL: a commit already on a configured remote is still reviewed (never an empty range)', () => {
+  const { repo, featSha } = repoWithRemote();
+  // origin already has feat, but the push goes to a bare URL that has nothing.
+  git(repo, 'push', '-q', '--no-verify', 'origin', 'feat');
+  git(repo, 'fetch', '-q', 'origin');
+  const url = tempDir('url-remote');
+  git(url, 'init', '-q', '--bare');
+  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\n`, [url, url]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', EMPTY_TREE, featSha]]);
+});
+
+test('several tips on the target remote: a new branch built on one of them is based on it', () => {
+  const { repo, mainSha } = repoWithRemote();
+  // origin has `rel` (main + 1). The new branch `topic` builds on rel, so rel's commit is already
+  // on the target and must not be reviewed again: the base is rel, not main.
+  git(repo, 'switch', '-q', '-c', 'rel', mainSha);
+  write(repo, { 'rel.js': 'r\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'rel');
+  const relSha = git(repo, 'rev-parse', 'HEAD');
+  git(repo, 'push', '-q', '--no-verify', 'origin', 'rel');
+  git(repo, 'fetch', '-q', 'origin');
+  git(repo, 'switch', '-q', '-c', 'topic');
+  write(repo, { 'topic.js': 't\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'topic');
+  const topicSha = git(repo, 'rev-parse', 'HEAD');
+  const r = runWithArgs(repo, `refs/heads/topic ${topicSha} refs/heads/topic ${ZERO}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', relSha, topicSha]]);
 });
