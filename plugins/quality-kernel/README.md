@@ -198,11 +198,16 @@ Automatic, always on (no invocation needed):
 - **`hooks/epistemic-guard.py`** (PreToolUse / `Task|Agent`) — requires the
   `[EPISTEMIC-DISCIPLINE v1]` marker in every agent spawn (fires for whichever
   tool name — `Task` or `Agent` — the host runtime uses to spawn subagents).
-  Env `QK_EPISTEMIC_MODE`: `log` (default, warn only) | `block` (exit 2).
-- **`hooks/evidence-gate.py`** (PostToolUse / Bash) — records exit codes of
-  test/build/verify commands to `.quality-kernel/evidence-ledger.jsonl`, so a
-  "done" claim can be checked against a real verification event newer than the
-  last edit. v0 records; hard-blocking is future work.
+  When the marker is missing it prepends the preamble to the subagent prompt
+  through `updatedInput`; it never sets a permission decision.
+  Env `QK_EPISTEMIC_MODE`: `log` (default, inject the preamble) | `block` (exit 2).
+- **`hooks/evidence-gate.py`** (PostToolUse + PostToolUseFailure / Bash) — records
+  test/build/verify commands with their real exit code (`0` on PostToolUse, `N`
+  from the `Exit code N` line on PostToolUseFailure) and `duration_ms` to
+  `.quality-kernel/evidence-ledger.jsonl`. Tool output is never stored and the
+  command is stored redacted. Inside a git repo the ledger is written only when
+  `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
+  model as context. Recording only; hard-blocking is future work.
 
 ## Gate status — teeth vs. prose (v0.5.0)
 
@@ -211,7 +216,7 @@ installing the plugin does not imply the full guarantee.
 
 | Gate | Status today | Notes |
 |------|--------------|-------|
-| Epistemic guard (G1) | **wired (teeth)**, advisory | hook; `log` by default, `block` via env |
+| Epistemic guard (G1) | **wired (teeth)**, advisory | hook; injects the preamble by default, `block` via env |
 | Evidence-gate (G2) | **wired, record-only** | hook writes a ledger; hard-block is v1 |
 | CRAP gate | **wired (teeth)** | deterministic script, non-zero exit over threshold |
 | Pre-push panel | **wired (teeth)** | the existing `pre-push-review` plugin |
