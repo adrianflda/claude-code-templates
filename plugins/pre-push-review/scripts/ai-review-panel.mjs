@@ -396,7 +396,7 @@ ${projectContext ? `## Project guidance (from the repo)\n${projectContext}\n` : 
 ## Output (MANDATORY)
 Output ONLY a JSON object — no prose, no markdown fences — of exactly this shape:
 {"findings":[{"severity":"critical|high|medium|low","file":"path","line":0,"issue":"what & why","suggestion":"fix"}],"summary":"one sentence"}
-Rules: report only issues within your focus area; cite file:line from the diff; do NOT invent issues; reserve "critical" for defects that must block a release (data loss, security/privacy breach, broken core behavior). If nothing in your area, return {"findings":[],"summary":"LGTM"}.
+Rules: report only issues within your focus area; cite file:line from the diff; do NOT invent issues; report only correctness or requirement gaps (real defects), never speculative hardening, optional abstractions, or "could be more robust" suggestions — reviewers told to find gaps always find some, which pushes code toward over-engineering; reserve "critical" for defects that must block a release (data loss, security/privacy breach, broken core behavior). If nothing in your area, return {"findings":[],"summary":"LGTM"}.
 
 ${deletedFiles ? `## Deleted files\n${deletedFiles} file(s) are deleted in this diff. Each appears as a "deleted file mode" header with no content. Within your focus area, check whether anything else in the diff still depends on them.\n\n` : ''}## Diff
 \`\`\`diff
