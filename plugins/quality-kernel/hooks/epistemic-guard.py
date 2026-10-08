@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Quality-Kernel epistemic guard (G1).
 
-PreToolUse hook on Task/Agent spawns. Requires the epistemic-discipline marker in
-the subagent prompt so every spawned agent inherits OBSERVED/INFERRED labeling,
-probe-first behavior, and residual-risk-first reporting. Turns the discipline from
-prose into a forcing function.
+PreToolUse hook on Task/Agent spawns. Ensures the epistemic-discipline marker is in the
+subagent prompt so every spawned agent inherits OBSERVED/INFERRED labeling, probe-first
+behavior, and residual-risk-first reporting.
+
+Default ("inject"): when the marker/exempt tag is missing, return
+hookSpecificOutput.updatedInput = the full original tool_input with the preamble prepended to
+`prompt`. Live-probed on Claude Code 2.1.293: updatedInput applies WITHOUT a permissionDecision,
+so this hook NEVER emits permissionDecision (no "allow"/"ask") and never alters permission flow.
 
 Modes (env QK_EPISTEMIC_MODE):
-  "log"   (default) - warn on stderr, do NOT block. Use this to measure the
-          [EXEMPT] rate before tightening (see quality-kernel README, phase F0).
-  "block"           - block the spawn with exit 2 until the marker is present.
+  "log"   (default) - inject the preamble, do NOT block.
+  "block"           - block the spawn with exit 2 (stderr message) until the marker is present.
 
-Fail-open: any internal error -> allow (exit 0). The guard must never block work
-because of its own bug.
+Fail-open: any internal error -> allow (exit 0), no output.
 """
 import json
 import os
@@ -20,6 +22,10 @@ import sys
 
 MARKER = "[EPISTEMIC-DISCIPLINE v1]"
 EXEMPT = "[EPISTEMIC-EXEMPT"
+PREAMBLE = (
+    f"{MARKER} Label each claim OBSERVED or INFERRED; probe first when a live check costs "
+    "<15 min; report residual risk first."
+)
 
 
 def main() -> None:
@@ -39,17 +45,24 @@ def main() -> None:
     if MARKER in prompt or EXEMPT in prompt:
         sys.exit(0)
 
-    msg = (
-        "[quality-kernel] epistemic guard: this agent spawn is missing the "
-        f"'{MARKER}' marker. Prepend the epistemic-discipline preamble to the "
-        "subagent prompt (label claims OBSERVED/INFERRED, probe-first when a live "
-        "check costs <15 min, residual risk first), or add "
-        f"'{EXEMPT}: <reason>]' for a trivial search/fetch spawn."
-    )
-
     mode = os.environ.get("QK_EPISTEMIC_MODE", "log").lower()
-    print(msg, file=sys.stderr)
-    sys.exit(2 if mode == "block" else 0)
+    if mode == "block":
+        print(
+            "[quality-kernel] epistemic guard: this agent spawn is missing the "
+            f"'{MARKER}' marker. Prepend the epistemic-discipline preamble to the "
+            "subagent prompt, or add "
+            f"'{EXEMPT}: <reason>]' for a trivial search/fetch spawn.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    try:
+        updated = dict(tool_input) if isinstance(tool_input, dict) else {}
+        updated["prompt"] = f"{PREAMBLE}\n\n{updated.get('prompt', '')}"
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": updated}}))
+    except Exception:
+        pass  # fail-open
+    sys.exit(0)
 
 
 if __name__ == "__main__":

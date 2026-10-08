@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""Quality-Kernel evidence-gate - v1 (audit layer).
+"""Quality-Kernel evidence-gate - v2 (audit layer).
 
-PostToolUse hook on Bash. Records that a test/build/verify-shaped command RAN, to a
-per-project ledger (.quality-kernel/evidence-ledger.jsonl), as an audit/metrics trail.
+PostToolUse + PostToolUseFailure hook on Bash. Records that a test/build/verify-shaped
+command RAN, with its exit code, to a per-project ledger (.quality-kernel/evidence-ledger.jsonl).
 
-IMPORTANT (verified by execution, see spec-m0-referee.v2.md): Claude Code's Bash
-`tool_response` carries `stdout`, `stderr`, `interrupted`, `isImage`, `noOutputExpected`
--- it has NO exit-code field. The prior version guessed exit_code/exitCode/returncode/code
-and recorded 112/112 "unknown-schema" because that field does not exist. So this hook no
-longer pretends to capture an exit code. The AUTHORITATIVE exit-code truth comes from the
-`referee` (referee.mjs), which RE-EXECUTES the verify command and appends its real exit
-code to this same ledger (source="referee"). This hook only records the honest signals the
-payload does expose (interrupted, whether stderr was non-empty), tagged source="bash-hook".
+Exit codes: PostToolUse fires only when the command succeeded -> exit_code 0. Failures arrive
+via PostToolUseFailure, whose `error` string starts with "Exit code N" (documented: key the hook
+on that first line, treat the rest as display text). The Bash `tool_response` itself has no
+exit-code field. Rows carry source="bash-hook"; the `referee` (referee.mjs) remains the
+authoritative re-executing source (source="referee") in the same ledger.
 
-Fail-open: any error -> record nothing, never block.
+Security: tool output (error/stdout/stderr) is NEVER persisted. The command is stored only after
+secret redaction, truncated to 300 chars. The ledger is not written when it sits in a git repo
+without being gitignored. Fail-open: any error -> record nothing, never block.
 """
 import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import time
 
@@ -52,6 +52,38 @@ def is_verify_command(command: str) -> bool:
     return False
 
 
+_EXIT_CODE = re.compile(r"^Exit code (\d+)")
+_SECRETS = [
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"\bxox[abprs]-[A-Za-z0-9\-]{6,}"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=\-]+"),
+    re.compile(r"(?i)\b([A-Za-z0-9_\-]*(?:secret|token|password|passwd|api[_-]?key)[A-Za-z0-9_\-]*)(\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|\S+)"),
+]
+_MAX_COMMAND = 300
+
+
+def redact(command: str) -> str:
+    """Mask common secret shapes, then truncate (redact first so a cut never splits a token)."""
+    out = command
+    for pat in _SECRETS[:-1]:
+        out = pat.sub("[REDACTED]", out)
+    out = _SECRETS[-1].sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", out)
+    return out[:_MAX_COMMAND]
+
+
+def ledger_is_safe(cwd: str) -> bool:
+    """False iff cwd is inside a git repo and the ledger path is NOT gitignored."""
+    probe = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cwd,
+                           capture_output=True, text=True, timeout=5)
+    if probe.returncode != 0:
+        return True  # not a git repo: nothing to leak into a commit
+    ignored = subprocess.run(["git", "check-ignore", "-q", ".quality-kernel/evidence-ledger.jsonl"],
+                             cwd=cwd, capture_output=True, timeout=5)
+    return ignored.returncode == 0
+
+
 def main() -> None:
     try:
         data = json.load(sys.stdin)
@@ -67,27 +99,48 @@ def main() -> None:
         if not is_verify_command(command):
             sys.exit(0)
 
-        response = data.get("tool_response")
+        is_failure = data.get("hook_event_name") == "PostToolUseFailure" or "error" in data
+        record_extra = {}
         interrupted = None
         stderr_nonempty = None
-        if isinstance(response, dict):
-            interrupted = bool(response.get("interrupted")) if response.get("interrupted") is not None else None
-            stderr = response.get("stderr")
-            if isinstance(stderr, str):
-                stderr_nonempty = len(stderr.strip()) > 0
+        if is_failure:
+            error = data.get("error")
+            match = _EXIT_CODE.match(error.split("\n", 1)[0]) if isinstance(error, str) else None
+            exit_code = int(match.group(1)) if match else None
+            is_interrupt = data.get("is_interrupt")
+            record_extra["is_interrupt"] = is_interrupt if isinstance(is_interrupt, bool) else None
+        else:
+            exit_code = 0  # PostToolUse only fires on success
+            response = data.get("tool_response")
+            if isinstance(response, dict):
+                if response.get("interrupted") is not None:
+                    interrupted = bool(response.get("interrupted"))
+                stderr = response.get("stderr")
+                if isinstance(stderr, str):
+                    stderr_nonempty = len(stderr.strip()) > 0
+            record_extra["is_interrupt"] = None
+        duration = data.get("duration_ms")
+        agent_id = data.get("agent_id")
 
         cwd = data.get("cwd") or os.getcwd()
+        if not ledger_is_safe(cwd):
+            print("[quality-kernel] evidence-gate: .quality-kernel/ is not gitignored; ledger not written",
+                  file=sys.stderr)
+            sys.exit(0)
         ledger_dir = pathlib.Path(cwd) / ".quality-kernel"
         ledger_dir.mkdir(exist_ok=True)
         record = {
             "ts": round(time.time(), 3),
             "source": "bash-hook",
-            "command": command[:300],
+            "command": redact(command),
+            "exit_code": exit_code,
+            "duration_ms": duration if isinstance(duration, (int, float)) and not isinstance(duration, bool) else None,
             "interrupted": interrupted,
             "stderr_nonempty": stderr_nonempty,
-            # No exit code: Claude Code's Bash tool_response does not expose one. The referee
-            # is the authoritative source of exit codes in this ledger (source="referee").
+            **record_extra,
         }
+        if isinstance(agent_id, str) and agent_id:
+            record["agent_id"] = agent_id
         with open(ledger_dir / "evidence-ledger.jsonl", "a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
     except Exception as err:  # never block, but make breakage observable
