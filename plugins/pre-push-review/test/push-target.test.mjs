@@ -256,6 +256,9 @@ test('a push after a commit-creating git command in the same line is flagged', (
     'git revert --no-edit HEAD && git push',
     'git rebase main && git push --force-with-lease',
     'git am < fix.patch && git push',
+    'git pull && git push',
+    'git pull --rebase origin main && git push',
+    'git commit -m x && xargs git push < remotes.txt',
     "bash -c 'git commit -m x' && git push",
     'echo $(git commit -m x) && git push',
     'echo `git commit -m x` && git push',
@@ -278,4 +281,5 @@ test('a push without a commit before it in the same line is not flagged', () => 
     assert.deepEqual(afterCommit(command), [false], command);
   }
   assert.deepEqual(findPushTargets('git commit -m x', BASE), [], 'a commit alone is not a push');
+  assert.deepEqual(afterCommit('git push && git commit -m x && git push'), [false, true], 'only pushes after it');
 });

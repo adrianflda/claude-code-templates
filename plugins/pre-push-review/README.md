@@ -36,9 +36,11 @@ On every Bash `git push` that Claude Code runs, the plugin's `PreToolUse` hook
   This covers a panel that is missing, killed or unable to start, a directory that is not a
   repository, and a directory that cannot be known from the command.
 - **A commit and the push in one command** (`git commit ... && git push`, also after
-  `merge`, `cherry-pick`, `revert`, `rebase` or `am`) → the push is **blocked**. The hook runs
-  before the command does, so that commit does not exist yet and would be pushed unreviewed.
-  Run the commit and the push as separate commands.
+  `merge`, `cherry-pick`, `revert`, `rebase`, `am` or `pull`) → the push is **blocked**. The
+  hook runs before the command does, so that commit does not exist yet and would be pushed
+  unreviewed. Run the commit and the push as separate commands. Commits made by an alias, a
+  script or a build tool are not visible on the command line; the git-level hook below covers
+  those.
 
 The pass-marker is written only for a review that ran and passed. "Nothing to review" passes
 without a marker.

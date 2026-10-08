@@ -95,7 +95,7 @@ if (!targets.length) process.exit(0);
 // send it unreviewed.
 if (targets.some((t) => t.afterCommit)) {
   block(
-    'this command creates a commit (git commit, merge, cherry-pick, revert, rebase or am) before the push in the same command.\n' +
+    'this command creates a commit (git commit, merge, cherry-pick, revert, rebase, am or pull) before the push in the same command.\n' +
       'The review runs before the command does, so that commit would be pushed without being reviewed.\n' +
       'Run the commit and the push as separate commands: first the commit, then `git push` on its own.',
   );

@@ -21,7 +21,7 @@
  * can show.
  *
  * Each push also says whether a git command that creates commits (`commit`, `merge`,
- * `cherry-pick`, `revert`, `rebase`, `am`) comes before it in the same command line
+ * `cherry-pick`, `revert`, `rebase`, `am`, `pull`) comes before it in the same command line
  * (`afterCommit: true`). The gate runs before the command does, so that commit does not exist
  * yet when the review runs: the push would leave unreviewed.
  */
@@ -42,8 +42,9 @@ const WRAPPERS = new Set(['env', 'command', 'builtin', 'exec', 'sudo', 'nohup', 
 // Shell keywords that can stand in front of a command.
 const KEYWORDS = new Set(['then', 'do', 'else', 'elif', 'if', 'while', 'until', '!', '{']);
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
-// git verbs that create (or rewrite) the commits a later push would send.
-const COMMIT_VERBS = new Set(['commit', 'merge', 'cherry-pick', 'revert', 'rebase', 'am']);
+// git verbs that create (or rewrite) the commits a later push would send. `pull` can make a
+// merge commit or rebase local commits.
+const COMMIT_VERBS = new Set(['commit', 'merge', 'cherry-pick', 'revert', 'rebase', 'am', 'pull']);
 // Commands that only print or search their arguments: `echo git push` pushes nothing.
 const INERT = new Set(['echo', 'printf', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'man', 'which', 'type', 'alias']);
 
