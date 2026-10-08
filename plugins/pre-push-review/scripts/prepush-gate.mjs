@@ -90,6 +90,17 @@ if (!targets.length) process.exit(0);
 
 // From here on there is a push to review: every way out that is not a finished review blocks.
 
+// This hook runs before the command does. A commit made earlier in the same command does not
+// exist yet, so the panel would review without it ("No unpushed commits") and the push would
+// send it unreviewed.
+if (targets.some((t) => t.afterCommit)) {
+  block(
+    'this command creates a commit (git commit, merge, cherry-pick, revert, rebase or am) before the push in the same command.\n' +
+      'The review runs before the command does, so that commit would be pushed without being reviewed.\n' +
+      'Run the commit and the push as separate commands: first the commit, then `git push` on its own.',
+  );
+}
+
 // Resolve the bundled panel. CLAUDE_PLUGIN_ROOT is injected by Claude Code for plugin
 // hooks; fall back to this file's own directory so the gate also works when run directly.
 const here = dirname(fileURLToPath(import.meta.url));

@@ -35,6 +35,10 @@ On every Bash `git push` that Claude Code runs, the plugin's `PreToolUse` hook
 - **The review did not finish or cannot be matched to the push** → the push is **blocked**.
   This covers a panel that is missing, killed or unable to start, a directory that is not a
   repository, and a directory that cannot be known from the command.
+- **A commit and the push in one command** (`git commit ... && git push`, also after
+  `merge`, `cherry-pick`, `revert`, `rebase` or `am`) → the push is **blocked**. The hook runs
+  before the command does, so that commit does not exist yet and would be pushed unreviewed.
+  Run the commit and the push as separate commands.
 
 The pass-marker is written only for a review that ran and passed. "Nothing to review" passes
 without a marker.
@@ -81,6 +85,13 @@ The panel is 6 independent specialist reviewers, each constrained to one branch 
 
 Each reviewer ingests the repo's own guidance (`CLAUDE.md` / `.github/copilot-instructions.md`
 / `AGENTS.md` / `.cursorrules`), so the generic panel auto-adapts per project.
+
+### Reviewers have no tools
+
+The diff is untrusted input: it can contain text written to steer a model. Each reviewer runs
+as `claude -p` with `--tools ''` (no built-in tools), `--permission-mode dontAsk`,
+`--permission-prompts none` and `--strict-mcp-config`, so it only reads the diff it is given
+and cannot run commands, edit files or fetch anything from inside the push hook.
 
 ## Install
 

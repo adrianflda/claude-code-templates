@@ -223,10 +223,29 @@ function runAgent(bin, role, userPrompt) {
     // shells to a worker) never fire here and never pollute this headless agent's stdout —
     // which would make the JSON reply unparseable so every agent "fails" and the panel silently
     // passes. OAuth/keychain auth is NOT a setting source, so it still works (unlike --bare,
-    // which drops OAuth and demands ANTHROPIC_API_KEY). Reviewers only read a diff.
+    // which drops OAuth and demands ANTHROPIC_API_KEY).
+    //
+    // Reviewers only read the diff on stdin, and that diff is untrusted: it can carry text
+    // written to steer a model. So they get no tools at all and cannot run, write or fetch
+    // anything from inside the pre-push hook. Without this the child gets the full default set
+    // (Bash, Edit, Write, Task, ...), and `-p` can start in auto mode, which approves tool
+    // calls on its own.
+    //   --tools ''                 no built-in tools (the init event lists `tools: []`)
+    //   --permission-mode dontAsk  never auto mode: anything not pre-approved is denied
+    //   --permission-prompts none  nothing waits for, or receives, an approval
+    //   --strict-mcp-config        no MCP servers
     const child = spawn(
       bin,
-      ['-p', '--setting-sources', '', '--model', MODEL, '--append-system-prompt', role.system],
+      [
+        '-p',
+        '--setting-sources', '',
+        '--tools', '',
+        '--permission-mode', 'dontAsk',
+        '--permission-prompts', 'none',
+        '--strict-mcp-config',
+        '--model', MODEL,
+        '--append-system-prompt', role.system,
+      ],
       { env },
     );
     let out = '';
