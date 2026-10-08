@@ -15,4 +15,4 @@ Steps:
    ```
 3. Summarize the panel's output for the user: the per-agent finding counts, every critical/high issue with its `file:line`, and the final `SUMMARY:` line. Do not re-review yourself — just relay and, if asked, help fix the reported issues.
 
-Note: this is the same panel that the plugin's PreToolUse hook runs automatically before every `git push`. Use this command to review without pushing.
+Note: this is the same panel that the global git pre-push hook (`scripts/git-pre-push.mjs`) runs automatically on every `git push`. Use this command to review without pushing.

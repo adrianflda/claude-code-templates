@@ -7,11 +7,21 @@ live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
 > Status: **v0.10.0.** The deterministic **quality gate** (`/gate`) is built and was
-> reworked after an independent red-team panel broke v1 (see `docs/agentic-harness/validation-panel.*`).
+> reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
-> design. The live breaker (M2) is the next milestone — and, importantly, the ONLY thing that closes
-> the honest limit below. Design chain: `docs/agentic-harness/`.
+> design.
+>
+> **The live breaker is built, and it is off by default.** `scripts/breaker-gate.mjs` (M2) enforces
+> the blind breaker on the critical surface, and `scripts/gstack-*.mjs` (F1) give it a live browser
+> oracle to probe with. Neither sits on the default path: `hooks/pre-push.sample` invokes
+> `qk-gate.mjs`, which *reports* the unmet breaker requirement as **exit 3** rather than enforcing
+> it, and `breaker-gate.mjs` itself returns 3 unless the caller supplies `--breaker`. Enforcing it
+> is a deliberate opt-in, not a missing milestone. Design chain: [`docs/agentic-harness/`][chain]
+> in the source repository — it is not bundled with the installed plugin.
+
+[panel]: https://github.com/adrianflda/claude-code-templates/blob/main/docs/agentic-harness/validation-panel.v2.md
+[chain]: https://github.com/adrianflda/claude-code-templates/tree/main/docs/agentic-harness
 
 ## The Quality Gate (`/gate`) — the deterministic teeth
 
@@ -62,7 +72,7 @@ replace refs and fsmonitor disabled. Refused as indeterminate: a path with a `fi
 placeholder; tree entries git itself would not check out (`..`, `.`, `.git`, duplicates). Requires
 **git >= 2.40** (`check-attr --source`); older git is refused up front.
 
-### Honest limits (what M0+M1 do NOT cover — the M2 live-breaker's job)
+### Honest limits (what `qk-gate` does NOT cover — the live breaker's job)
 The referee is an **in-process test oracle** that re-executes the committed change. It cannot, by
 mechanism alone, defend against the change's own code **executing and being trusted**:
 - **In-process oracle subversion** — production code the tests import can monkeypatch the assertion
@@ -89,9 +99,13 @@ mechanism alone, defend against the change's own code **executing and being trus
   it returns. Normal exits (0/1/2) clean up. Tracked as a follow-up (async spawn + process group).
 
 Closing the first three in general needs a **black-box probe in an environment indistinguishable from
-production** — the **M2 live breaker**. Until M2, treat a green as "the committed suite and acceptance
-oracle re-executed clean, and any test change was surfaced for human review", not "the code cannot be
-malicious." Every attack above is reproduced and tracked in `docs/agentic-harness/validation-panel.*`.
+production** — the live breaker, which `breaker-gate.mjs` enforces and `gstack-*.mjs` instruments.
+**Unless you route through `breaker-gate.mjs --breaker`, none of that runs**: treat a `qk-gate` green
+as "the committed suite and acceptance oracle re-executed clean, and any test change was surfaced for
+human review", not "the code cannot be malicious." Every attack above is reproduced and tracked in the validation panel ([v1][panel1], [v2][panel2]).
+
+[panel1]: https://github.com/adrianflda/claude-code-templates/blob/main/docs/agentic-harness/validation-panel.v1.md
+[panel2]: https://github.com/adrianflda/claude-code-templates/blob/main/docs/agentic-harness/validation-panel.v2.md
 
 ### Use it
 Per repo, once, create and **commit** `.quality-kernel/tools.json` (copy `config/tools.example.json`):
@@ -204,11 +218,16 @@ Automatic, always on (no invocation needed):
 - **`hooks/epistemic-guard.py`** (PreToolUse / `Task|Agent`) — requires the
   `[EPISTEMIC-DISCIPLINE v1]` marker in every agent spawn (fires for whichever
   tool name — `Task` or `Agent` — the host runtime uses to spawn subagents).
-  Env `QK_EPISTEMIC_MODE`: `log` (default, warn only) | `block` (exit 2).
-- **`hooks/evidence-gate.py`** (PostToolUse / Bash) — records exit codes of
-  test/build/verify commands to `.quality-kernel/evidence-ledger.jsonl`, so a
-  "done" claim can be checked against a real verification event newer than the
-  last edit. v0 records; hard-blocking is future work.
+  When the marker is missing it prepends the preamble to the subagent prompt
+  through `updatedInput`; it never sets a permission decision.
+  Env `QK_EPISTEMIC_MODE`: `log` (default, inject the preamble) | `block` (exit 2).
+- **`hooks/evidence-gate.py`** (PostToolUse + PostToolUseFailure / Bash) — records
+  test/build/verify commands with their real exit code (`0` on PostToolUse, `N`
+  from the `Exit code N` line on PostToolUseFailure) and `duration_ms` to
+  `.quality-kernel/evidence-ledger.jsonl`. Tool output is never stored and the
+  command is stored redacted. Inside a git repo the ledger is written only when
+  `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
+  model as context. Recording only; hard-blocking is future work.
 
 ## Gate status — teeth vs. prose (v0.10.0)
 
@@ -217,7 +236,7 @@ installing the plugin does not imply the full guarantee.
 
 | Gate | Status today | Notes |
 |------|--------------|-------|
-| Epistemic guard (G1) | **wired (teeth)**, advisory | hook; `log` by default, `block` via env |
+| Epistemic guard (G1) | **wired (teeth)**, advisory | hook; injects the preamble by default, `block` via env |
 | Evidence-gate (G2) | **wired, record-only** | hook writes a ledger; hard-block is v1 |
 | CRAP gate | **wired (teeth)** | deterministic script, non-zero exit over threshold |
 | Pre-push panel | **wired (teeth)** | the existing `pre-push-review` plugin |

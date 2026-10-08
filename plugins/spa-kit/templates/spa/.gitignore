@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# verification output (the toolchain writes here when it runs against this app)
+.spa-kit/
+test-results/
+playwright-report/
+.lighthouseci/
+
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log

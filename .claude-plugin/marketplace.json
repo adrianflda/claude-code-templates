@@ -11,7 +11,7 @@
       "name": "pre-push-review",
       "source": "./plugins/pre-push-review",
       "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-      "version": "1.0.0",
+      "version": "1.2.1",
       "category": "quality-gates",
       "keywords": ["code-review", "pre-push", "git", "quality-gate", "hooks", "security", "multi-agent"]
     },
@@ -30,6 +30,14 @@
       "version": "0.1.0",
       "category": "productivity",
       "keywords": ["claude-md", "multi-repo", "org", "system-map", "integrations"]
+    },
+    {
+      "name": "spa-kit",
+      "source": "./plugins/spa-kit",
+      "description": "A factory for client SPAs that classic search crawlers and AI answer engines can both read. Generates a standalone Next.js site from a declarative brief, derives the whole OKLCH palette from one brand hex with enforced contrast targets, and verifies it with three independent oracles: a no-JavaScript crawler probe, a blind breaker, and a Playwright suite (visual, a11y, motion contract, web vitals). Includes the /spa-kit interview skill.",
+      "version": "0.1.0",
+      "category": "site-generation",
+      "keywords": ["spa", "nextjs", "seo", "aeo", "geo", "accessibility", "visual-regression", "playwright", "design-tokens", "site-generator"]
     }
   ]
 }

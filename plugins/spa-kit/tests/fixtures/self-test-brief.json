@@ -1,0 +1,44 @@
+{
+  "business": {
+    "name": "Kit Self Test",
+    "tagline": "Verification fixture",
+    "description": "This site exists so the toolchain has something real to run against. It is generated from the template by the self-test, which is what keeps the template honest: if generation breaks, the kit's own verification fails.",
+    "sector": "tooling",
+    "locale": "en_US",
+    "url": "http://localhost:4321"
+  },
+  "brand": { "color": "#2ee6d6", "mode": "dark" },
+  "nav": [
+    { "label": "Render", "href": "#render" },
+    { "label": "Oracles", "href": "#oracles" },
+    { "label": "Motion", "href": "#motion" }
+  ],
+  "hero": {
+    "headline": "A single-page application that answer engines can still read.",
+    "subhead": "Generated from the template so every tool in this kit has a real target, and so a broken template fails the kit's own verification rather than a client's site.",
+    "primary": { "label": "How it renders", "href": "#render" },
+    "secondary": { "label": "What is verified", "href": "#oracles" }
+  },
+  "sections": [
+    {
+      "id": "render",
+      "label": "Render",
+      "title": "Server-rendered by default",
+      "body": "As of 2026 the AI crawlers fetch raw HTML and never execute JavaScript, so a client-rendered page reaches them as an empty shell. Navigation still feels like a single-page application, but every route answers with complete markup."
+    },
+    {
+      "id": "oracles",
+      "label": "Oracles",
+      "title": "Three independent checks",
+      "body": "A crawler probe with no JavaScript engine, a blind breaker that sees only the contract and a live URL, and a browser suite covering visuals, accessibility, motion and performance budgets. Each one can fail the build on its own."
+    },
+    {
+      "id": "motion",
+      "label": "Motion",
+      "title": "Tokens, not literals",
+      "body": "Durations and easing curves come from the design tokens, which is what lets reduced motion collapse every animation to zero and lets a screenshot baseline freeze them without hunting through components for hard-coded values."
+    }
+  ],
+  "footer": { "note": "© Kit Self Test" },
+  "routes": ["/"]
+}

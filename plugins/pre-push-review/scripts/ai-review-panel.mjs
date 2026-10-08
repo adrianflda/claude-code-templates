@@ -17,7 +17,7 @@
  * Usage:
  *   node ai-review-panel.mjs              # review staged changes
  *   node ai-review-panel.mjs --branch     # review committed changes being pushed
- *   node ai-review-panel.mjs --base main  # explicit base branch
+ *   node ai-review-panel.mjs --base main  # everything on this branch that is not on main
  *   node ai-review-panel.mjs --pr 123     # review a PR diff and post the report as a comment
  *
  * Env knobs:
@@ -25,10 +25,15 @@
  *   AI_REVIEW_MODEL       model for reviewers (default: sonnet)
  *   AI_REVIEW_TIMEOUT_MS  per-agent timeout (default: 240000)
  *   AI_REVIEW_BLOCK_ON    severity that blocks: critical|high (default: critical)
- *   AI_REVIEW_REQUIRED    1 = fail (exit 2) if the CLI is unavailable (default: 0 = warn+pass)
+ *   AI_REVIEW_REQUIRED    1 = fail (exit 2) if no reviewer could run (default: 0 = warn+pass;
+ *                         the PreToolUse gate sets 1 unless told otherwise)
  *   AI_REVIEW_SKIP        1 = skip review entirely (escape hatch)
  *
- * Exit codes: 0 = ok / advisory, 1 = blocking issues found, 2 = CLI unavailable & required.
+ * Deleted files reach the reviewers as a header only (`git diff --irreversible-delete`): the
+ * panel sees WHAT was removed and can look for leftovers, without the removed content
+ * using up the diff budget.
+ *
+ * Exit codes: 0 = ok / advisory, 1 = blocking issues found, 2 = no reviewer ran & required.
  */
 
 import { execSync, spawn } from 'child_process';
@@ -51,9 +56,28 @@ let reviewMode = 'staged';
 let baseBranch = '';
 let prNumber = '';
 let postToPr = false;
+let rangeBase = '';
+let rangeHead = '';
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--branch') reviewMode = 'branch';
-  else if (args[i] === '--base' && args[i + 1]) baseBranch = args[++i];
+  else if (args[i] === '--base' && args[i + 1]) {
+    // A base only means something for committed changes: `--base main` alone used to stay
+    // in staged mode and review nothing.
+    baseBranch = args[++i];
+    reviewMode = 'branch';
+  }
+  else if (args[i] === '--range' && args[i + 1] && args[i + 2]) {
+    // Exact commits being pushed, as computed by the git pre-push runner from git's own ref
+    // list: base is the parent of the oldest pushed commit (or the empty tree), head the
+    // pushed tip. Both must be full object names: they are interpolated into git commands.
+    rangeBase = args[++i];
+    rangeHead = args[++i];
+    if (!/^[0-9a-f]{40,64}$/.test(rangeBase) || !/^[0-9a-f]{40,64}$/.test(rangeHead)) {
+      console.error('[pre-push-review] --range needs two full object names: <base> <head>');
+      process.exit(2);
+    }
+    reviewMode = 'range';
+  }
   else if (args[i] === '--pr' && args[i + 1]) {
     prNumber = args[++i];
     postToPr = true;
@@ -61,7 +85,7 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === '--post') postToPr = true;
   else if (args[i] === '--help' || args[i] === '-h') {
     console.log(
-      'Usage: node ai-review-panel.mjs [--branch] [--base <branch>] [--pr <n>] [--post]',
+      'Usage: node ai-review-panel.mjs [--branch] [--base <branch>] [--range <base> <head>] [--pr <n>] [--post]',
     );
     process.exit(0);
   }
@@ -213,10 +237,29 @@ function runAgent(bin, role, userPrompt) {
     // shells to a worker) never fire here and never pollute this headless agent's stdout —
     // which would make the JSON reply unparseable so every agent "fails" and the panel silently
     // passes. OAuth/keychain auth is NOT a setting source, so it still works (unlike --bare,
-    // which drops OAuth and demands ANTHROPIC_API_KEY). Reviewers only read a diff.
+    // which drops OAuth and demands ANTHROPIC_API_KEY).
+    //
+    // Reviewers only read the diff on stdin, and that diff is untrusted: it can carry text
+    // written to steer a model. So they get no tools at all and cannot run, write or fetch
+    // anything from inside the pre-push hook. Without this the child gets the full default set
+    // (Bash, Edit, Write, Task, ...), and `-p` can start in auto mode, which approves tool
+    // calls on its own.
+    //   --tools ''                 no built-in tools (the init event lists `tools: []`)
+    //   --permission-mode dontAsk  never auto mode: anything not pre-approved is denied
+    //   --permission-prompts none  nothing waits for, or receives, an approval
+    //   --strict-mcp-config        no MCP servers
     const child = spawn(
       bin,
-      ['-p', '--setting-sources', '', '--model', MODEL, '--append-system-prompt', role.system],
+      [
+        '-p',
+        '--setting-sources', '',
+        '--tools', '',
+        '--permission-mode', 'dontAsk',
+        '--permission-prompts', 'none',
+        '--strict-mcp-config',
+        '--model', MODEL,
+        '--append-system-prompt', role.system,
+      ],
       { env },
     );
     let out = '';
@@ -317,13 +360,21 @@ const EXCLUDES = [
   ":(exclude)dist/**",
   ":(exclude)build/**",
 ];
+// Deletions are part of the change. They are included as a header only (-D): a push that
+// removes files must not look like a push that changed nothing.
+const DIFF_FLAGS = '--irreversible-delete --diff-filter=ACMRD';
+const PATHSPEC = `-- . ${EXCLUDES.map((e) => `"${e}"`).join(' ')}`;
 let diff = '';
 let description = '';
 if (reviewMode === 'staged') {
-  diff = run(`git diff --cached --diff-filter=ACMR -- . ${EXCLUDES.map((e) => `"${e}"`).join(' ')}`);
-  if (!diff)
-    diff = run(`git diff --diff-filter=ACMR -- . ${EXCLUDES.map((e) => `"${e}"`).join(' ')}`);
+  diff = run(`git diff --cached ${DIFF_FLAGS} ${PATHSPEC}`);
+  if (!diff) diff = run(`git diff ${DIFF_FLAGS} ${PATHSPEC}`);
   description = 'staged/unstaged changes';
+} else if (reviewMode === 'range') {
+  const baseIsCommit = run(`git cat-file -t ${rangeBase}`) === 'commit';
+  const count = run(`git rev-list --count ${rangeHead}${baseIsCommit ? ` ^${rangeBase}` : ''}`) || '?';
+  description = `${count} commit(s) being pushed`;
+  diff = run(`git diff ${rangeBase} ${rangeHead} ${DIFF_FLAGS} ${PATHSPEC}`);
 } else {
   // Review EXACTLY the commits being pushed — those not yet on any remote. This is
   // project-agnostic (no base-branch guessing) and matches what `git push` will send,
@@ -349,14 +400,19 @@ if (reviewMode === 'staged') {
     range = `${newCommits[newCommits.length - 1]}^..HEAD`;
     description = `${newCommits.length} commit(s) being pushed`;
   }
-  diff = run(
-    `git diff ${range} --diff-filter=ACMR -- . ${EXCLUDES.map((e) => `"${e}"`).join(' ')}`,
-  );
+  diff = run(`git diff ${range} ${DIFF_FLAGS} ${PATHSPEC}`);
 }
 
 if (!diff) {
   console.log('[pre-push-review] No code changes to review.');
   process.exit(0);
+}
+
+const deletedFiles = (diff.match(/^deleted file mode /gm) || []).length;
+if (deletedFiles) {
+  console.log(
+    `[pre-push-review] ${deletedFiles} deleted file(s): the reviewers see their names, not their content.`,
+  );
 }
 
 let diffLines = diff.split('\n').length;
@@ -372,15 +428,18 @@ if (diffLines > MAX_DIFF_LINES) {
 // Build shared prompt
 // ---------------------------------------------------------------------------
 const projectContext = loadProjectContext();
+// Reviewers told to find gaps always find some, which pushes code toward over-engineering,
+// so the rules ask for real defects only. "Within your focus area" keeps the design
+// reviewer's consequential complexity/boundary findings in scope.
 const userPrompt = `Review this git diff (${description}) STRICTLY within your assigned focus area.
 
 ${projectContext ? `## Project guidance (from the repo)\n${projectContext}\n` : ''}
 ## Output (MANDATORY)
 Output ONLY a JSON object — no prose, no markdown fences — of exactly this shape:
 {"findings":[{"severity":"critical|high|medium|low","file":"path","line":0,"issue":"what & why","suggestion":"fix"}],"summary":"one sentence"}
-Rules: report only issues within your focus area; cite file:line from the diff; do NOT invent issues; reserve "critical" for defects that must block a release (data loss, security/privacy breach, broken core behavior). If nothing in your area, return {"findings":[],"summary":"LGTM"}.
+Rules: report only issues within your focus area; cite file:line from the diff; do NOT invent issues; report only real defects within your focus area, never speculative hardening, optional abstractions, or "could be more robust" suggestions; reserve "critical" for defects that must block a release (data loss, security/privacy breach, broken core behavior). If nothing in your area, return {"findings":[],"summary":"LGTM"}.
 
-## Diff
+${deletedFiles ? `## Deleted files\n${deletedFiles} file(s) are deleted in this diff. Each appears as a "deleted file mode" header with no content. Within your focus area, check whether anything else in the diff still depends on them.\n\n` : ''}## Diff
 \`\`\`diff
 ${diff}
 \`\`\``;
