@@ -6,7 +6,8 @@ import { findPushTargets, splitCommands } from '../scripts/push-target.mjs';
 
 const BASE = '/work/session';
 const dirs = (command) => findPushTargets(command, BASE).map((t) => t.dir);
-const here = (dir = BASE) => [{ dir, known: true, skip: false }];
+const here = (dir = BASE) => [{ dir, known: true, skip: false, afterCommit: false }];
+const afterCommit = (command) => findPushTargets(command, BASE).map((t) => t.afterCommit);
 
 test('a plain push runs in the session directory', () => {
   assert.deepEqual(findPushTargets('git push', BASE), here());
@@ -241,4 +242,44 @@ test('only the documented switch, set to 1 on the push itself, marks it as skipp
   assert.deepEqual(skip('AI_REVIEW_SKIP=1 git push'), [true]);
   assert.deepEqual(skip('PREPUSH_REVIEW_SKIP=0 git push'), [false]);
   assert.deepEqual(skip('PREPUSH_REVIEW_SKIP=1 git status && git push'), [false]);
+});
+
+test('a push after a commit-creating git command in the same line is flagged', () => {
+  for (const command of [
+    'git commit -m "x" && git push',
+    'git add -A && git commit -qm x; git push -u origin feature',
+    'git -C /repos/other commit -m x && git -C /repos/other push',
+    'git -c user.name=x commit -m x && git push',
+    'cd /repos/other && git commit -m x && git push',
+    'git merge feature && git push',
+    'git cherry-pick abc123 && git push',
+    'git revert --no-edit HEAD && git push',
+    'git rebase main && git push --force-with-lease',
+    'git am < fix.patch && git push',
+    'git pull && git push',
+    'git pull --rebase origin main && git push',
+    'git commit -m x && xargs git push < remotes.txt',
+    "bash -c 'git commit -m x' && git push",
+    'echo $(git commit -m x) && git push',
+    'echo `git commit -m x` && git push',
+    "git commit -m x && bash -c 'git push'",
+    'git commit -F - <<EOF && git push\nmessage\nEOF',
+  ]) {
+    assert.deepEqual(afterCommit(command), [true], command);
+  }
+});
+
+test('a push without a commit before it in the same line is not flagged', () => {
+  for (const command of [
+    'git push',
+    'git push && git commit -m x; git status',
+    'git status && git log --oneline -3 && git push',
+    'echo git commit && git push',
+    'git commit-graph write && git push',
+    "git log --grep='git commit' && git push",
+  ]) {
+    assert.deepEqual(afterCommit(command), [false], command);
+  }
+  assert.deepEqual(findPushTargets('git commit -m x', BASE), [], 'a commit alone is not a push');
+  assert.deepEqual(afterCommit('git push && git commit -m x && git push'), [false, true], 'only pushes after it');
 });

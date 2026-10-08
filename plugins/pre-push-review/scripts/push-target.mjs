@@ -19,6 +19,11 @@
  * place is reported with `known: false`: a blocked push can be rewritten, a missed one is
  * not reviewed. Aliases, functions and scripts that push are outside what a command line
  * can show.
+ *
+ * Each push also says whether a git command that creates commits (`commit`, `merge`,
+ * `cherry-pick`, `revert`, `rebase`, `am`, `pull`) comes before it in the same command line
+ * (`afterCommit: true`). The gate runs before the command does, so that commit does not exist
+ * yet when the review runs: the push would leave unreviewed.
  */
 import { homedir } from 'os';
 import { basename, isAbsolute, resolve } from 'path';
@@ -37,6 +42,9 @@ const WRAPPERS = new Set(['env', 'command', 'builtin', 'exec', 'sudo', 'nohup', 
 // Shell keywords that can stand in front of a command.
 const KEYWORDS = new Set(['then', 'do', 'else', 'elif', 'if', 'while', 'until', '!', '{']);
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
+// git verbs that create (or rewrite) the commits a later push would send. `pull` can make a
+// merge commit or rebase local commits.
+const COMMIT_VERBS = new Set(['commit', 'merge', 'cherry-pick', 'revert', 'rebase', 'am', 'pull']);
 // Commands that only print or search their arguments: `echo git push` pushes nothing.
 const INERT = new Set(['echo', 'printf', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'man', 'which', 'type', 'alias']);
 
@@ -209,11 +217,21 @@ function pushVerb(tokens, at) {
 /**
  * @param {string} command  the Bash command line
  * @param {string} baseCwd  the working directory the command starts in
- * @returns {{dir: string, known: boolean, skip: boolean}[]} one entry per `git push`, in order
+ * @returns {{dir: string, known: boolean, skip: boolean, afterCommit: boolean}[]} one entry per
+ *   `git push`, in order
  */
-export function findPushTargets(command, baseCwd, depth = 0) {
+export function findPushTargets(command, baseCwd) {
+  return scan(command, baseCwd, 0, false).targets;
+}
+
+/**
+ * @param {boolean} committed  a commit-creating git command ran earlier in the enclosing line
+ * @returns {{targets: object[], committed: boolean}} the pushes, and whether a commit-creating
+ *   git command appears anywhere in this command (so a push after it in the caller is flagged)
+ */
+function scan(command, baseCwd, depth, committed) {
   const targets = [];
-  if (depth > 3) return targets;
+  if (depth > 3) return { targets, committed };
   let cwd = baseCwd;
   let known = true;
   let exported = false; // GIT_DIR or GIT_WORK_TREE set for the rest of the command
@@ -263,9 +281,11 @@ export function findPushTargets(command, baseCwd, depth = 0) {
 
     // A substitution runs its own command, wherever it sits in the line.
     for (const inner of substitutions(segment.text)) {
-      for (const t of findPushTargets(inner, cwd, depth + 1)) {
+      const nested = scan(inner, cwd, depth + 1, committed);
+      for (const t of nested.targets) {
         targets.push({ ...t, known: t.known && known && !redirected, skip: t.skip || skip });
       }
+      committed = nested.committed;
     }
 
     if (head === 'cd' || head === 'pushd') {
@@ -287,9 +307,11 @@ export function findPushTargets(command, baseCwd, depth = 0) {
       ].filter(Boolean);
       for (const script of scripts) {
         const dynamic = !script.raw.startsWith("'") && /[$`]/.test(script.value);
-        for (const t of findPushTargets(script.value, cwd, depth + 1)) {
+        const nested = scan(script.value, cwd, depth + 1, committed);
+        for (const t of nested.targets) {
           targets.push({ ...t, known: t.known && known && !dynamic && !redirected, skip: t.skip || skip });
         }
+        committed = nested.committed;
         if (head === 'eval' && /(^|[;&|\s])(cd|pushd|popd)\s/.test(script.value)) known = false;
       }
     } else if (tokens[0] && isGit(tokens[0]) && !tokens[0].raw.startsWith('$')) {
@@ -305,7 +327,8 @@ export function findPushTargets(command, baseCwd, depth = 0) {
         }
         i += VALUE_OPTIONS.has(option) ? 2 : 1;
       }
-      if (tokens[i]?.value === 'push') targets.push({ dir, known: dirKnown, skip });
+      if (tokens[i]?.value === 'push') targets.push({ dir, known: dirKnown, skip, afterCommit: committed });
+      else if (COMMIT_VERBS.has(tokens[i]?.value)) committed = true;
     }
 
     // Safety net: the words say `git ... push`, and nothing above placed it. It may run
@@ -315,10 +338,10 @@ export function findPushTargets(command, baseCwd, depth = 0) {
       const unplaced = tokens.some(
         (t, at) => at > 0 && !/^["']/.test(t.raw) && isGit(t) && pushVerb(tokens, at) !== -1,
       );
-      if (unplaced) targets.push({ dir: cwd, known: false, skip });
+      if (unplaced) targets.push({ dir: cwd, known: false, skip, afterCommit: committed });
     }
 
     while (closing-- > 0 && saved.length) ({ cwd, known } = saved.pop());
   }
-  return targets;
+  return { targets, committed };
 }

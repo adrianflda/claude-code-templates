@@ -288,3 +288,34 @@ test('a panel that does not finish in time blocks the push', () => {
   assert.match(result.stderr, /was NOT reviewed: the panel did not finish in 1500 ms/);
   assert.deepEqual(markers(result.home), []);
 });
+
+test('a commit and a push in one command are blocked before any review runs', () => {
+  const session = makeRepo('session');
+  const other = makeRepo('other');
+  for (const command of [
+    'git add -A && git commit -m "fix: x" && git push',
+    `git -C ${other} commit -m "fix: x" && git -C ${other} push`,
+    'git commit -m "fix: x"; git push -u origin main',
+  ]) {
+    const result = runGate({ command, cwd: session });
+    assert.equal(result.code, 2, command);
+    assert.match(result.stderr, /creates a commit .* before the push in the same command/, command);
+    assert.match(result.stderr, /separate commands/, command);
+    assert.deepEqual(result.calls, [], 'the panel does not run on commits that do not exist yet');
+    assert.deepEqual(markers(result.home), []);
+  }
+});
+
+test('a plain push and a commit alone are not affected by the commit-and-push rule', () => {
+  const repo = makeRepo('repo');
+  const push = runGate({ command: 'git push', cwd: repo });
+  assert.equal(push.code, 0, push.stderr);
+  assert.equal(push.calls.length, 1, 'a plain push is reviewed');
+
+  const commit = runGate({ command: 'git commit -m "fix: x"', cwd: repo });
+  assert.equal(commit.code, 0, commit.stderr);
+  assert.deepEqual(commit.calls, [], 'a commit is not a push');
+
+  const skipped = runGate({ command: 'git commit -m "fix: x" && PREPUSH_REVIEW_SKIP=1 git push', cwd: repo });
+  assert.equal(skipped.code, 0, 'the inline skip switch still bypasses the gate');
+});

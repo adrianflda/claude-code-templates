@@ -10,6 +10,7 @@ const PANEL = join(SCRIPTS, 'ai-review-panel.mjs');
 function fakeClaude({ reply = '{"findings":[],"summary":"LGTM"}', exit = 0 } = {}) {
   const dir = tempDir('claude');
   const capture = join(dir, 'prompts.txt');
+  const argvCapture = join(dir, 'argv.jsonl');
   const bin = executable(
     join(dir, 'claude'),
     `#!/usr/bin/env node
@@ -17,13 +18,21 @@ const fs = require('node:fs');
 let prompt = '';
 process.stdin.on('data', (d) => { prompt += d; });
 process.stdin.on('end', () => {
+  fs.appendFileSync(${JSON.stringify(argvCapture)}, JSON.stringify(process.argv.slice(2)) + '\\n');
   fs.appendFileSync(${JSON.stringify(capture)}, prompt + '\\n=====\\n');
   process.stdout.write(${JSON.stringify(reply)});
   process.exit(${exit});
 });
 `,
   );
-  return { bin, prompts: () => (existsSync(capture) ? readFileSync(capture, 'utf8') : '') };
+  return {
+    bin,
+    prompts: () => (existsSync(capture) ? readFileSync(capture, 'utf8') : ''),
+    argvs: () =>
+      existsSync(argvCapture)
+        ? readFileSync(argvCapture, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+        : [],
+  };
 }
 
 /** `main` plus a feature branch that deletes one file, edits one and adds one. */
@@ -56,6 +65,26 @@ test('deleted files reach the reviewers by name, without their content', () => {
   assert.doesNotMatch(prompts, /SECRET_MARKER_IN_DELETED_FILE/, 'removed content is not sent');
   assert.match(prompts, /export const keep = 2;/);
   assert.match(prompts, /export const added = true;/);
+});
+
+/** The value that follows `flag` in an argv, or undefined when the flag is absent. */
+const flagValue = (argv, flag) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined);
+
+test('reviewers run with no tools, so a diff cannot steer them into running commands', () => {
+  const repo = repoWithDeletion();
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  const argvs = claude.argvs();
+  assert.ok(argvs.length >= 1, 'at least one reviewer ran');
+  for (const argv of argvs) {
+    assert.equal(flagValue(argv, '--tools'), '', 'every built-in tool is disabled');
+    assert.equal(flagValue(argv, '--permission-mode'), 'dontAsk', 'never auto mode');
+    assert.equal(flagValue(argv, '--permission-prompts'), 'none', 'nothing waits for or gets an approval');
+    assert.ok(argv.includes('--strict-mcp-config'), 'no MCP servers');
+    assert.equal(flagValue(argv, '--setting-sources'), '', 'no user or project settings');
+  }
 });
 
 test('reviewers are told to report real defects only, keeping the output and severity rules', () => {
