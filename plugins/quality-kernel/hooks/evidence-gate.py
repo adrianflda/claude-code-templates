@@ -73,15 +73,27 @@ def redact(command: str) -> str:
     return out[:_MAX_COMMAND]
 
 
-def ledger_is_safe(cwd: str) -> bool:
-    """False iff cwd is inside a git repo and the ledger path is NOT gitignored."""
-    probe = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cwd,
-                           capture_output=True, text=True, timeout=5)
-    if probe.returncode != 0:
-        return True  # not a git repo: nothing to leak into a commit
-    ignored = subprocess.run(["git", "check-ignore", "-q", ".quality-kernel/evidence-ledger.jsonl"],
-                             cwd=cwd, capture_output=True, timeout=5)
-    return ignored.returncode == 0
+def ledger_is_safe(cwd: str):
+    """Return (ok, reason). ok is False iff the ledger must not be written; reason says why."""
+    try:
+        probe = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cwd,
+                               capture_output=True, text=True, timeout=2,
+                               env={**os.environ, "LC_ALL": "C"})
+        if probe.returncode != 0:
+            if "not a git repository" in probe.stderr.lower():
+                return True, ""  # not a git repo: nothing to leak into a commit
+            return False, f"git rev-parse failed (rc {probe.returncode}); cannot verify .quality-kernel/ is gitignored"
+        ignored = subprocess.run(["git", "check-ignore", "-q", ".quality-kernel/evidence-ledger.jsonl"],
+                                 cwd=cwd, capture_output=True, timeout=2)
+    except FileNotFoundError:
+        return False, "git executable not found; cannot verify .quality-kernel/ is gitignored"
+    except subprocess.TimeoutExpired:
+        return False, "git timed out; cannot verify .quality-kernel/ is gitignored"
+    if ignored.returncode == 0:
+        return True, ""
+    if ignored.returncode == 1:
+        return False, ".quality-kernel/ is not gitignored"
+    return False, f"git check-ignore failed (rc {ignored.returncode}); cannot verify .quality-kernel/ is gitignored"
 
 
 def main() -> None:
@@ -99,7 +111,7 @@ def main() -> None:
         if not is_verify_command(command):
             sys.exit(0)
 
-        is_failure = data.get("hook_event_name") == "PostToolUseFailure" or "error" in data
+        is_failure = data.get("hook_event_name") == "PostToolUseFailure"
         record_extra = {}
         interrupted = None
         stderr_nonempty = None
@@ -107,6 +119,8 @@ def main() -> None:
             error = data.get("error")
             match = _EXIT_CODE.match(error.split("\n", 1)[0]) if isinstance(error, str) else None
             exit_code = int(match.group(1)) if match else None
+            if not match:
+                record_extra["exit_parse"] = "unparsed"
             is_interrupt = data.get("is_interrupt")
             record_extra["is_interrupt"] = is_interrupt if isinstance(is_interrupt, bool) else None
         else:
@@ -123,9 +137,13 @@ def main() -> None:
         agent_id = data.get("agent_id")
 
         cwd = data.get("cwd") or os.getcwd()
-        if not ledger_is_safe(cwd):
-            print("[quality-kernel] evidence-gate: .quality-kernel/ is not gitignored; ledger not written",
-                  file=sys.stderr)
+        ok, reason = ledger_is_safe(cwd)
+        if not ok:
+            msg = f"[quality-kernel] evidence-gate: ledger not written: {reason}"
+            print(msg, file=sys.stderr)
+            event = data.get("hook_event_name")
+            event = event if event in ("PostToolUse", "PostToolUseFailure") else "PostToolUse"
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": msg}}))
             sys.exit(0)
         ledger_dir = pathlib.Path(cwd) / ".quality-kernel"
         ledger_dir.mkdir(exist_ok=True)

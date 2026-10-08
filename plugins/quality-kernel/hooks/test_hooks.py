@@ -297,6 +297,56 @@ class EvidenceGate(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
 
+    def test_skip_reason_is_model_visible_via_additional_context(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._git_repo(d, ignore=False)
+            self._fail(d, "Exit code 1")
+            hso = json.loads(run.last_stdout)["hookSpecificOutput"]
+            self.assertEqual(hso["hookEventName"], "PostToolUseFailure")
+            self.assertIn("not gitignored", hso["additionalContext"])
+            self.assertNotIn("permissionDecision", run.last_stdout)
+
+    def test_git_missing_gives_accurate_reason_and_no_write(self):
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as empty:
+            code, _ = run(GATE, {"hook_event_name": "PostToolUse", "tool_name": "Bash",
+                                 "tool_input": {"command": "pytest -q"}, "cwd": d},
+                          env={"PATH": empty}, cwd=d)
+            self.assertEqual(code, 0)
+            hso = json.loads(run.last_stdout)["hookSpecificOutput"]
+            self.assertEqual(hso["hookEventName"], "PostToolUse")
+            self.assertIn("git executable not found", hso["additionalContext"])
+            self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
+
+    def test_check_ignore_error_is_not_reported_as_not_ignored(self):
+        # rc 128 (e.g. corrupt .git) must be distinguished from rc 1 (not ignored).
+        with tempfile.TemporaryDirectory() as d:
+            self._git_repo(d, ignore=True)
+            (pathlib.Path(d) / ".git" / "info" / "exclude").unlink(missing_ok=True)
+            # A malformed global-style config makes check-ignore fail with rc 128.
+            (pathlib.Path(d) / ".git" / "config").write_text("[core\n  excludesFile = /x\n")
+            self._fail(d, "Exit code 1")
+            ctx = json.loads(run.last_stdout)["hookSpecificOutput"]["additionalContext"] if run.last_stdout else ""
+            self.assertNotIn("is not gitignored", ctx)
+            self.assertIn("cannot verify", ctx)
+            self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
+
+    def test_event_name_decides_failure_not_error_key(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(GATE, {"hook_event_name": "PostToolUse", "tool_name": "Bash",
+                       "tool_input": {"command": "pytest -q"}, "error": "Exit code 7", "cwd": d}, cwd=d)
+            rec = json.loads(self._ledger(d)[0])
+            self.assertEqual(rec["exit_code"], 0)
+            self.assertNotIn("exit_parse", rec)
+
+    def test_unparsed_failure_is_marked(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Command interrupted by user")
+            rec = json.loads(self._ledger(d)[0])
+            self.assertIsNone(rec["exit_code"])
+            self.assertEqual(rec["exit_parse"], "unparsed")
+            self._fail(d, "Exit code 2")
+            self.assertNotIn("exit_parse", json.loads(self._ledger(d)[1]))
+
     def test_gitignored_ledger_in_git_repo_is_written(self):
         with tempfile.TemporaryDirectory() as d:
             self._git_repo(d, ignore=True)
