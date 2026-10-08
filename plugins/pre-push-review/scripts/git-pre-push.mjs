@@ -78,40 +78,38 @@ const lines = (r) => (r.status === 0 ? r.stdout.split('\n').filter(Boolean) : nu
 // git passes the remote name (or the URL when pushing to one) as the first argument.
 const remoteArg = process.argv[2] || '';
 const remotes = lines(git(['remote'])) || [];
-const notOnRemote = remotes.includes(remoteArg) ? `--remotes=${remoteArg}` : '--remotes';
-// Tips the remote is known to have: its remote-tracking refs (all remotes when pushing to a URL).
-const remoteTips =
-  lines(git(['for-each-ref', '--format=%(objectname)', remotes.includes(remoteArg) ? `refs/remotes/${remoteArg}/` : 'refs/remotes/'])) || [];
+// Tips the target remote is known to have: its remote-tracking refs. Only that remote's: a
+// commit on another remote is still being sent to this one. Pushing to a URL has none.
+const targetTips = remotes.includes(remoteArg)
+  ? lines(git(['for-each-ref', '--format=%(objectname)', `refs/remotes/${remoteArg}/`])) || []
+  : [];
 
 /** The [base, head] range of commits a ref push sends that the remote does not have yet. */
 function rangeFor(localSha, remoteSha) {
-  let commits = null;
   const knownRemote = !ZERO.test(remoteSha) && git(['cat-file', '-e', `${remoteSha}^{commit}`]).status === 0;
-  if (knownRemote) {
-    commits = lines(git(['rev-list', localSha, `^${remoteSha}`]));
-  } else {
-    // A new branch, an empty remote, or a remote tip we do not have: everything that is not
-    // already on that remote is being sent.
-    commits = lines(git(['rev-list', localSha, '--not', notOnRemote]));
-  }
+  // One set of "already on the target" tips decides both which commits are pushed and where
+  // the review starts, so the base can never land on or past a pushed commit.
+  const have = [...new Set([...(knownRemote ? [remoteSha] : []), ...targetTips])];
+  const commits = lines(git(['rev-list', localSha, ...(have.length ? ['--not', ...have] : [])]));
   if (commits === null) return { error: `cannot list the commits pushed by ${localSha.slice(0, 7)}` };
   if (!commits.length) return null; // the remote already has every commit (e.g. a new name for them)
-  // The base is where the pushed commits attach to what the remote has: the merge base of the
-  // pushed tip with every known remote tip. Unlike "the parent of the oldest listed commit",
-  // this holds with merges and clock skew, so no pushed commit falls outside the diff.
-  const known = [...new Set([...(knownRemote ? [remoteSha] : []), ...remoteTips])];
+  // The base is where the pushed commits attach to what the target has: the merge base of the
+  // pushed tip with those tips. Unlike "the parent of the oldest listed commit", this holds with
+  // merges and clock skew. It is reachable from `have`, so it is never one of the pushed commits.
   let base = '';
-  if (known.length) {
-    const mb = git(['merge-base', localSha, ...known]);
+  if (have.length) {
+    const mb = git(['merge-base', localSha, ...have]);
     if (mb.status === 0) base = mb.stdout.trim();
   }
   if (!base) {
-    // Nothing in common with the remote (an empty remote, or unrelated history): review
+    // Nothing in common with the target (an empty remote, a URL, or unrelated history): review
     // everything, against the empty tree.
     const empty = git(['hash-object', '-t', 'tree', '--stdin'], '');
     base = empty.status === 0 ? empty.stdout.trim() : '';
   }
-  if (!SHA.test(base)) return { error: `cannot find the base of the commits pushed by ${localSha.slice(0, 7)}` };
+  if (!SHA.test(base) || base === localSha) {
+    return { error: `cannot find the base of the commits pushed by ${localSha.slice(0, 7)}` };
+  }
   return { base, head: localSha };
 }
 

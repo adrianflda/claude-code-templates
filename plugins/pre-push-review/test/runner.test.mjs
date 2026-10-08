@@ -461,3 +461,32 @@ test('a pushed merge of two new branches is reviewed from where they left the re
   assert.equal(r.code, 0, r.stderr);
   assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, head]]);
 });
+
+test('pushing to a URL: a commit already on a configured remote is still reviewed (never an empty range)', () => {
+  const { repo, featSha } = repoWithRemote();
+  // origin already has feat, but the push goes to a bare URL that has nothing.
+  git(repo, 'push', '-q', '--no-verify', 'origin', 'feat');
+  git(repo, 'fetch', '-q', 'origin');
+  const url = tempDir('url-remote');
+  git(url, 'init', '-q', '--bare');
+  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\n`, [url, url]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', EMPTY_TREE, featSha]]);
+});
+
+test('several tips on the target remote: the base is their common attachment point', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  // origin also has `rel`, one commit ahead of main; feat forked from main and does not contain rel.
+  git(repo, 'switch', '-q', '-c', 'rel', mainSha);
+  write(repo, { 'rel.js': 'r\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'rel');
+  git(repo, 'push', '-q', '--no-verify', 'origin', 'rel');
+  git(repo, 'fetch', '-q', 'origin');
+  // An update of an existing remote ref, with the remote's tip known locally.
+  git(repo, 'push', '-q', '--no-verify', 'origin', `${mainSha}:refs/heads/feat`);
+  git(repo, 'fetch', '-q', 'origin');
+  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${mainSha}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, featSha]]);
+});
