@@ -49,6 +49,24 @@ function readStdin() {
   });
 }
 
+/**
+ * The script path of a stored `node <path>` command, undoing the installer's shell quoting
+ * ('...' groups, \' for an apostrophe). Null when the value is anything else.
+ */
+function storedScript(value) {
+  const m = /^node\s+(\S.*)$/.exec(value);
+  if (!m) return null;
+  let rest = m[1];
+  let out = '';
+  while (rest) {
+    const part = /^(?:'([^']*)'|\\(.)|"([^"]*)"|([^'"\\\s]+))/.exec(rest);
+    if (!part) return null;
+    out += part[1] ?? part[2] ?? part[3] ?? part[4];
+    rest = rest.slice(part[0].length);
+  }
+  return out;
+}
+
 function block(message) {
   process.stderr.write(`pre-push-review BLOCKED this command: ${message}\n`);
   process.exit(2);
@@ -59,7 +77,14 @@ let payload = {};
 try {
   payload = JSON.parse(raw || '{}');
 } catch {
-  process.exit(0); // can't parse: don't interfere
+  payload = null;
+}
+if (payload === null || typeof payload !== 'object') {
+  // Unreadable payload: stay out of the way, unless the raw text looks like a push.
+  if (/git/.test(raw) && /push/.test(raw)) {
+    block('the hook payload could not be parsed and it mentions `git` and `push`, so the push cannot be checked.');
+  }
+  process.exit(0);
 }
 
 const toolName = payload.tool_name || payload.toolName || '';
@@ -72,14 +97,48 @@ const segments = splitCommands(command);
 const GIT_WORD = /(^|[\s;&|(`"'/])git(\s|$)/;
 
 // 1. Changes to the gate's own configuration are the user's call.
-const READ_ONLY = /(^|\s)(--get(-all|-regexp|-urlmatch|-color(bool)?)?|--list|-l|get|list)(\s|$)/;
+const GATE_KEY = /hook\.ai-review|core\.hookspath/i;
+const WRITE_FLAGS = /^(--unset(-all)?|--replace-all|--add|--remove-section|--rename-section|--edit|-e|--set|set|unset|edit|--fixed-value)$/;
+const READ_FLAGS = /^(--get(-all|-regexp|-urlmatch)?|--list|-l|get|list)$/;
+const OPTION_WITH_VALUE = /^(--file|-f|--blob|--type|-t|--default|--comment)$/;
+
+/** Words of a command up to an unquoted `#` comment; nothing is expanded. */
+function words(seg) {
+  const out = [];
+  for (const raw of seg.match(/"(?:\\.|[^"\\])*"|'[^']*'|\S+/g) ?? []) {
+    if (raw.startsWith('#')) break;
+    out.push(/^(".*"|'.*')$/s.test(raw) ? raw.slice(1, -1) : raw);
+  }
+  return out;
+}
+
+/**
+ * Does this `git config` command touch the gate's keys, or might it? Mentions anywhere in the
+ * segment count (a comment cannot hide them). Reading is allowed only when it is plainly a
+ * read: a read action, no write action, and no value after the key. Anything else is treated
+ * as a write (when in doubt, block).
+ */
+function changesGateConfig(seg) {
+  if (!GIT_WORD.test(seg) || !GATE_KEY.test(seg)) return false;
+  const w = words(seg);
+  const at = w.indexOf('config');
+  if (at === -1) return /(^|\s)config(\s|$)/.test(seg);
+  const args = w.slice(at + 1);
+  if (args.some((a) => WRITE_FLAGS.test(a))) return true;
+  // `get` and `list` are actions only as the first word; later they are a value.
+  const verb = /^(get|list)$/.test(args[0] ?? '') ? 1 : 0;
+  if (!verb && !args.some((a) => a.startsWith('-') && READ_FLAGS.test(a))) return true;
+  const positional = [];
+  for (let i = verb; i < args.length; i += 1) {
+    if (OPTION_WITH_VALUE.test(args[i])) i += 1;
+    else if (!args[i].startsWith('-')) positional.push(args[i]);
+  }
+  const listing = args.some((a) => a === '--list' || a === '-l') || args[0] === 'list';
+  return positional.length > (listing ? 0 : 1); // a value (or value pattern) after the key
+}
+
 for (const seg of segments) {
-  if (
-    GIT_WORD.test(seg) &&
-    /(^|\s)config(\s|$)/.test(seg) &&
-    /hook\.ai-review|core\.hookspath/i.test(seg) &&
-    !READ_ONLY.test(seg)
-  ) {
+  if (changesGateConfig(seg)) {
     block(
       'it changes the review gate configuration (hook.ai-review.* or core.hooksPath).\n' +
         'Do not change it. Ask the user to make that change themselves.',
@@ -94,7 +153,13 @@ if (!targets.length) process.exit(0);
 // 2. Bypass attempts.
 const BYPASS_NOTE = 'The review gate cannot be skipped from here. Ask the user if a change is needed.';
 for (const seg of segments) {
-  if (GIT_WORD.test(seg) && /(^|\s)push(\s|$)/.test(seg) && /(^|\s)--no-v[a-z]*/.test(seg)) {
+  // Only options after the `push` word belong to the push (not `git commit --no-verify`).
+  const w = words(seg);
+  const pushAt = w.indexOf('push');
+  const direct = pushAt !== -1 && w.slice(pushAt + 1).some((a) => /^--no-v/.test(a));
+  // `bash -c 'git push --no-verify'`: the whole script is one quoted word.
+  const nested = w.some((a) => /\bgit\b.*\bpush\b.*\s--no-v/.test(a));
+  if (GIT_WORD.test(seg) && (direct || nested)) {
     block(`\`--no-verify\` on a push skips the review hook. ${BYPASS_NOTE}`);
   }
   if (GIT_WORD.test(seg) && /(^|\s)-c\s*['"]?(core\.hookspath|hook\.)/i.test(seg)) {
@@ -150,8 +215,7 @@ for (const dir of [...new Set(targets.map((t) => t.dir))]) {
   if (cmds.length !== 1 || scope !== 'global') {
     block(`hook.ai-review.command in ${root} must be defined exactly once, in the global git config (found: ${cmds.join(' | ') || 'none'}). ${NOT_INSTALLED}`);
   }
-  const m = /^node\s+(?:'([^']+)'|"([^"]+)"|(\S+))$/.exec(value || '');
-  const script = m && (m[1] || m[2] || m[3]);
+  const script = storedScript(value || '');
   if (!script || basename(script) !== 'git-pre-push.mjs' || !existsSync(script)) {
     block(`hook.ai-review.command ("${value}") does not point at an existing git-pre-push.mjs. ${NOT_INSTALLED}`);
   }

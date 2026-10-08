@@ -146,7 +146,9 @@ and cannot run commands, edit files or fetch anything from inside the push hook.
 | A human in a terminal, any repo, including husky | yes, by the git gate |
 | A human typing `git push --no-verify` | **no** (see limits) |
 
-Husky and other repo-local hooks keep working; they run in addition to the gate.
+Husky and other repo-local hooks keep working; they run in addition to the gate. The per-SHA
+`pass-<sha>` marker of earlier versions is gone: a husky `pre-push` that calls the panel
+itself would now review a second time, so remove such a hook (the gate already covers it).
 
 ## Limits, honestly
 

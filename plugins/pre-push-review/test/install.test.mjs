@@ -81,6 +81,26 @@ test('migrates a global core.hooksPath that runs the old git-ai-review harness',
   assert.equal(run(env, '--check').code, 0);
 });
 
+test('collapses duplicate hook.ai-review entries to one, and warns about other hooks in the old directory', () => {
+  const plugin = fakePlugin();
+  const run = installer(plugin);
+  const dir = legacyHooksDir('#!/bin/sh\nexec node "$HOME/.config/git-ai-review/x.mjs"\n');
+  executable(join(dir, 'commit-msg'), '#!/bin/sh\n');
+  const cfg = join(tempDir('cfg'), 'gitconfig');
+  writeFileSync(
+    cfg,
+    `[core]\n\thooksPath = ${dir}\n[hook "ai-review"]\n\tevent = pre-commit\n\tevent = pre-push\n\tcommand = a\n\tcommand = b\n`,
+  );
+  const env = { GIT_CONFIG_GLOBAL: cfg };
+  const r = run(env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /WARNING: .*commit-msg/);
+  const after = readFileSync(cfg, 'utf8');
+  assert.equal(after.match(/command =/g).length, 1);
+  assert.equal(after.match(/event =/g).length, 1);
+  assert.equal(run(env, '--check').code, 0);
+});
+
 test('keeps a global core.hooksPath that is not the old harness', () => {
   const plugin = fakePlugin();
   const run = installer(plugin);

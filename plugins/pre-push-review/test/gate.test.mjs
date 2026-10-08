@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { SCRIPTS, fakePlugin, git, installGate, makeRepo, runNode, tempDir } from './helpers.mjs';
@@ -27,19 +27,40 @@ test('an installed gate lets a plain push through, silently, without deciding pe
 
 test('the guard never runs the panel', () => {
   const repo = makeRepo('repo');
-  // The installed command points at a plugin whose panel would fail loudly if it ran.
-  const r = guard({ command: 'git push', cwd: repo, env: { FAKE_PANEL_LOG: join(tempDir('x'), 'log') } });
+  const log = join(tempDir('x'), 'log');
+  const r = guard({ command: 'git push', cwd: repo, env: { FAKE_PANEL_LOG: log } });
   assert.equal(r.code, 0, r.stderr);
+  assert.equal(existsSync(log), false, 'the panel (which would write this log) did not run');
 });
 
 test('follows cd and -C to the repository being pushed', () => {
   const session = makeRepo('session');
   const other = makeRepo('other');
-  assert.equal(guard({ command: `cd ${other} && git push`, cwd: session }).code, 0);
-  assert.equal(guard({ command: `git -C ${other} push`, cwd: session }).code, 0);
-  // A second home without the gate: every route to a push in it is blocked.
-  const bare = tempDir('home');
-  assert.equal(guard({ command: `git -C ${other} push`, cwd: session, h: bare }).code, 2);
+  // Make the two repositories distinguishable: only one of them has the gate disabled.
+  git(other, 'config', 'hook.ai-review.enabled', 'false');
+  assert.equal(guard({ command: 'git push', cwd: session }).code, 0);
+  assert.equal(guard({ command: `cd ${other} && git push`, cwd: session }).code, 2);
+  assert.equal(guard({ command: `git -C ${other} push`, cwd: session }).code, 2);
+  // And the reverse: a broken session repository does not matter when the target is healthy.
+  assert.equal(guard({ command: `git -C ${session} push`, cwd: other }).code, 0);
+  assert.equal(guard({ command: 'git push', cwd: other }).code, 2);
+});
+
+test('the stored command is read back through the installer quoting, spaces and apostrophes included', () => {
+  const base = tempDir("it's a dir");
+  const spaced = join(base, 'with space');
+  mkdirSync(join(spaced, 'scripts'), { recursive: true });
+  for (const f of ['git-pre-push.mjs', 'install-git-hook.mjs']) copyFileSync(join(SCRIPTS, f), join(spaced, 'scripts', f));
+  const h = installGate(spaced);
+  const repo = makeRepo('repo');
+  assert.equal(guard({ command: 'git push', cwd: repo, h }).code, 0);
+  assert.equal(runNode(join(spaced, 'scripts', 'install-git-hook.mjs'), { args: ['--check'], env: { HOME: h } }).code, 0);
+});
+
+test('--no-verify on a commit in the same command is not a push bypass', () => {
+  const repo = makeRepo('repo');
+  assert.equal(guard({ command: 'git commit --no-verify -m "fix push bug" && git push', cwd: repo }).code, 0);
+  assert.equal(guard({ command: 'git commit -m x && git push --no-verify', cwd: repo }).code, 2);
 });
 
 test('stays out of the way when there is no push', () => {
@@ -167,6 +188,42 @@ test('blocks git config commands that change the gate, allows reading it', () =>
   ]) {
     assert.equal(guard({ command, cwd: repo, timeout: null }).code, 0, command);
   }
+});
+
+test('a read flag in a comment, a value or after the value does not make a write look like a read', () => {
+  const repo = makeRepo('repo');
+  const blocked = [
+    "git config --global hook.ai-review.command 'node /tmp/x/git-pre-push.mjs' # --list",
+    'git config --global hook.ai-review.command "node /tmp/x/git-pre-push.mjs" # --get',
+    'git config hook.ai-review.command --list',
+    'git config hook.ai-review.command get',
+    'git config --global core.hooksPath list',
+    'git config --get-all hook.ai-review.command x',
+    'git config --get hook.ai-review.command --unset',
+    'git config --global --edit # hook.ai-review.command --list',
+    'git config --global --replace-all hook.ai-review.command x --get',
+    'git config --global --add hook.ai-review.command x',
+    'git config --global --rename-section hook.ai-review other',
+    'git config unset --global hook.ai-review.event',
+  ];
+  for (const command of blocked) {
+    assert.equal(guard({ command, cwd: repo, timeout: null }).code, 2, command);
+  }
+  for (const command of [
+    'git config --get hook.ai-review.command # fine',
+    'git config get --global hook.ai-review.command',
+    'git config --global --list --show-origin',
+    'git config --file /tmp/x --get core.hooksPath',
+  ]) {
+    assert.equal(guard({ command, cwd: repo, timeout: null }).code, 0, command);
+  }
+});
+
+test('an unparseable payload blocks only when it looks like a push', () => {
+  assert.equal(runNode(GUARD, { input: '{"tool_name":"Bash","tool_input":{"command":"git push', env: { HOME: home } }).code, 2);
+  assert.equal(runNode(GUARD, { input: 'garbage git push', env: { HOME: home } }).code, 2);
+  assert.equal(runNode(GUARD, { input: 'garbage ls', env: { HOME: home } }).code, 0);
+  assert.equal(runNode(GUARD, { input: '', env: { HOME: home } }).code, 0);
 });
 
 test('blocks a push whose Bash call would be killed before the review ends', () => {

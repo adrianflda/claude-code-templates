@@ -18,7 +18,7 @@
  * Requires git >= 2.54 (config-based hooks).
  */
 import { spawnSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -87,8 +87,20 @@ if (!(commands.length === 1 && commands[0] === wanted)) {
   changes.push(`set global hook.ai-review.command = ${wanted}`);
 }
 if (legacy) {
+  const others = (() => {
+    try {
+      return readdirSync(legacy.replace(/^~(?=\/|$)/, homedir())).filter((f) => f !== 'pre-push' && !f.startsWith('.'));
+    } catch {
+      return [];
+    }
+  })();
   must(git('--unset-all', 'core.hooksPath'), 'unset core.hooksPath');
   changes.push(`unset global core.hooksPath (was ${legacy}; its pre-push ran the old git-ai-review harness)`);
+  if (others.length) {
+    changes.push(
+      `WARNING: ${legacy} also holds ${others.join(', ')}; those hooks no longer run in repositories without their own core.hooksPath. Set core.hooksPath back yourself if you still need them.`,
+    );
+  }
 }
 
 if (!changes.length) process.stdout.write('Already installed: nothing changed.\n');

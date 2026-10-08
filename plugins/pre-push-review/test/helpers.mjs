@@ -67,6 +67,12 @@ export function fakePlugin({ withPanel = true } = {}) {
       join(root, 'scripts', 'ai-review-panel.mjs'),
       `import { appendFileSync } from 'node:fs';
 appendFileSync(process.env.FAKE_PANEL_LOG, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), required: process.env.AI_REVIEW_REQUIRED, skip: process.env.AI_REVIEW_SKIP, prepushSkip: process.env.PREPUSH_REVIEW_SKIP }) + '\\n');
+if (process.env.FAKE_PANEL_GRANDCHILD) {
+  const { spawn } = await import('node:child_process');
+  const { writeFileSync } = await import('node:fs');
+  const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' });
+  writeFileSync(process.env.FAKE_PANEL_LOG + '.child', String(c.pid));
+}
 if (process.env.FAKE_PANEL_KILL) process.kill(process.pid, 'SIGKILL');
 if (process.env.FAKE_PANEL_HANG) await new Promise(() => setInterval(() => {}, 1000));
 process.stdout.write(process.env.FAKE_PANEL_OUT ?? 'SUMMARY: 0 critical\\n[pre-push-review] Passed. No blocking issues.\\n');

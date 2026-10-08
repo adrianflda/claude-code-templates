@@ -21,7 +21,7 @@
  * typing `git push --no-verify`, which git itself implements and no hook can see.
  */
 import { spawn, spawnSync } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -42,18 +42,20 @@ function readStdin() {
     process.stdin.on('data', (c) => {
       if (data.length < 1_000_000) data += c;
     });
-    process.stdin.on('end', () => res(data));
-    process.stdin.on('error', () => res(data));
-    setTimeout(() => res(data), 5000).unref?.();
+    process.stdin.on('end', () => res({ data, clean: true }));
+    process.stdin.on('error', () => res({ data, clean: false }));
+    setTimeout(() => res({ data, clean: false }), 5000).unref?.();
   });
 }
 
 // pre-push stdin: "<local ref> <local sha> <remote ref> <remote sha>" per ref being pushed.
-const refs = (await readStdin())
+// Only a stream that ended cleanly may short-circuit; a partial read reviews as usual.
+const stdin = await readStdin();
+const refs = stdin.data
   .split('\n')
   .map((l) => l.trim().split(/\s+/))
   .filter((p) => p.length >= 4);
-if (refs.length && refs.every((p) => ZERO.test(p[1]))) {
+if (stdin.clean && refs.length && refs.every((p) => ZERO.test(p[1]))) {
   say('[pre-push-review] Only deleting refs: nothing to review.');
   process.exit(0);
 }
@@ -77,10 +79,28 @@ let failure = '';
 await new Promise((done) => {
   let child;
   try {
-    child = spawn(process.execPath, [panel, '--branch'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Detached: the panel leads its own process group, so the whole tree (its `claude`
+    // children included) can be killed together.
+    child = spawn(process.execPath, [panel, '--branch'], {
+      cwd: root,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    });
   } catch (e) {
     failure = `the panel could not run (${e.code || e.message})`;
     return done();
+  }
+  // The panel no longer shares our process group: pass an interrupt on to it.
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(sig, () => {
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+      process.exit(1);
+    });
   }
   const forward = (chunk) => {
     if (out.length < 32 * 1024 * 1024) out += chunk;
@@ -90,7 +110,15 @@ await new Promise((done) => {
   child.stderr.on('data', forward);
   const timer = setTimeout(() => {
     failure = `the panel did not finish in ${TIMEOUT_MS} ms`;
-    child.kill('SIGKILL');
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      child.kill('SIGKILL');
+    }
+    // Grandchildren may hold the pipes open, so 'close' may never fire: do not wait for it.
+    child.stdout.destroy();
+    child.stderr.destroy();
+    done();
   }, TIMEOUT_MS);
   child.on('error', (e) => {
     failure ||= `the panel could not run (${e.code || e.message})`;
@@ -110,11 +138,13 @@ try {
   const head = git(['-C', root, 'rev-parse', 'HEAD']);
   const sha = head.status === 0 ? head.stdout.trim() : 'unknown';
   const cacheDir = join(homedir(), '.cache', 'git-ai-review');
-  mkdirSync(cacheDir, { recursive: true });
-  writeFileSync(
-    join(cacheDir, `review-${sha}.log`),
-    `repository: ${root}\nexit: ${code}${failure ? ` (${failure})` : ''}\n\n${out}`,
-  );
+  mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+  chmodSync(cacheDir, 0o700);
+  const logFile = join(cacheDir, `review-${sha}.log`);
+  writeFileSync(logFile, `repository: ${root}\nexit: ${code}${failure ? ` (${failure})` : ''}\n\n${out}`, {
+    mode: 0o600,
+  });
+  chmodSync(logFile, 0o600);
   say(`[pre-push-review] Full output: ${join(cacheDir, `review-${sha}.log`)}`);
 } catch {
   /* the log is best-effort */

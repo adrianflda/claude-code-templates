@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { executable, fakePlugin, git, installGate, makeRepo, runNode, tempDir } from './helpers.mjs';
@@ -67,6 +67,76 @@ test('fails closed when the panel does not finish in time', () => {
   assert.match(r.stderr, /did not finish in 500 ms/);
 });
 
+test('a child of the panel that keeps the pipes open cannot hang the runner, and it is killed', async () => {
+  const started = Date.now();
+  // The panel exits at once, but its child holds stdout open: 'close' never fires.
+  const r = runRunner({ env: { FAKE_PANEL_GRANDCHILD: '1', AI_REVIEW_GATE_TIMEOUT_MS: '800' } });
+  assert.equal(r.code, 1);
+  assert.ok(Date.now() - started < 5000, `took ${Date.now() - started} ms`);
+  assert.match(r.stderr, /did not finish in 800 ms/);
+  const pid = Number(readFileSync(join(r.home, 'panel-calls.jsonl.child'), 'utf8'));
+  await new Promise((res) => setTimeout(res, 300));
+  assert.throws(() => process.kill(pid, 0), 'the grandchild was killed with the process group');
+});
+
+test('a hanging panel with a child is killed within the timeout plus a margin', () => {
+  const started = Date.now();
+  const r = runRunner({ env: { FAKE_PANEL_GRANDCHILD: '1', FAKE_PANEL_HANG: '1', AI_REVIEW_GATE_TIMEOUT_MS: '800' } });
+  assert.equal(r.code, 1);
+  assert.ok(Date.now() - started < 5000);
+});
+
+test('a stdin that never ends does not short-circuit as a deletion', async () => {
+  const cwd = makeRepo('repo');
+  const home = tempDir('home');
+  const plugin = fakePlugin();
+  const child = spawn(process.execPath, [join(plugin, 'scripts', 'git-pre-push.mjs')], {
+    cwd,
+    env: { ...process.env, HOME: home, FAKE_PANEL_LOG: join(home, 'calls'), FAKE_PANEL_EXIT: '1' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  // A deletion line, but the stream is never closed: the runner's read limit (5 s) expires.
+  child.stdin.write(`(delete) ${ZERO} refs/heads/old ${'a'.repeat(40)}\n`);
+  const status = await new Promise((res) => child.on('close', res));
+  child.stdin.destroy();
+  assert.equal(status, 1, 'the panel ran and its failure blocked');
+  assert.ok(existsSync(join(home, 'calls')), 'the panel ran');
+});
+
+test('SIGTERM to the runner kills the panel and its child', async () => {
+  const cwd = makeRepo('repo');
+  const home = tempDir('home');
+  const plugin = fakePlugin();
+  const calls = join(home, 'calls');
+  const child = spawn(process.execPath, [join(plugin, 'scripts', 'git-pre-push.mjs')], {
+    cwd,
+    env: { ...process.env, HOME: home, FAKE_PANEL_LOG: calls, FAKE_PANEL_GRANDCHILD: '1', FAKE_PANEL_HANG: '1' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  child.stdin.end(`refs/heads/main ${'b'.repeat(40)} refs/heads/main ${ZERO}\n`);
+  for (let i = 0; i < 100 && !existsSync(`${calls}.child`); i += 1) await new Promise((r) => setTimeout(r, 50));
+  child.kill('SIGTERM');
+  const status = await new Promise((res) => child.on('close', res));
+  assert.equal(status, 1);
+  const pid = Number(readFileSync(`${calls}.child`, 'utf8'));
+  await new Promise((res) => setTimeout(res, 300));
+  assert.throws(() => process.kill(pid, 0), 'the grandchild is gone');
+});
+
+test('mixed refs (a deletion and a real push) are reviewed', () => {
+  const sha = git(makeRepo('x'), 'rev-parse', 'HEAD');
+  const r = runRunner({ input: `(delete) ${ZERO} refs/heads/old ${sha}\nrefs/heads/main ${sha} refs/heads/main ${ZERO}\n` });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.calls.length, 1);
+});
+
+test('the cache directory is private (0700) and the log is 0600', () => {
+  const r = runRunner();
+  const dir = join(r.home, '.cache', 'git-ai-review');
+  assert.equal(statSync(dir).mode & 0o777, 0o700);
+  assert.equal(statSync(join(dir, `review-${r.sha}.log`)).mode & 0o777, 0o600);
+});
+
 test('honors no skip switch and forces the review to be required', () => {
   const r = runRunner({
     env: { AI_REVIEW_SKIP: '1', PREPUSH_REVIEW_SKIP: '1', AI_REVIEW_REQUIRED: '0', FAKE_PANEL_EXIT: '1' },
@@ -87,8 +157,8 @@ test('a branch deletion has nothing to review', () => {
 
 // ---- real `git push` through the installed config hook ----
 
-function pushSetup({ husky = false } = {}) {
-  const plugin = fakePlugin();
+function pushSetup({ husky = false, withPanel = true } = {}) {
+  const plugin = fakePlugin({ withPanel });
   const home = installGate(plugin);
   const remote = tempDir('remote');
   git(remote, 'init', '-q', '--bare', '-b', 'main');
@@ -129,6 +199,12 @@ test('real git push: fails closed when the panel is missing or killed', () => {
   const s = pushSetup();
   assert.notEqual(s.push({ FAKE_PANEL_KILL: '1' }).status, 0);
   assert.equal(s.remoteHasMain(), false);
+
+  const missing = pushSetup({ withPanel: false });
+  const r = missing.push({});
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /panel is missing/);
+  assert.equal(missing.remoteHasMain(), false);
 });
 
 test('real git push: the skip switches do not skip the review', () => {
