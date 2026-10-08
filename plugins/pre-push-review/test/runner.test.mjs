@@ -359,3 +359,105 @@ test('real git push of a branch that is not checked out sends the panel that bra
   const calls = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(calls.map((c) => c.args), [['--range', mainSha, featSha]]);
 });
+
+test('only the second of two ranges blocks: the whole push is blocked, and both were reviewed', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  git(repo, 'switch', '-q', '-c', 'other', mainSha);
+  write(repo, { 'c.js': 'c\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'other');
+  const otherSha = git(repo, 'rev-parse', 'HEAD');
+  const home = tempDir('home');
+  const log = join(home, 'l');
+  const r = runNode(join(fakePlugin(), 'scripts', 'git-pre-push.mjs'), {
+    cwd: repo,
+    args: ['origin', 'url'],
+    input: `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\nrefs/heads/other ${otherSha} refs/heads/other ${ZERO}\n`,
+    env: { HOME: home, FAKE_PANEL_LOG: log, FAKE_PANEL_FAIL_HEAD: otherSha },
+  });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /broken on this range/);
+  assert.equal(readFileSync(log, 'utf8').trim().split('\n').length, 2);
+});
+
+test('only the first of two ranges blocks: a later pass does not undo the block', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  git(repo, 'switch', '-q', '-c', 'other', mainSha);
+  write(repo, { 'c.js': 'c\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'other');
+  const otherSha = git(repo, 'rev-parse', 'HEAD');
+  const home = tempDir('home');
+  const r = runNode(join(fakePlugin(), 'scripts', 'git-pre-push.mjs'), {
+    cwd: repo,
+    args: ['origin', 'url'],
+    input: `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\nrefs/heads/other ${otherSha} refs/heads/other ${ZERO}\n`,
+    env: { HOME: home, FAKE_PANEL_LOG: join(home, 'l'), FAKE_PANEL_FAIL_HEAD: featSha },
+  });
+  assert.equal(r.code, 1);
+});
+
+test('a commit that is on another remote but not on the pushed one is still reviewed', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  const other = tempDir('other');
+  git(other, 'init', '-q', '--bare');
+  git(repo, 'remote', 'add', 'mirror', other);
+  git(repo, 'push', '-q', '--no-verify', 'mirror', 'feat');
+  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${ZERO}\n`, ['origin', 'url']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, featSha]]);
+});
+
+test('a remote tip this repository does not have falls back to "not on that remote"', () => {
+  const { repo, mainSha, featSha } = repoWithRemote();
+  const r = runWithArgs(repo, `refs/heads/feat ${featSha} refs/heads/feat ${'c'.repeat(40)}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, featSha]]);
+});
+
+test('clock skew plus a merge does not hide pushed commits (base is the merge base, not "parent of the last listed")', () => {
+  const { repo, mainSha } = repoWithRemote();
+  const at = (date, ...args) => {
+    const r = spawnSync('git', args, {
+      cwd: repo,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+    });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  git(repo, 'switch', '-q', '-c', 'work', mainSha);
+  write(repo, { 'f.js': 'f\n' });
+  git(repo, 'add', '-A');
+  at('2005-01-01T00:00:00Z', 'commit', '-q', '-m', 'F');
+  const f = git(repo, 'rev-parse', 'HEAD');
+  write(repo, { 'b.js': 'b\n' });
+  git(repo, 'add', '-A');
+  at('2020-01-01T00:00:00Z', 'commit', '-q', '-m', 'B');
+  git(repo, 'switch', '-q', '-c', 'g', f);
+  write(repo, { 'g.js': 'g\n' });
+  git(repo, 'add', '-A');
+  at('2001-01-01T00:00:00Z', 'commit', '-q', '-m', 'G');
+  git(repo, 'switch', '-q', 'work');
+  at('2021-01-01T00:00:00Z', 'merge', '-q', '--no-edit', 'g');
+  const head = git(repo, 'rev-parse', 'HEAD');
+  const listed = git(repo, 'rev-list', head, '--not', '--remotes=origin').split('\n');
+  const parentOfLast = git(repo, 'rev-parse', `${listed.at(-1)}^`);
+  assert.equal(parentOfLast, f, 'precondition: the old rule would have used F as the base');
+  const r = runWithArgs(repo, `refs/heads/work ${head} refs/heads/work ${ZERO}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, head]]);
+});
+
+test('a pushed merge of two new branches is reviewed from where they left the remote', () => {
+  const { repo, mainSha } = repoWithRemote();
+  git(repo, 'switch', '-q', '-c', 'side', mainSha);
+  write(repo, { 'side.js': 's\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'side');
+  git(repo, 'switch', '-q', 'feat');
+  git(repo, 'merge', '-q', '--no-edit', 'side');
+  const head = git(repo, 'rev-parse', 'HEAD');
+  const r = runWithArgs(repo, `refs/heads/feat ${head} refs/heads/feat ${ZERO}\n`);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(r.calls.map((c) => c.args), [['--range', mainSha, head]]);
+});

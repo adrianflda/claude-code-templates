@@ -79,11 +79,15 @@ const lines = (r) => (r.status === 0 ? r.stdout.split('\n').filter(Boolean) : nu
 const remoteArg = process.argv[2] || '';
 const remotes = lines(git(['remote'])) || [];
 const notOnRemote = remotes.includes(remoteArg) ? `--remotes=${remoteArg}` : '--remotes';
+// Tips the remote is known to have: its remote-tracking refs (all remotes when pushing to a URL).
+const remoteTips =
+  lines(git(['for-each-ref', '--format=%(objectname)', remotes.includes(remoteArg) ? `refs/remotes/${remoteArg}/` : 'refs/remotes/'])) || [];
 
 /** The [base, head] range of commits a ref push sends that the remote does not have yet. */
 function rangeFor(localSha, remoteSha) {
   let commits = null;
-  if (!ZERO.test(remoteSha) && git(['cat-file', '-e', `${remoteSha}^{commit}`]).status === 0) {
+  const knownRemote = !ZERO.test(remoteSha) && git(['cat-file', '-e', `${remoteSha}^{commit}`]).status === 0;
+  if (knownRemote) {
     commits = lines(git(['rev-list', localSha, `^${remoteSha}`]));
   } else {
     // A new branch, an empty remote, or a remote tip we do not have: everything that is not
@@ -92,11 +96,18 @@ function rangeFor(localSha, remoteSha) {
   }
   if (commits === null) return { error: `cannot list the commits pushed by ${localSha.slice(0, 7)}` };
   if (!commits.length) return null; // the remote already has every commit (e.g. a new name for them)
-  const oldest = commits[commits.length - 1];
-  const parent = git(['rev-parse', '--verify', '--quiet', `${oldest}^`]);
-  let base = parent.status === 0 ? parent.stdout.trim() : '';
+  // The base is where the pushed commits attach to what the remote has: the merge base of the
+  // pushed tip with every known remote tip. Unlike "the parent of the oldest listed commit",
+  // this holds with merges and clock skew, so no pushed commit falls outside the diff.
+  const known = [...new Set([...(knownRemote ? [remoteSha] : []), ...remoteTips])];
+  let base = '';
+  if (known.length) {
+    const mb = git(['merge-base', localSha, ...known]);
+    if (mb.status === 0) base = mb.stdout.trim();
+  }
   if (!base) {
-    // The root commit is being pushed: review it against the empty tree.
+    // Nothing in common with the remote (an empty remote, or unrelated history): review
+    // everything, against the empty tree.
     const empty = git(['hash-object', '-t', 'tree', '--stdin'], '');
     base = empty.status === 0 ? empty.stdout.trim() : '';
   }
@@ -134,10 +145,29 @@ delete env.PREPUSH_REVIEW_SKIP;
 // One deadline for the whole push, however many ranges it has.
 const deadline = Date.now() + TIMEOUT_MS;
 
+// Interrupts are passed on to whichever panel is running. Registered once: a handler per run
+// would pile up, and the first (stale) one would exit before the live panel was killed.
+let activeChild = null;
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => {
+    if (activeChild) {
+      try {
+        process.kill(-activeChild.pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+    process.exit(1);
+  });
+}
+
 function runPanel(args) {
   return new Promise((done) => {
     const result = { out: '', code: null, failure: '' };
-    const finish = () => done(result);
+    const finish = () => {
+      activeChild = null;
+      done(result);
+    };
     let child;
     try {
       // Detached: the panel leads its own process group, so the whole tree (its `claude`
@@ -152,16 +182,7 @@ function runPanel(args) {
       result.failure = `the panel could not run (${e.code || e.message})`;
       return finish();
     }
-    // The panel no longer shares our process group: pass an interrupt on to it.
-    const onSignal = () => {
-      try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        /* already gone */
-      }
-      process.exit(1);
-    };
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, onSignal);
+    activeChild = child;
     const forward = (chunk) => {
       if (result.out.length < 32 * 1024 * 1024) result.out += chunk;
       process.stderr.write(chunk);
