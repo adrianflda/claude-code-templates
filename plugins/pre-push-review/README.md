@@ -31,12 +31,25 @@ hook:
 
 Config-based hooks (git 2.54+) run in every repository, **also when the repository sets its own
 local `core.hooksPath`** (husky and similar run after it, as usual). On every `git push`, from
-anywhere, the gate runs the bundled panel (`scripts/ai-review-panel.mjs --branch`) in the
-repository root over the commits being pushed, streams its output to the terminal and keeps the
-full output in `~/.cache/git-ai-review/review-<sha>.log`.
+anywhere, the gate reviews exactly what git says is being pushed, streams the panel output to
+the terminal and keeps the full output in `~/.cache/git-ai-review/review-<sha>.log`.
+
+For every ref git lists on the hook's stdin, the gate computes the commits the remote does not
+have yet and runs the bundled panel on that range
+(`scripts/ai-review-panel.mjs --range <base> <head>`):
+
+| Push | Reviewed |
+|---|---|
+| to a ref the remote already has | `<remote tip>..<pushed tip>` |
+| a new branch | its commits that are on no ref of that remote |
+| the first push to an empty remote | every commit, from the empty tree |
+| a branch that is not checked out (`git push origin feat` while on `main`) | that branch, not `HEAD` |
+
+A pushed commit the repository does not have blocks the push. When git's ref list cannot be
+read, the gate falls back to the panel's own guess (`--branch`).
 
 - **Reviewed, nothing blocking** → exit 0, the push proceeds.
-- **Nothing to review** (for example deleting a branch) → exit 0.
+- **Nothing to review** (deleting a branch, or the remote already has every pushed commit) → exit 0.
 - **Critical issue found** → the push is **blocked**; the report is on the terminal.
 - **No reviewer could run** → blocked.
 - **The panel is missing, killed, timed out or cannot start** → blocked (fail closed).
@@ -174,6 +187,7 @@ Or directly:
 node scripts/ai-review-panel.mjs            # staged changes
 node scripts/ai-review-panel.mjs --branch   # commits being pushed
 node scripts/ai-review-panel.mjs --base origin/main   # everything on this branch that is not on the base
+node scripts/ai-review-panel.mjs --range <base> <head>   # an exact range (full object names)
 node scripts/ai-review-panel.mjs --pr 123   # review a PR and post a rolling comment
 ```
 

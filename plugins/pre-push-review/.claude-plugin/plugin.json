@@ -1,6 +1,6 @@
 {
   "name": "pre-push-review",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Fires an expert panel of code reviewers before every `git push` and BLOCKS the push on critical findings. A portable, versioned Claude Code plugin — works in every repo, no per-machine hand-wiring.",
   "author": {
     "name": "Adrian"
