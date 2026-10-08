@@ -27,6 +27,7 @@ def run(script, payload, env=None, cwd=None):
         env={**os.environ, **(env or {})},
         cwd=cwd,
     )
+    run.last_stdout = proc.stdout
     return proc.returncode, proc.stderr
 
 
@@ -43,10 +44,32 @@ class EpistemicGuard(unittest.TestCase):
         code, _ = run(GUARD, {"tool_name": "Agent", "tool_input": {"prompt": "[EPISTEMIC-EXEMPT: quick fetch] go"}})
         self.assertEqual(code, 0)
 
-    def test_missing_marker_log_mode_warns_but_passes(self):
-        code, err = run(GUARD, {"tool_name": "Task", "tool_input": {"prompt": "no marker here"}})
+    def test_missing_marker_injects_preamble_via_updated_input(self):
+        # Live probe (CLI 2.1.293): updatedInput applies WITHOUT a permissionDecision.
+        tool_input = {"prompt": "no marker here", "description": "d", "subagent_type": "general-purpose"}
+        code, _ = run(GUARD, {"tool_name": "Task", "tool_input": tool_input})
         self.assertEqual(code, 0)
-        self.assertIn("epistemic guard", err)
+        out = json.loads(run.last_stdout)
+        hso = out["hookSpecificOutput"]
+        self.assertEqual(hso["hookEventName"], "PreToolUse")
+        upd = hso["updatedInput"]
+        self.assertTrue(upd["prompt"].startswith(MARKER))
+        self.assertTrue(upd["prompt"].endswith("no marker here"))
+        self.assertEqual({k: v for k, v in upd.items() if k != "prompt"},
+                         {"description": "d", "subagent_type": "general-purpose"})
+
+    def test_injection_never_sets_a_permission_decision(self):
+        run(GUARD, {"tool_name": "Agent", "tool_input": {"prompt": "x"}})
+        self.assertNotIn("permissionDecision", run.last_stdout)
+
+    def test_marker_or_exempt_produces_no_output(self):
+        for prompt in (f"{MARKER} go", "[EPISTEMIC-EXEMPT: fetch] go"):
+            run(GUARD, {"tool_name": "Task", "tool_input": {"prompt": prompt}})
+            self.assertEqual(run.last_stdout, "")
+
+    def test_malformed_stdin_produces_no_output(self):
+        proc = subprocess.run([sys.executable, str(GUARD)], input="{bad", text=True, capture_output=True)
+        self.assertEqual(proc.stdout, "")
 
     def test_missing_marker_block_mode_blocks(self):
         code, _ = run(
@@ -55,6 +78,7 @@ class EpistemicGuard(unittest.TestCase):
             env={"QK_EPISTEMIC_MODE": "block"},
         )
         self.assertEqual(code, 2)
+        self.assertEqual(run.last_stdout, "")
 
     def test_agent_tool_name_is_covered(self):
         # regression for the pre-push HIGH finding: the guard must fire for "Agent" too
@@ -87,10 +111,8 @@ class EvidenceGate(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(self._ledger(d), [])
 
-    def test_verify_command_is_recorded_without_a_fake_exit_code(self):
-        # v1: Claude Code's Bash tool_response has NO exit-code field (verified by execution).
-        # The hook records that a verify-shaped command RAN (source="bash-hook") + honest signals,
-        # never a guessed exit code. The real exit code comes from the referee (source="referee").
+    def test_verify_command_success_is_recorded_with_exit_code_0(self):
+        # PostToolUse fires only on success -> exit_code 0. Failures arrive via PostToolUseFailure.
         with tempfile.TemporaryDirectory() as d:
             code, _ = run(
                 GATE,
@@ -103,7 +125,7 @@ class EvidenceGate(unittest.TestCase):
             self.assertEqual(len(lines), 1)
             rec = json.loads(lines[0])
             self.assertEqual(rec["source"], "bash-hook")
-            self.assertNotIn("exit", rec)  # never a fabricated exit code
+            self.assertEqual(rec["exit_code"], 0)  # PostToolUse == success
             self.assertIs(rec["interrupted"], False)
             self.assertIs(rec["stderr_nonempty"], False)
 
@@ -160,8 +182,7 @@ class EvidenceGate(unittest.TestCase):
             self.assertEqual(len(self._ledger(d)), 1)
 
     def test_non_dict_response_is_recorded_with_null_signals(self):
-        # A non-dict tool_response is still recorded (the command ran) but with null signals —
-        # and never a fabricated exit code.
+        # A non-dict tool_response is still recorded (the command ran) but with null signals.
         with tempfile.TemporaryDirectory() as d:
             code, _ = run(
                 GATE,
@@ -171,7 +192,7 @@ class EvidenceGate(unittest.TestCase):
             self.assertEqual(code, 0)
             rec = json.loads(self._ledger(d)[0])
             self.assertEqual(rec["source"], "bash-hook")
-            self.assertNotIn("exit", rec)
+            self.assertEqual(rec["exit_code"], 0)
             self.assertIsNone(rec["interrupted"])
             self.assertIsNone(rec["stderr_nonempty"])
 
@@ -186,6 +207,165 @@ class EvidenceGate(unittest.TestCase):
             )
             self.assertEqual(code, 0)
             self.assertIn("recorder error (fail-open)", err)
+
+    # ---- PostToolUseFailure: exit codes parsed from `error` ----
+    def _fail(self, d, error, command="pytest -q", **extra):
+        payload = {"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                   "tool_input": {"command": command}, "error": error, "cwd": d, **extra}
+        return run(GATE, payload, cwd=d)
+
+    def test_failure_exit_code_1_is_parsed(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, _ = self._fail(d, "Exit code 1\nError: Cannot find module 'express'",
+                                 duration_ms=42, is_interrupt=False)
+            self.assertEqual(code, 0)
+            rec = json.loads(self._ledger(d)[0])
+            self.assertEqual(rec["exit_code"], 1)
+            self.assertEqual(rec["duration_ms"], 42)
+            self.assertIs(rec["is_interrupt"], False)
+            self.assertEqual(rec["source"], "bash-hook")
+
+    def test_failure_exit_code_3_is_parsed(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Exit code 3")
+            self.assertEqual(json.loads(self._ledger(d)[0])["exit_code"], 3)
+
+    def test_failure_without_exit_code_line_records_null(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Command interrupted by user", is_interrupt=True)
+            rec = json.loads(self._ledger(d)[0])
+            self.assertIsNone(rec["exit_code"])
+            self.assertIs(rec["is_interrupt"], True)
+
+    def test_exit_code_only_parsed_from_first_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "boom\nExit code 9")
+            self.assertIsNone(json.loads(self._ledger(d)[0])["exit_code"])
+
+    def test_agent_id_recorded_when_present(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Exit code 1", agent_id="agent-123")
+            self.assertEqual(json.loads(self._ledger(d)[0])["agent_id"], "agent-123")
+
+    def test_no_row_contains_error_or_output_text(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Exit code 1\nSECRET-ERROR-TEXT-777")
+            run(GATE, {"tool_name": "Bash", "tool_input": {"command": "pytest -q"}, "cwd": d,
+                       "tool_response": {"stdout": "SECRET-STDOUT-888", "stderr": "SECRET-STDERR-999",
+                                         "interrupted": False}}, cwd=d)
+            raw = "\n".join(self._ledger(d))
+            self.assertEqual(len(self._ledger(d)), 2)
+            for t in ("SECRET-ERROR-TEXT-777", "SECRET-STDOUT-888", "SECRET-STDERR-999"):
+                self.assertNotIn(t, raw)
+
+    def test_non_verify_failure_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Exit code 1", command="false")
+            self.assertEqual(self._ledger(d), [])
+
+    def test_command_secrets_are_redacted(self):
+        # Fixtures are assembled at runtime so no literal token shape sits in the repo.
+        aws = "AK" + "IA" + "ABCDEFGHIJKLMNOP"
+        sk = "sk" + "-abcdefghijklmnopqrstuv"
+        gh = "gh" + "p_" + "abcdefghijklmnopqrstuvwxyz0123456789"
+        slack = "xo" + "xb-123456789-abcdef"
+        secrets = [aws, sk, gh, slack, "Bearer abc.def-ghi", "hunter2hunter2"]
+        cmd = (f"pytest -q AWS={aws} K={sk} T={gh} S={slack} "
+               "-H 'Authorization: Bearer abc.def-ghi' password=hunter2hunter2")
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Exit code 1", command=cmd)
+            raw = self._ledger(d)[0]
+            for s in secrets:
+                self.assertNotIn(s, raw)
+            self.assertIn("pytest -q", raw)
+            self.assertIn("[REDACTED]", raw)
+
+    def test_command_truncated_to_300_after_redaction(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Exit code 1", command="pytest " + "a" * 1000)
+            self.assertEqual(len(json.loads(self._ledger(d)[0])["command"]), 300)
+
+    def _git_repo(self, d, ignore):
+        subprocess.run(["git", "init", "-q", d], check=True)
+        if ignore:
+            pathlib.Path(d, ".gitignore").write_text(".quality-kernel/\n")
+
+    def test_non_gitignored_ledger_in_git_repo_is_not_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._git_repo(d, ignore=False)
+            code, _ = self._fail(d, "Exit code 1")
+            self.assertEqual(code, 0)
+            self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
+
+    def test_skip_reason_is_model_visible_via_additional_context(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._git_repo(d, ignore=False)
+            self._fail(d, "Exit code 1")
+            hso = json.loads(run.last_stdout)["hookSpecificOutput"]
+            self.assertEqual(hso["hookEventName"], "PostToolUseFailure")
+            self.assertIn("not gitignored", hso["additionalContext"])
+            self.assertNotIn("permissionDecision", run.last_stdout)
+
+    def test_git_missing_gives_accurate_reason_and_no_write(self):
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as empty:
+            code, _ = run(GATE, {"hook_event_name": "PostToolUse", "tool_name": "Bash",
+                                 "tool_input": {"command": "pytest -q"}, "cwd": d},
+                          env={"PATH": empty}, cwd=d)
+            self.assertEqual(code, 0)
+            hso = json.loads(run.last_stdout)["hookSpecificOutput"]
+            self.assertEqual(hso["hookEventName"], "PostToolUse")
+            self.assertIn("git executable not found", hso["additionalContext"])
+            self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
+
+    def test_check_ignore_error_is_not_reported_as_not_ignored(self):
+        # rc 128 (e.g. corrupt .git) must be distinguished from rc 1 (not ignored).
+        with tempfile.TemporaryDirectory() as d:
+            self._git_repo(d, ignore=True)
+            (pathlib.Path(d) / ".git" / "info" / "exclude").unlink(missing_ok=True)
+            # A malformed global-style config makes check-ignore fail with rc 128.
+            (pathlib.Path(d) / ".git" / "config").write_text("[core\n  excludesFile = /x\n")
+            self._fail(d, "Exit code 1")
+            ctx = json.loads(run.last_stdout)["hookSpecificOutput"]["additionalContext"] if run.last_stdout else ""
+            self.assertNotIn("is not gitignored", ctx)
+            self.assertIn("cannot verify", ctx)
+            self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
+
+    def test_event_name_decides_failure_not_error_key(self):
+        with tempfile.TemporaryDirectory() as d:
+            run(GATE, {"hook_event_name": "PostToolUse", "tool_name": "Bash",
+                       "tool_input": {"command": "pytest -q"}, "error": "Exit code 7", "cwd": d}, cwd=d)
+            rec = json.loads(self._ledger(d)[0])
+            self.assertEqual(rec["exit_code"], 0)
+            self.assertNotIn("exit_parse", rec)
+
+    def test_unparsed_failure_is_marked(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Command interrupted by user")
+            rec = json.loads(self._ledger(d)[0])
+            self.assertIsNone(rec["exit_code"])
+            self.assertEqual(rec["exit_parse"], "unparsed")
+            self._fail(d, "Exit code 2")
+            self.assertNotIn("exit_parse", json.loads(self._ledger(d)[1]))
+
+    def test_gitignored_ledger_in_git_repo_is_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._git_repo(d, ignore=True)
+            self._fail(d, "Exit code 1")
+            self.assertEqual(len(self._ledger(d)), 1)
+
+    def test_malformed_json_exit_0_nothing_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc = subprocess.run([sys.executable, str(GATE)], input="{bad", text=True,
+                                  capture_output=True, cwd=d)
+            self.assertEqual(proc.returncode, 0)
+            self.assertEqual(self._ledger(d), [])
+
+    def test_hooks_json_registers_post_tool_use_failure_for_bash(self):
+        cfg = json.loads((HERE / "hooks.json").read_text())["hooks"]
+        for ev in ("PostToolUse", "PostToolUseFailure"):
+            entry = cfg[ev][0]
+            self.assertEqual(entry["matcher"], "Bash")
+            self.assertIn("evidence-gate.py", entry["hooks"][0]["command"])
 
 
 if __name__ == "__main__":
