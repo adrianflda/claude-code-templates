@@ -58,6 +58,19 @@ test('deleted files reach the reviewers by name, without their content', () => {
   assert.match(prompts, /export const added = true;/);
 });
 
+test('reviewers are told to report real defects only, keeping the output and severity rules', () => {
+  const repo = repoWithDeletion();
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  const prompts = claude.prompts();
+  assert.match(prompts, /report only real defects within your focus area/);
+  assert.match(prompts, /never speculative hardening/);
+  assert.match(prompts, /reserve "critical" for defects that must block a release/);
+  assert.match(prompts, /\{"findings":\[\{"severity":"critical\|high\|medium\|low"/);
+});
+
 test('a deletion-only change is reviewed instead of reported as no changes', () => {
   const repo = makeRepo('panel', { 'a.js': 'a\n', 'b.js': 'b\n' });
   git(repo, 'checkout', '-q', '-b', 'feature');
