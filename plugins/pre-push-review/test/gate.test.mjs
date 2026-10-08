@@ -135,6 +135,8 @@ test('blocks bypass attempts on the command', () => {
     GIT_CONFIG_GLOBAL: 'GIT_CONFIG_GLOBAL=/dev/null git push',
     GIT_CONFIG_NOSYSTEM: 'GIT_CONFIG_NOSYSTEM=1 git push',
     GIT_CONFIG_COUNT: 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/x git push',
+    'HOME redirect': 'HOME=/tmp/empty git push',
+    'XDG redirect': 'XDG_CONFIG_HOME=/tmp/empty git push',
     PREPUSH_REVIEW_SKIP: 'PREPUSH_REVIEW_SKIP=1 git push',
     AI_REVIEW_SKIP: 'AI_REVIEW_SKIP=1 git push',
     AI_REVIEW_REQUIRED: 'AI_REVIEW_REQUIRED=0 git push',

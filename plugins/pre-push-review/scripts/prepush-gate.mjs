@@ -169,7 +169,7 @@ for (const seg of segments) {
     block(`\`--config-env\` can replace the review hook configuration. ${BYPASS_NOTE}`);
   }
 }
-const ENV_BYPASS = /(^|[\s;&|(`'"])(GIT_CONFIG[A-Z0-9_]*|PREPUSH_REVIEW_SKIP|AI_REVIEW_SKIP|AI_REVIEW_REQUIRED)\s*=/;
+const ENV_BYPASS = /(^|[\s;&|(`'"])(GIT_CONFIG[A-Z0-9_]*|HOME|XDG_CONFIG_HOME|PREPUSH_REVIEW_SKIP|AI_REVIEW_SKIP|AI_REVIEW_REQUIRED)\s*=/;
 if (ENV_BYPASS.test(command)) {
   block(`the command sets an environment variable that can change or skip the review hook (GIT_CONFIG_*, PREPUSH_REVIEW_SKIP, AI_REVIEW_SKIP, AI_REVIEW_REQUIRED). ${BYPASS_NOTE}`);
 }
