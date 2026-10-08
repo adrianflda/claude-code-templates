@@ -1,73 +1,57 @@
 #!/usr/bin/env node
 /**
- * pre-push-review — Claude Code PreToolUse gate.
+ * pre-push-review — Claude Code PreToolUse GUARD.
  *
- * Fires whenever Claude Code is about to run a Bash `git push`, runs the bundled
- * expert panel (./ai-review-panel.mjs) over the commits being pushed, and BLOCKS the
- * push if a blocking (default: critical) issue is found — so code is never pushed
- * without an exhaustive multi-agent review, in every repo, automatically.
+ * The review itself is done once, by git, in ./git-pre-push.mjs (a global git config hook,
+ * see ./install-git-hook.mjs). This guard never runs the panel. It only makes sure that a
+ * `git push` Claude is about to run will really go through that hook, and blocks the ways
+ * Claude could get around it:
  *
- * The panel runs in the repository the push leaves from, which is not always the session's
- * working directory: `cd ../worktree && git push` and `git -C ../worktree push` are followed
- * (see ./push-target.mjs).
+ *  - the directory the push leaves from cannot be known, or is not a repository;
+ *  - the global gate is not active for that repository (hook.ai-review not listed for
+ *    pre-push, disabled, defined at another scope, or its command does not point at an
+ *    existing git-pre-push.mjs);
+ *  - bypass attempts: `--no-verify`, `-c core.hooksPath=...`, `-c hook....`, `--config-env`,
+ *    GIT_CONFIG_* / PREPUSH_REVIEW_SKIP / AI_REVIEW_SKIP / AI_REVIEW_REQUIRED on the command or
+ *    exported in this process's environment;
+ *  - `git config` commands that change hook.ai-review.* or core.hooksPath;
+ *  - a Bash call that would be killed before the review finishes (needs run_in_background or
+ *    a timeout of at least 600000 ms).
  *
- * The gate fails closed. Once a push is found, the push is allowed only if the panel ran in
- * the right repository and finished. It is blocked when the directory cannot be known, when
- * it is not a repository, when the panel is missing, killed or cannot start, and when no
- * reviewer could run. AI_REVIEW_REQUIRED=0 makes only the last case advisory.
+ * Fail closed: every doubt blocks. Protocol: reads the PreToolUse JSON on stdin; exit 0 =
+ * no objection, exit 2 = block (stderr is fed back to the model). It never sets
+ * `permissionDecision`: whether the push may run stays with the normal permission flow.
  *
- * This is a plugin-local, self-contained hook: it depends only on files shipped inside
- * this plugin (resolved via CLAUDE_PLUGIN_ROOT, with a fallback relative to this file),
- * NOT on any hand-installed ~/.config or ~/.claude script. That is the whole point —
- * portable and versioned instead of per-machine hand-wiring.
- *
- * Protocol: reads the PreToolUse JSON on stdin. Exit 0 = allow the push; exit 2 = block
- * (stderr is fed back to the model as the reason). On allow, the review summary is returned
- * as JSON on stdout so it reaches the session, and the full panel output is kept in
- * ~/.cache/git-ai-review/review-<sha>.log. The gate never sets `permissionDecision`: whether
- * the push may run stays with the normal permission flow.
- *
- * Escape hatch: set PREPUSH_REVIEW_SKIP=1 (or AI_REVIEW_SKIP=1) to bypass.
+ * This is a reading of a command line, not a shell, and a guard for the agent only. A human
+ * in a terminal can still type `git push --no-verify`, and anything that edits the git config
+ * file by other means is out of what a command line shows. True enforcement needs a
+ * server-side check.
  */
-import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { homedir } from 'os';
-import { dirname, join, resolve } from 'path';
+import { spawnSync } from 'child_process';
+import { existsSync } from 'fs';
+import { basename, dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { findPushTargets } from './push-target.mjs';
+import { findPushTargets, splitCommands } from './push-target.mjs';
 
-// The panel runs 6 reviewers at up to 240 s each, 3 at a time. Past this limit the review is
-// treated as not finished, so the gate answers before the harness gives up on the hook.
-const PANEL_TIMEOUT_MS = Number(process.env.PREPUSH_REVIEW_TIMEOUT_MS || 540_000);
-
-const BYPASS =
-  '(To bypass once: set PREPUSH_REVIEW_SKIP=1, or ask the user to confirm the override.)\n';
-// The line the panel prints last when it reviewed the change and found nothing blocking.
-// Only the last line counts: findings quote text that comes from the diff.
-const PASSED = '[pre-push-review] Passed. No blocking issues.';
-const passed = (out) => out.trimEnd().split('\n').pop().trim() === PASSED;
+const MIN_TIMEOUT_MS = 600_000;
+const here = dirname(fileURLToPath(import.meta.url));
+const installer = join(process.env.CLAUDE_PLUGIN_ROOT || resolve(here, '..'), 'scripts', 'install-git-hook.mjs');
 
 function readStdin() {
   return new Promise((res) => {
     let data = '';
     process.stdin.setEncoding('utf8');
-    // Bound the read — a PreToolUse payload is small; never accumulate unboundedly.
     process.stdin.on('data', (c) => {
       if (data.length < 1_000_000) data += c;
     });
     process.stdin.on('end', () => res(data));
-    // Safety: if no stdin arrives, don't hang the tool call.
     setTimeout(() => res(data), 2000).unref?.();
   });
 }
 
 function block(message) {
-  process.stderr.write(`pre-push-review BLOCKED this push — ${message}\n${BYPASS}`);
+  process.stderr.write(`pre-push-review BLOCKED this command: ${message}\n`);
   process.exit(2);
-}
-
-if (process.env.PREPUSH_REVIEW_SKIP === '1' || process.env.AI_REVIEW_SKIP === '1') {
-  process.exit(0);
 }
 
 const raw = await readStdin();
@@ -75,41 +59,63 @@ let payload = {};
 try {
   payload = JSON.parse(raw || '{}');
 } catch {
-  process.exit(0); // can't parse → don't interfere
+  process.exit(0); // can't parse: don't interfere
 }
 
 const toolName = payload.tool_name || payload.toolName || '';
-const command = (payload.tool_input || payload.toolInput || {}).command || '';
+const input = payload.tool_input || payload.toolInput || {};
+const command = input.command || '';
 const baseCwd = payload.cwd || process.cwd();
+if (toolName !== 'Bash' || !command) process.exit(0);
 
-// Only act on a REAL `git push` command segment — not "push" inside a quoted arg
-// (e.g. git commit -m "push ...") or inside another command (echo/printf "git push").
-// A push that carries the skip switch inline (`PREPUSH_REVIEW_SKIP=1 git push`) is bypassed.
-const targets = toolName === 'Bash' ? findPushTargets(command, baseCwd).filter((t) => !t.skip) : [];
+const segments = splitCommands(command);
+const GIT_WORD = /(^|[\s;&|(`"'/])git(\s|$)/;
+
+// 1. Changes to the gate's own configuration are the user's call.
+const READ_ONLY = /(^|\s)(--get(-all|-regexp|-urlmatch|-color(bool)?)?|--list|-l|get|list)(\s|$)/;
+for (const seg of segments) {
+  if (
+    GIT_WORD.test(seg) &&
+    /(^|\s)config(\s|$)/.test(seg) &&
+    /hook\.ai-review|core\.hookspath/i.test(seg) &&
+    !READ_ONLY.test(seg)
+  ) {
+    block(
+      'it changes the review gate configuration (hook.ai-review.* or core.hooksPath).\n' +
+        'Do not change it. Ask the user to make that change themselves.',
+    );
+  }
+}
+
+// From here on only pushes matter.
+const targets = findPushTargets(command, baseCwd);
 if (!targets.length) process.exit(0);
 
-// From here on there is a push to review: every way out that is not a finished review blocks.
-
-// This hook runs before the command does. A commit made earlier in the same command does not
-// exist yet, so the panel would review without it ("No unpushed commits") and the push would
-// send it unreviewed.
-if (targets.some((t) => t.afterCommit)) {
-  block(
-    'this command creates a commit (git commit, merge, cherry-pick, revert, rebase, am or pull) before the push in the same command.\n' +
-      'The review runs before the command does, so that commit would be pushed without being reviewed.\n' +
-      'Run the commit and the push as separate commands: first the commit, then `git push` on its own.',
-  );
+// 2. Bypass attempts.
+const BYPASS_NOTE = 'The review gate cannot be skipped from here. Ask the user if a change is needed.';
+for (const seg of segments) {
+  if (GIT_WORD.test(seg) && /(^|\s)push(\s|$)/.test(seg) && /(^|\s)--no-v[a-z]*/.test(seg)) {
+    block(`\`--no-verify\` on a push skips the review hook. ${BYPASS_NOTE}`);
+  }
+  if (GIT_WORD.test(seg) && /(^|\s)-c\s*['"]?(core\.hookspath|hook\.)/i.test(seg)) {
+    block(`\`-c core.hooksPath=...\` or \`-c hook....\` would replace the review hook. ${BYPASS_NOTE}`);
+  }
+  if (GIT_WORD.test(seg) && /(^|\s)--config-env/.test(seg)) {
+    block(`\`--config-env\` can replace the review hook configuration. ${BYPASS_NOTE}`);
+  }
+}
+const ENV_BYPASS = /(^|[\s;&|(`'"])(GIT_CONFIG[A-Z0-9_]*|PREPUSH_REVIEW_SKIP|AI_REVIEW_SKIP|AI_REVIEW_REQUIRED)\s*=/;
+if (ENV_BYPASS.test(command)) {
+  block(`the command sets an environment variable that can change or skip the review hook (GIT_CONFIG_*, PREPUSH_REVIEW_SKIP, AI_REVIEW_SKIP, AI_REVIEW_REQUIRED). ${BYPASS_NOTE}`);
+}
+const badEnv = Object.keys(process.env).filter((n) =>
+  /^(GIT_CONFIG[A-Z0-9_]*|PREPUSH_REVIEW_SKIP|AI_REVIEW_SKIP|AI_REVIEW_REQUIRED)$/.test(n),
+);
+if (badEnv.length) {
+  block(`the environment of this session exports ${badEnv.join(', ')}, which can change or skip the review hook. Unset it and restart the session. ${BYPASS_NOTE}`);
 }
 
-// Resolve the bundled panel. CLAUDE_PLUGIN_ROOT is injected by Claude Code for plugin
-// hooks; fall back to this file's own directory so the gate also works when run directly.
-const here = dirname(fileURLToPath(import.meta.url));
-const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || resolve(here, '..');
-const panel = join(pluginRoot, 'scripts', 'ai-review-panel.mjs');
-if (!existsSync(panel)) {
-  block(`the review panel is missing (${panel}), so nothing can be reviewed. Reinstall the plugin.`);
-}
-
+// 3. The repository must be known.
 if (targets.some((t) => !t.known)) {
   block(
     'it cannot tell which repository the push leaves from, because the directory depends on\n' +
@@ -118,119 +124,45 @@ if (targets.some((t) => !t.known)) {
   );
 }
 
-const cacheDir = join(homedir(), '.cache', 'git-ai-review');
-const gitIn = (dir, args) =>
-  execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const git = (dir, args) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+const NOT_INSTALLED = `Ask the user to run: node ${installer}`;
 
-const reviews = [];
 for (const dir of [...new Set(targets.map((t) => t.dir))]) {
-  let root;
-  try {
-    root = gitIn(dir, ['rev-parse', '--show-toplevel']);
-  } catch {
-    // If the `cd` fails, the shell pushes from wherever it was: that is not what was read here.
-    block(`${dir} is not a git repository (or does not exist), so the push cannot be matched to a review.`);
+  const top = git(dir, ['rev-parse', '--show-toplevel']);
+  if (top.status !== 0) {
+    block(`${dir} is not a git repository (or does not exist), so the gate cannot be checked for this push.`);
   }
+  const root = top.stdout.trim();
 
-  let out = '';
-  let code = 0;
-  let failure = '';
-  try {
-    out = execFileSync('node', [panel, '--branch'], {
-      cwd: root,
-      encoding: 'utf8',
-      maxBuffer: 32 * 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: PANEL_TIMEOUT_MS,
-      killSignal: 'SIGKILL',
-      env: { ...process.env, AI_REVIEW_REQUIRED: process.env.AI_REVIEW_REQUIRED ?? '1' },
-    });
-  } catch (e) {
-    out = `${e.stdout || ''}${e.stderr || ''}`;
-    if (typeof e.status === 'number') code = e.status;
-    else {
-      // Killed by a signal, could not start, or overflowed its buffer: the review did not finish.
-      code = 2;
-      failure =
-        e.code === 'ETIMEDOUT'
-          ? `the panel did not finish in ${PANEL_TIMEOUT_MS} ms`
-          : e.signal
-            ? `the panel was killed by ${e.signal}`
-            : `the panel could not run (${e.code || e.message})`;
-    }
+  // 4. The global gate must be active for this repository.
+  const listed = git(root, ['hook', 'list', 'pre-push']);
+  if (listed.status !== 0 || !listed.stdout.split('\n').some((l) => l.trim() === 'ai-review')) {
+    block(`the global review gate (git hook "ai-review" on pre-push) is not active in ${root}. ${NOT_INSTALLED}`);
   }
-
-  // Keep the full panel output: a pass marker alone does not say what was reviewed.
-  let sha = '';
-  try {
-    sha = gitIn(root, ['rev-parse', 'HEAD']);
-    mkdirSync(cacheDir, { recursive: true });
-    writeFileSync(
-      join(cacheDir, `review-${sha}.log`),
-      `repository: ${root}\nexit: ${code}${failure ? ` (${failure})` : ''}\n\n${out}`,
-    );
-  } catch {
-    /* the log is best-effort */
+  const enabled = git(root, ['config', '--bool', '--get', 'hook.ai-review.enabled']);
+  if (enabled.status === 0 && enabled.stdout.trim() === 'false') {
+    block(`the review gate is disabled (hook.ai-review.enabled=false) in ${root}. ${NOT_INSTALLED}`);
   }
-  reviews.push({ root, sha, out, code, failure });
+  const cmds = git(root, ['config', '--show-scope', '--get-all', 'hook.ai-review.command'])
+    .stdout.split('\n')
+    .filter(Boolean);
+  const [scope, value] = (cmds[0] || '').split('\t');
+  if (cmds.length !== 1 || scope !== 'global') {
+    block(`hook.ai-review.command in ${root} must be defined exactly once, in the global git config (found: ${cmds.join(' | ') || 'none'}). ${NOT_INSTALLED}`);
+  }
+  const m = /^node\s+(?:'([^']+)'|"([^"]+)"|(\S+))$/.exec(value || '');
+  const script = m && (m[1] || m[2] || m[3]);
+  if (!script || basename(script) !== 'git-pre-push.mjs' || !existsSync(script)) {
+    block(`hook.ai-review.command ("${value}") does not point at an existing git-pre-push.mjs. ${NOT_INSTALLED}`);
+  }
 }
 
-// Panel exit codes: 0 = reviewed (or nothing to push), 1 = blocking issues, anything else =
-// the review did not happen. Decide for the whole command before any marker is written.
-const critical = reviews.filter((r) => r.code === 1);
-if (critical.length) {
+// 5. The review takes minutes; the call must survive it.
+if (!(input.run_in_background === true || Number(input.timeout) >= MIN_TIMEOUT_MS)) {
   block(
-    `critical issue(s) found by the expert panel in ${critical.map((r) => r.root).join(', ')}:\n\n` +
-      critical.map((r) => r.out).join('\n') +
-      '\nFix the critical issue(s) and push again.',
-  );
-}
-const unreviewed = reviews.filter((r) => r.code !== 0);
-if (unreviewed.length) {
-  block(
-    `${unreviewed.map((r) => r.root).join(', ')} was NOT reviewed: ` +
-      `${unreviewed.map((r) => r.failure || `no reviewer could run (panel exit ${r.code})`).join('; ')}.\n\n` +
-      unreviewed.map((r) => r.out).join('\n') +
-      '\nCheck that the `claude` CLI is installed and signed in, then push again. ' +
-      'AI_REVIEW_REQUIRED=0 makes "no reviewer could run" advisory.',
+    'the review runs inside `git push` and can take several minutes, but this Bash call would be killed first.\n' +
+      'Retry the same command with timeout 600000 (or run_in_background: true).',
   );
 }
 
-const summaries = [];
-for (const { root, sha, out } of reviews) {
-  // The pass-marker lets an in-repo husky pre-push gate skip re-running the panel. It is
-  // written only for a review that ran and passed, never for "nothing to review".
-  if (sha && passed(out)) {
-    try {
-      writeFileSync(join(cacheDir, `pass-${sha}`), String(Date.now()));
-    } catch {
-      /* marker is best-effort */
-    }
-  }
-
-  const lines = out.split('\n');
-  const pick = (re) => lines.find((l) => re.test(l));
-  const [first, ...rest] = [
-    pick(/^SUMMARY:/) || pick(/No unpushed commits|No code changes/) || '(the panel printed no summary line)',
-    pick(/Reviewing .* with \d+ expert agents/),
-    pick(/agent\(s\) failed; review is partial/),
-    pick(/All review agents failed/),
-    pick(/deleted file\(s\)/),
-    pick(/truncating to/),
-  ]
-    .filter(Boolean)
-    .map((l) => l.replace(/^\[pre-push-review\]\s*/, '').trim());
-  summaries.push([`${root} @ ${sha.slice(0, 7)}: ${first}`, ...rest].join(' | '));
-}
-
-// Surface the result so the review is visible in the transcript and to the model.
-const text =
-  summaries.map((s) => `[pre-push-review] ${s}`).join('\n') +
-  `\n[pre-push-review] Full output: ${join(cacheDir, 'review-<sha>.log')}`;
-process.stdout.write(
-  JSON.stringify({
-    systemMessage: text,
-    hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text },
-  }) + '\n',
-);
 process.exit(0);
