@@ -46912,7 +46912,7 @@
       "id": "pre-push-review",
       "type": "plugin",
       "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-      "version": "1.1.0",
+      "version": "1.1.2",
       "keywords": [
         "code-review",
         "pre-push",
@@ -47000,7 +47000,7 @@
         "name": "pre-push-review",
         "source": "./plugins/pre-push-review",
         "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-        "version": "1.1.0",
+        "version": "1.1.2",
         "category": "quality-gates",
         "keywords": [
           "code-review",
