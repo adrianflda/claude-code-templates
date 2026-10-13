@@ -41,7 +41,7 @@ Also collect the **repo path(s)** to analyze (one or several).
    glance of the set before the heavy Stage B if the set is large.
 
 ## Stage B — assess coverage (map repos, then parallel per requirement)
-1. **Map each repo** (reuse the `code-explorer` agent): languages, entry points, modules, tests, public
+1. **Map each repo** (the built-in `Explore` agent): languages, entry points, modules, tests, public
    API surface; and **infer cross-repo integration** (imports, HTTP/RPC calls between services, shared
    packages/contracts, env pointing at another service).
 2. As PM, **dispatch coverage-analyst agents in PARALLEL** over the requirements (fan out; bounded —

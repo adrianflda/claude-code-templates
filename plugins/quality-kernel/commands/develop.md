@@ -20,7 +20,7 @@ only? seed data? which flows must demonstrably work end-to-end?). Keep it to wha
 the build. If the description already answers a question, don't ask it.
 
 ## Phase 1 — Research → Plan → Contract (no building yet)
-1. **Research** the shape of the solution (reuse `code-architect` / `code-explorer` for patterns;
+1. **Research** the shape of the solution (the built-in `Explore` / `Plan` agents for patterns;
    for a greenfield app, decide the module/subproject split: e.g. web (Next.js frontend), api (route
    handlers/server), db (schema/migrations), auth).
 2. **Plan** via the SDD chain (`/sdd-init`, `/sdd-specify`, `/sdd-plan`, `/sdd-tasks`) — spec, stack,
@@ -41,7 +41,8 @@ NOT write any implementation code before approval.** This is the one required ch
 
 ## Phase 3 — Build autonomously (after approval)
 - Scaffold the project (e.g. `create-next-app`, Prisma/DB, auth) and commit a baseline.
-- Decompose and build: for multi-subproject work use `/orchestrate-project` (one PM per subproject,
+- Decompose and build: for multi-subproject work use `/orchestrate-project` (installed from the
+  `orchestration` commands, so it may be namespaced as `/orchestration:orchestrate-project`; one PM per subproject,
   each running SDD → TDD build → review loop), else drive `/forge` per feature. Tests are authored
   **anchored to the Contract** (exact values), following the qa-paradigms decision rule (P2 static +
   P4 contract-anchored + P5 independent validation); a broken selector/test must FAIL, never auto-heal.
