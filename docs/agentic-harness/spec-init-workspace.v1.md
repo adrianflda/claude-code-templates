@@ -2,8 +2,8 @@
 
 Status: M1 BUILT, WIP (quality-kernel 0.8.0: discover, profile, propose, verify with human approval;
 open gaps G1–G4 in the plugin CHANGELOG — paused 2026-10-01 to move on to M2);
-M2 (integration map) and M3 (seams) are design only. Author: Claude with Adrián, 2026-09-29.
-Decisions (Adrián, 2026-09-29): lives in quality-kernel as the init step every other command builds
+M2 (integration map) and M3 (seams) are design only. Author: Claude with Adrian, 2026-09-29.
+Decisions (Adrian, 2026-09-29): lives in quality-kernel as the init step every other command builds
 on; `SYSTEM-MAP.md` is committed; a repo that cannot be tested locally gets a proposal to dockerize
 its local environment (§4.1a).
 Depends on: quality-kernel 0.7.0 workspace mode (`workspace.json` v1, `repos/<name>/*.json`,

@@ -1,9 +1,9 @@
 # Spec — the workspace as the org's global guide (v1, design only)
 
-Status: DESIGN (2026-10-01), simplified after Adrián's review. Builds on `/init-workspace` M1 (repos,
+Status: DESIGN (2026-10-01), simplified after Adrian's review. Builds on `/init-workspace` M1 (repos,
 how they are tested) and M2 (`SYSTEM-MAP.md`, who calls whom). Nothing here is built.
 
-## 1. Goal (Adrián, 2026-10-01)
+## 1. Goal (Adrian, 2026-10-01)
 
 The workspace is **only a global guide**: the place that records **which is the source of truth for
 each thing** in the organisation, so every agent has a global north. It must not add many tokens or

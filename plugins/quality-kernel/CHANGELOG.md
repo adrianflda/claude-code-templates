@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - "Working as one system": `/forge` and `/develop` read the org guide and the `SYSTEM-MAP.md`
   sections of the repos they touch; cross-repo consumers become acceptance criteria (specifier) and
   QA closes with `qk-org-gate`.
-- Not yet reviewed adversarially (committed at Adrián's request to move on): the org-mode trust
+- Not yet reviewed adversarially (committed at Adrian's request to move on): the org-mode trust
   change (git-pinned config -> content-pinned files outside the repos). Real run: mbvs-client-v2
   gate pass in org mode with the RED canary red (26 test files sabotaged), 2026-10-01.
 
