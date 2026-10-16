@@ -28,6 +28,9 @@
  *   AI_REVIEW_REQUIRED    1 = fail (exit 2) if no reviewer could run (default: 0 = warn+pass;
  *                         the PreToolUse gate sets 1 unless told otherwise)
  *   AI_REVIEW_SKIP        1 = skip review entirely (escape hatch)
+ *   AI_REVIEW_MAX_DIFF_BYTES  diff budget sent to each reviewer (default: 400000)
+ *   AI_REVIEW_MAX_FILE_BYTES  a file's diff larger than this is sent as its header only (default: 100000)
+ *   AI_REVIEW_MAX_LINE_CHARS  a file with a longer line is sent as its header only (default: 2000)
  *
  * Deleted files reach the reviewers as a header only (`git diff --irreversible-delete`): the
  * panel sees WHAT was removed and can look for leftovers, without the removed content
@@ -42,6 +45,16 @@ import { resolve } from 'path';
 import { homedir } from 'os';
 
 const MAX_DIFF_LINES = 3000;
+// Lines alone do not bound the prompt: one regenerated catalog line can be megabytes, and a
+// prompt over the context window makes every reviewer fail at once. So the diff also gets a
+// byte budget, and any file that looks generated or minified is sent as its header only.
+const envInt = (name, fallback) => {
+  const n = Number.parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+const MAX_DIFF_BYTES = envInt('AI_REVIEW_MAX_DIFF_BYTES', 400_000);
+const MAX_FILE_BYTES = envInt('AI_REVIEW_MAX_FILE_BYTES', 100_000);
+const MAX_LINE_CHARS = envInt('AI_REVIEW_MAX_LINE_CHARS', 2_000);
 // Cap per-child captured output — mirrors the execSync maxBuffer used elsewhere in this
 // file. runAgent runs 6x concurrently on every push, so uncapped `out += d` on a runaway
 // `claude -p` (huge output, debug spew, CLI bug) could grow unbounded across all children.
@@ -414,6 +427,45 @@ if (deletedFiles) {
     `[pre-push-review] ${deletedFiles} deleted file(s): the reviewers see their names, not their content.`,
   );
 }
+
+/**
+ * Bound the diff by bytes, file by file. A file whose diff has a line over MAX_LINE_CHARS or
+ * is over MAX_FILE_BYTES (generated, minified, data) keeps only its header plus a note. Files
+ * are then packed in diff order while they fit MAX_DIFF_BYTES; the ones that do not fit are
+ * listed by name so the reviewers know the review is partial and what was left out.
+ */
+function boundDiffBytes(text) {
+  const chunks = text.split(/^(?=diff --git )/m).filter(Boolean);
+  const kept = [];
+  const skipped = [];
+  let used = 0;
+  for (const chunk of chunks) {
+    const name = (chunk.match(/^diff --git a\/.+? b\/(.+)$/m) || [])[1] || '(unknown file)';
+    const bytes = Buffer.byteLength(chunk);
+    const longest = chunk.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
+    let piece = chunk;
+    if (longest > MAX_LINE_CHARS || bytes > MAX_FILE_BYTES) {
+      const body = chunk.search(/^(@@|Binary files )/m);
+      const header = body === -1 ? chunk.split('\n').slice(0, 6).join('\n') : chunk.slice(0, body);
+      piece = `${header.trimEnd()}\n# [pre-push-review] content omitted: ${bytes} bytes, longest line ${longest} chars (generated, minified or data).\n`;
+      console.log(`[pre-push-review] ${name}: content omitted (${bytes} bytes, longest line ${longest} chars).`);
+    }
+    const size = Buffer.byteLength(piece);
+    if (used + size > MAX_DIFF_BYTES) {
+      skipped.push(name);
+      continue;
+    }
+    kept.push(piece);
+    used += size;
+  }
+  if (!skipped.length) return kept.join('');
+  console.log(
+    `[pre-push-review] Diff is over the ${MAX_DIFF_BYTES}-byte budget: ${skipped.length} file(s) not sent (review is partial).`,
+  );
+  return `${kept.join('')}\n# [pre-push-review] ${skipped.length} file(s) not reviewed (over the diff budget):\n${skipped.map((n) => `#   ${n}`).join('\n')}\n`;
+}
+
+diff = boundDiffBytes(diff);
 
 let diffLines = diff.split('\n').length;
 if (diffLines > MAX_DIFF_LINES) {
