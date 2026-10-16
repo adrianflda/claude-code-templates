@@ -124,7 +124,7 @@ Before recommending the next step, validate the current artifact:
 - BLOCK if `~/.claude/.review-gate` doesn't exist or is older than 2 hours
 - BLOCK if review-gate was created before the last commit (stale review — must re-review after new code)
 - Parse the structured marker and BLOCK unless its `branch` equals the current branch AND its `head` SHA equals `git rev-parse HEAD` — a marker bound to a different branch or commit is stale/forged and must be rejected
-- BLOCK if any of the 6 review agents recorded a FAIL line in review-gate (functionality-completeness-reviewer's INCOMPLETE counts as FAIL)
+- BLOCK if any of the 7 review agents recorded a FAIL line in review-gate (functionality-completeness-reviewer's INCOMPLETE counts as FAIL), or if the `pipeline-breaker=` line is missing or not PASS (a marker written by the older 6-agent review has no breaker line and must be rejected)
 
 ### Step 4: Report Status and Recommend Next Action
 
