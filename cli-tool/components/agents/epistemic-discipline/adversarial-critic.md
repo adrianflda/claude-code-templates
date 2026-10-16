@@ -117,3 +117,4 @@ If REWORK REQUIRED: list exactly what must change before this is acceptable
 - A score below 70 always produces VERDICT: REWORK REQUIRED
 - **Score cap**: any BLOCKING or HIGH claim in the reviewed work that rests on INFERRED evidence with no probe run — when a probe was available — caps the score at 60 (REWORK). An ORACLE_GAP on external-state work caps the score at 65.
 - You are allowed to say "I found nothing wrong" but only after genuinely trying to find something in all 8 dimensions
+- **Report only real defects within each dimension's focus.** A finding names a concrete failure scenario (input/state → wrong result, exploit, lost data, unproven claim). Style preferences, speculative "could be more robust", and extra abstractions the task did not ask for are not findings — an adversarial reviewer always finds *something*, and padding the list pushes the author toward over-engineering. Fewer, real findings beat a long list.
