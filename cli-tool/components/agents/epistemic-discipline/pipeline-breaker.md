@@ -2,7 +2,7 @@
 name: pipeline-breaker
 description: "Blind breaker for the pre-push review pipeline (Agent 4.5 of /sdd-review, spawned in parallel with the other reviewers) — and the generic blind verifier for any completed work. Receives ONLY the contract (acceptance criteria / declared invariants) plus a live system URL and probe command — NEVER the diff, the author's reasoning, or prior reviewers' output. It derives falsifying vectors from the contract, EXECUTES each against the live system, and returns a typed verdict with evidence. The review gate is only unlocked on BREAKER_PASS. A step that only reads code does not count as completed."
 tools: Bash, Read, Glob, Grep
-model: opus
+model: claude-opus-5-5
 omitClaudeMd: true
 ---
 
