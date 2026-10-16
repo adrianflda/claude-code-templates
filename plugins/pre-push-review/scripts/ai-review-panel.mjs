@@ -429,16 +429,20 @@ if (deletedFiles) {
 }
 
 /**
- * Bound the diff by bytes, file by file. A file whose diff has a line over MAX_LINE_CHARS or
+ * Bound the diff by bytes and lines, file by file. A file whose diff has a line over MAX_LINE_CHARS or
  * is over MAX_FILE_BYTES (generated, minified, data) keeps only its header plus a note. Files
- * are then packed in diff order while they fit MAX_DIFF_BYTES; the ones that do not fit are
- * listed by name so the reviewers know the review is partial and what was left out.
+ * are then packed in diff order while they fit both MAX_DIFF_BYTES and MAX_DIFF_LINES (whole
+ * files only, so the line cap never cuts a file in half); the ones that do not fit are listed by
+ * name so the reviewers know the review is partial and what was left out.
  */
 function boundDiffBytes(text) {
   const chunks = text.split(/^(?=diff --git )/m).filter(Boolean);
   const kept = [];
   const skipped = [];
   let used = 0;
+  let usedLines = 0;
+  // Leave room for the footer that lists the skipped files.
+  const lineBudget = MAX_DIFF_LINES - 50;
   for (const chunk of chunks) {
     const name = (chunk.match(/^diff --git a\/.+? b\/(.+)$/m) || [])[1] || '(unknown file)';
     const bytes = Buffer.byteLength(chunk);
@@ -451,16 +455,18 @@ function boundDiffBytes(text) {
       console.log(`[pre-push-review] ${name}: content omitted (${bytes} bytes, longest line ${longest} chars).`);
     }
     const size = Buffer.byteLength(piece);
-    if (used + size > MAX_DIFF_BYTES) {
+    const lines = piece.split('\n').length;
+    if (used + size > MAX_DIFF_BYTES || usedLines + lines > lineBudget) {
       skipped.push(name);
       continue;
     }
     kept.push(piece);
     used += size;
+    usedLines += lines;
   }
   if (!skipped.length) return kept.join('');
   console.log(
-    `[pre-push-review] Diff is over the ${MAX_DIFF_BYTES}-byte budget: ${skipped.length} file(s) not sent (review is partial).`,
+    `[pre-push-review] Diff is over the ${MAX_DIFF_BYTES}-byte / ${MAX_DIFF_LINES}-line budget: ${skipped.length} file(s) not sent (review is partial).`,
   );
   return `${kept.join('')}\n# [pre-push-review] ${skipped.length} file(s) not reviewed (over the diff budget):\n${skipped.map((n) => `#   ${n}`).join('\n')}\n`;
 }

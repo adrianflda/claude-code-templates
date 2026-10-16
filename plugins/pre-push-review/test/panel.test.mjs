@@ -243,10 +243,40 @@ test('a diff over the byte budget is cut at a file boundary and the rest is list
   });
 
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /over the 8000-byte budget.*review is partial/);
+  assert.match(result.stdout, /over the 8000-byte \/ 3000-line budget.*review is partial/);
   const prompts = claude.prompts();
   assert.match(prompts, /export const FIRST_0 = 0;/, 'files that fit are sent whole');
   assert.doesNotMatch(prompts, /export const SECOND_0 = 0;/, 'files past the budget are not sent');
   assert.match(prompts, /not reviewed \(over the diff budget\):[\s\S]*b-second\.js/);
-  assert.match(prompts, /keep\.js/);
+  assert.match(prompts, /export const keep = 2;/, 'packing continues past the file that did not fit');
+});
+
+test('a file is sent as header only when EITHER limit is hit: one long line, or many short lines', () => {
+  const longLine = `export const LONG_LINE_MARKER = "${'x'.repeat(5_000)}";\n`; // 5 KB: only the line limit
+  const manyLines = Array.from({ length: 6_000 }, (_, i) => `export const MANY_${i} = ${i}; // padding padding`).join('\n') + '\n'; // > 100 KB, short lines
+  const repo = repoWithFiles({ 'long-line.js': longLine, 'many-lines.js': manyLines });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /long-line\.js: content omitted \(\d+ bytes, longest line 5\d{3} chars\)/);
+  assert.match(result.stdout, /many-lines\.js: content omitted \(\d{6,} bytes, longest line \d{2} chars\)/);
+  const prompts = claude.prompts();
+  assert.doesNotMatch(prompts, /LONG_LINE_MARKER/);
+  assert.doesNotMatch(prompts, /MANY_0 = 0/);
+  assert.match(prompts, /export const keep = 2;/);
+});
+
+test('the line cap drops whole files and still lists them, instead of cutting the tail', () => {
+  const lines = (tag, n) => Array.from({ length: n }, (_, i) => `export const ${tag}_${i} = ${i};`).join('\n') + '\n';
+  const repo = repoWithFiles({ 'a-big.js': lines('BIG', 2_900), 'b-next.js': lines('NEXT', 400) });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /review is partial/);
+  const prompts = claude.prompts();
+  assert.match(prompts, /export const BIG_2899 = 2899;/, 'the file that fits is sent whole');
+  assert.doesNotMatch(prompts, /export const NEXT_0 = 0;/, 'the file over the line cap is not half-sent');
+  assert.match(prompts, /not reviewed \(over the diff budget\):[\s\S]*b-next\.js/, 'and it is listed by name');
 });
