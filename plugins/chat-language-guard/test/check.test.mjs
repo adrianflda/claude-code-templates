@@ -19,10 +19,10 @@ const EN_REAL = [
   'The agent made the fix in the review copy (the temporary worktree) instead of your main checkout.',
 ];
 const ES_REAL = [
-  'Guardé en memoria el punto de retorno, así que ya puedes compactar sin perder nada.',
+  'Guardé en memoria el punto de retorno, así que ya puedes compactar sin perder nada.', // EXEMPT-ES: Spanish user phrasing is the test data
   'Los 14 tests de `pr-draft-guard` pasan. Ahora agrego la regla escrita y el manifiesto del plugin.',
-  '| Todo push pasa por la revisión de 6 | `pre-push-review` en git: sin revisión no hay push |',
-  'Estoy revisando cómo están armados los plugins actuales del repo para copiar su estructura.',
+  '| Todo push pasa por la revisión de 6 | `pre-push-review` en git: sin revisión no hay push |', // EXEMPT-ES: Spanish user phrasing is the test data
+  'Estoy revisando cómo están armados los plugins actuales del repo para copiar su estructura.', // EXEMPT-ES: Spanish user phrasing is the test data
 ];
 
 test('real English messages are detected and real Spanish ones are not', () => {
@@ -32,7 +32,7 @@ test('real English messages are detected and real Spanish ones are not', () => {
 
 test('English that belongs in a Spanish message is allowed: code, quotes, paths, URLs', () => {
   const msg = [
-    'Listo, el commit quedó así:',
+    'Listo, el commit quedó así:', // EXEMPT-ES: Spanish user phrasing is the test data
     '```',
     'fix(dr): add the bucket to the plan and update the expectations for the check',
     '```',
@@ -100,7 +100,7 @@ test('only the current turn is judged', () => {
   const s = session();
   s.human('sigue');
   s.say(EN_REAL[2]);
-  s.human('en español porfa');
+  s.human('en español porfa'); // EXEMPT-ES: Spanish user phrasing is the test data
   s.say(ES_REAL[0]);
   assert.equal(stop(s), null);
 });

@@ -15,11 +15,15 @@ where there then than but or if so an as into about before after only also just 
 isn't i'll i'm i've let's we'll we're you're these those because while how why all any each more some such
 been onto until unless whether done`.split(/\s+/));
 
-const ES = new Set(`el la los las de del que y en un una unos unas es son para por con lo se al como pero mas
-más ya si sí está esta este esto eso esa ese estos esas hay te tu tú mi yo nos cuando donde dónde porque
-también tambien sin sobre entre muy todo todos toda todas hace ser hoy qué que cómo aquí aqui ahora solo
-sólo están estan fue era tiene tienen puede pueden hacer le les su sus o ni quedó falta sigue va vamos
-voy hecho cada otra otro desde hasta tus mis`.split(/\s+/));
+const ES = new Set([
+  'el la los las de del que y en un una unos unas es son para por con lo se', // EXEMPT-ES: Spanish function words the detector counts
+  'al como pero mas más ya si sí está esta este esto eso esa ese estos esas', // EXEMPT-ES: Spanish function words the detector counts
+  'hay te tu tú mi yo nos cuando donde dónde porque también tambien sin sobre', // EXEMPT-ES: Spanish function words the detector counts
+  'entre muy todo todos toda todas hace ser hoy qué que cómo aquí aqui ahora', // EXEMPT-ES: Spanish function words the detector counts
+  'solo sólo están estan fue era tiene tienen puede pueden hacer le les su', // EXEMPT-ES: Spanish function words the detector counts
+  'sus o ni quedó falta sigue va vamos voy hecho cada otra otro desde hasta', // EXEMPT-ES: Spanish function words the detector counts
+  'tus mis', // EXEMPT-ES: Spanish function words the detector counts
+].join(' ').split(/\s+/));
 
 /** Remove everything that is allowed to be English. */
 export function prose(text) {
@@ -36,7 +40,7 @@ export function prose(text) {
 }
 
 function count(line) {
-  const words = line.toLowerCase().match(/[a-záéíóúñü']+/g) || [];
+  const words = line.toLowerCase().match(/[a-záéíóúñü']+/g) || []; // EXEMPT-ES: non-ASCII letters
   let en = 0;
   let es = 0;
   for (const w of words) {

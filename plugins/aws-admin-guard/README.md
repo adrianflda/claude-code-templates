@@ -9,7 +9,7 @@ The consent oracle is the session transcript Claude Code writes. Only prompts th
 count (plain `user` entries, not meta, not subagents, `origin.kind == "human"` when present), so
 Claude cannot grant itself access by writing text.
 
-1. A prompt that authorizes the profile: "sí, autorizo usar admin para el plan", "si usa admin",
+1. A prompt that authorizes the profile: "sí, autorizo usar admin para el plan", "si usa admin", <!-- EXEMPT-ES: real user phrasing -->
    "I authorize using the admin profile". Negations ("no uses admin", "don't use admin") do not.
 2. A later, separate prompt that confirms, within 15 minutes: "confirmo por segunda vez",
    "si te confirmo", "I confirm". A bare "si" is not enough, so an answer to an unrelated
