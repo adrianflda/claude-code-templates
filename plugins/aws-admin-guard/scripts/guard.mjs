@@ -49,7 +49,7 @@ function readStdin() {
 
 function selectsProfile(command, profiles) {
   return profiles.some((p) =>
-    new RegExp(`(--profile(?:=|\\s+)|\\b[A-Za-z_]*profile\\s*=\\s*)\\\\?["']?${esc(p)}(?![\\w-])`, 'i').test(command));
+    new RegExp(`(--[\\w-]*profile(?:=|\\s+)|\\b[A-Za-z_]*profile\\s*=\\s*)\\\\?["']?${esc(p)}(?![\\w-])`, 'i').test(command));
 }
 
 const WRITE_INTENT = /(^|[^0-9&])>>?\s*(?!\/dev\/null|&)|\btee\b|\bsed\s+-[a-z]*i|\bperl\s+-[a-z]*i|open\([^)]*['"][wa+x]|write(File|Sync)?\b|append|truncate|\b(mv|cp|rm|dd|ln)\b/;

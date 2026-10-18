@@ -57,6 +57,8 @@ const ADMIN_COMMANDS = [
   'docker run --rm -e AWS_PROFILE=admin -v ~/.aws:/root/.aws img tofu plan',
   `tofu plan -var 'profile=admin'`,
   'aws s3 ls --profile "admin"',
+  'python3 -m breakglass secrets-export --apply --admin-profile ' + 'admin',
+  'python3 tool.py --source-profile=' + 'admin',
 ];
 
 test('every way of selecting the admin profile is blocked without consent', () => {
