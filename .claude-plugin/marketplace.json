@@ -30,6 +30,30 @@
       "version": "0.1.0",
       "category": "site-generation",
       "keywords": ["spa", "nextjs", "seo", "aeo", "geo", "accessibility", "visual-regression", "playwright", "design-tokens", "site-generator"]
+    },
+    {
+      "name": "pr-draft-guard",
+      "source": "./plugins/pr-draft-guard",
+      "description": "Rule + hook: every pull request Claude opens is a draft; Claude never merges or un-drafts one, and asks before merging a base branch into a feature branch.",
+      "version": "1.0.0",
+      "category": "rule-guards",
+      "keywords": ["rules", "guard", "hooks", "pull-request", "draft", "merge", "gh"]
+    },
+    {
+      "name": "aws-admin-guard",
+      "source": "./plugins/aws-admin-guard",
+      "description": "Rule + hooks: the AWS admin profile is usable only after the human authorizes it and confirms a second time in two separate typed messages; consent is read from the session transcript and expires.",
+      "version": "1.0.0",
+      "category": "rule-guards",
+      "keywords": ["rules", "guard", "hooks", "aws", "iam", "admin", "consent"]
+    },
+    {
+      "name": "chat-language-guard",
+      "source": "./plugins/chat-language-guard",
+      "description": "Rule + hooks: Claude talks to the user in Spanish while code, commits, PRs and files stay English; a Stop check sends English replies back for a Spanish rewrite.",
+      "version": "1.0.0",
+      "category": "rule-guards",
+      "keywords": ["rules", "guard", "hooks", "language", "spanish", "chat"]
     }
   ]
 }
