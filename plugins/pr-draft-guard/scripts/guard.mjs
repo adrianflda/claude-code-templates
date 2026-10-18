@@ -23,8 +23,6 @@
  */
 import { execFileSync } from 'node:child_process';
 import { simpleCommands } from './shell-words.mjs';
-import { realpathSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 const DEFAULT_BASES = 'main,master,dev,develop,development,staging,stage,production,prod';
 const BASES = new Set(
@@ -168,7 +166,7 @@ function checkGit(args, assigns, cwd) {
   return null;
 }
 
-export function verdict(command, cwd) {
+function verdict(command, cwd) {
   for (const { assigns, argv } of simpleCommands(command)) {
     const [prog, ...args] = argv;
     const reason = prog === 'gh' ? checkGh(args) : prog === 'git' ? checkGit(args, assigns, cwd) : null;
@@ -202,22 +200,12 @@ async function main() {
   process.exit(0);
 }
 
-// Run as a hook, not when imported. Compare real paths: Claude Code may launch the script
-// through a symlinked plugin directory, and a mismatch here would silently skip the guard.
-const isEntry = (() => {
-  try {
-    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-})();
-if (isEntry) {
-  // Any crash must still block: Claude Code treats exit codes other than 2 as "allow".
-  const failClosed = (e) => {
-    process.stderr.write(`[pr-draft-guard] BLOCKED. The hook failed (${e?.message || e}); retry the command.\n`);
-    process.exit(2);
-  };
-  process.on('uncaughtException', failClosed);
-  process.on('unhandledRejection', failClosed);
-  main();
-}
+// This file is only ever run as the hook (never imported), so it always runs main().
+// Any crash must still block: Claude Code treats exit codes other than 2 as "allow".
+const failClosed = (e) => {
+  process.stderr.write(`[pr-draft-guard] BLOCKED. The hook failed (${e?.message || e}); retry the command.\n`);
+  process.exit(2);
+};
+process.on('uncaughtException', failClosed);
+process.on('unhandledRejection', failClosed);
+main();

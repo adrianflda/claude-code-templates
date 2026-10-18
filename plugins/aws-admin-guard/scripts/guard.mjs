@@ -17,8 +17,6 @@
  * not a determined adversary.
  */
 import { config, esc, grantState, humanPrompts } from './consent-core.mjs';
-import { realpathSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 function readStdin() {
   // Read until EOF, bounded three ways: size (8 MB), idle time (5 s) and total time (15 s).
@@ -49,14 +47,14 @@ function readStdin() {
   });
 }
 
-export function selectsProfile(command, profiles) {
+function selectsProfile(command, profiles) {
   return profiles.some((p) =>
     new RegExp(`(--profile(?:=|\\s+)|\\b[A-Za-z_]*profile\\s*=\\s*)\\\\?["']?${esc(p)}(?![\\w-])`, 'i').test(command));
 }
 
 const WRITE_INTENT = /(^|[^0-9&])>>?\s*(?!\/dev\/null|&)|\btee\b|\bsed\s+-[a-z]*i|\bperl\s+-[a-z]*i|open\([^)]*['"][wa+x]|write(File|Sync)?\b|append|truncate|\b(mv|cp|rm|dd|ln)\b/;
 
-export function writesTranscript(command, transcriptPath) {
+function writesTranscript(command, transcriptPath) {
   const touches = (transcriptPath && command.includes(transcriptPath)) ||
     /\.claude\/projects\b[\s\S]*\.jsonl/.test(command);
   return Boolean(touches) && WRITE_INTENT.test(command);
@@ -104,22 +102,12 @@ async function main() {
     `(the grant lasts ${cfg.ttlMs / 60000} min after the confirmation). Do not switch to another way of getting admin.`);
 }
 
-// Run as a hook, not when imported. Compare real paths: Claude Code may launch the script
-// through a symlinked plugin directory, and a mismatch here would silently skip the guard.
-const isEntry = (() => {
-  try {
-    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-})();
-if (isEntry) {
-  // Any crash must still block: Claude Code treats exit codes other than 2 as "allow".
-  const failClosed = (e) => {
-    process.stderr.write(`[aws-admin-guard] BLOCKED. The hook failed (${e?.message || e}); retry the command.\n`);
-    process.exit(2);
-  };
-  process.on('uncaughtException', failClosed);
-  process.on('unhandledRejection', failClosed);
-  main();
-}
+// This file is only ever run as the hook (never imported), so it always runs main().
+// Any crash must still block: Claude Code treats exit codes other than 2 as "allow".
+const failClosed = (e) => {
+  process.stderr.write(`[aws-admin-guard] BLOCKED. The hook failed (${e?.message || e}); retry the command.\n`);
+  process.exit(2);
+};
+process.on('uncaughtException', failClosed);
+process.on('unhandledRejection', failClosed);
+main();
