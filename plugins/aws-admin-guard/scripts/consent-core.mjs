@@ -27,8 +27,8 @@ export const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const NEGATION = /\b(no|nunca|jamas|never|dont|don't|do not)\s+(\w+\s+)?(uses?|usar|usa|using|autoriz\w*|authoriz\w*|admin)\b/;
 // Doubt is not consent: "no se si usar admin", "tal vez", "not sure", "maybe".
 const DOUBT = /\b(no se|no estoy segur\w*|tal vez|quizas?|a lo mejor|not sure|maybe|perhaps|might)\b/;
-// First person only: "autorizo", not "autorizar" / "autorizaciones" / "authorizing".
-const AUTHORIZE = /\b(autorizo|autoriso|autorizado|autorizada|authorize|authorized|apruebo|approve|approved)\b/;
+// First person only: "autorizo", not "autorizar" / "autorizado" / "authorized" / "authorizing".
+const AUTHORIZE = /\b(autorizo|autoriso|authorize|apruebo|approve)\b/;
 // A question is not consent: "debo autorizar admin?".
 const QUESTION = /[?\u00bf]/;
 const AFFIRM_START = /^\W*(si|yes|ok|dale|adelante)\b/;

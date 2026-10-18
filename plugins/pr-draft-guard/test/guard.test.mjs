@@ -135,3 +135,13 @@ test('non-Bash tools are ignored; an unreadable payload blocks (fail-closed)', (
   assert.equal(r.status, 2);
   assert.match(r.stderr, /could not read/);
 });
+
+test('a payload that never ends blocks within the time bound (fail-closed)', async () => {
+  const { spawn } = await import('node:child_process');
+  const child = spawn(process.execPath, [GUARD], { stdio: ['pipe', 'ignore', 'pipe'] });
+  child.stdin.write('{"tool_name":"Bash",'); // and never end it
+  const started = Date.now();
+  const code = await new Promise((res) => child.on('exit', res));
+  assert.equal(code, 2);
+  assert.ok(Date.now() - started < 9000, 'blocked by the idle bound, not hung');
+});

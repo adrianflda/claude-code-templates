@@ -121,6 +121,7 @@ test('doubt, and the word admin used for a person, are not an authorization', ()
     'I am not sure we should use admin here',
     '¿debo autorizar admin?', // EXEMPT-ES: Spanish user phrasing is the test data
     'el tema de autorizaciones de admin sigue pendiente',
+    'creo que admin ya fue autorizado, you are authorized to use admin',
     'should I be authorizing the admin profile?',
   ]) {
     const s = session();
@@ -242,4 +243,14 @@ test('an unreadable hook payload blocks (fail-closed)', () => {
   const r = node(GUARD, 'garbage');
   assert.equal(r.code, 2);
   assert.match(r.stderr, /could not read/);
+});
+
+test('a payload that never ends blocks within the time bound (fail-closed)', async () => {
+  const { spawn } = await import('node:child_process');
+  const child = spawn(process.execPath, [GUARD], { stdio: ['pipe', 'ignore', 'pipe'] });
+  child.stdin.write('{"tool_name":"Bash",'); // and never end it
+  const started = Date.now();
+  const code = await new Promise((res) => child.on('exit', res));
+  assert.equal(code, 2);
+  assert.ok(Date.now() - started < 9000, 'blocked by the idle bound, not hung');
 });
