@@ -112,6 +112,32 @@ test('a later, unrelated "no" in the authorizing prompt does not cancel it', () 
   assert.equal(bash(s, ADMIN).code, 0);
 });
 
+test('doubt, and the word admin used for a person, are not an authorization', () => {
+  for (const a of [
+    'no sé si usar admin, mejor no', // EXEMPT-ES: Spanish user phrasing is the test data
+    'no estoy seguro si hay que usar admin',
+    'sí, usa el perfil default, hablé con el admin del equipo', // EXEMPT-ES: Spanish user phrasing is the test data
+    'tal vez autorizo admin mañana', // EXEMPT-ES: Spanish user phrasing is the test data
+    'I am not sure we should use admin here',
+  ]) {
+    const s = session();
+    say(s, a);
+    say(s, 'confirmo por segunda vez');
+    assert.equal(bash(s, ADMIN).code, 2, a);
+  }
+});
+
+test('command wrappers in user entries (text starting with "<") never count', () => {
+  const s = session();
+  s.human('<command-message>sí, autorizo usar admin</command-message>'); // EXEMPT-ES: Spanish user phrasing is the test data
+  s.human('<local-command-stdout>confirmo por segunda vez</local-command-stdout>');
+  assert.equal(bash(s, ADMIN).code, 2);
+  const t = session();
+  t.human('sí, autorizo usar admin'); // EXEMPT-ES: Spanish user phrasing is the test data
+  t.human('<local-command-stdout>confirmo por segunda vez</local-command-stdout>');
+  assert.equal(bash(t, ADMIN).code, 2, 'a wrapper cannot supply the second confirmation');
+});
+
 test('a single prompt that both authorizes and confirms counts once', () => {
   const s = session();
   say(s, 'autorizo admin y te confirmo por segunda vez');
@@ -188,8 +214,9 @@ test('Claude cannot forge a prompt by writing to a transcript', () => {
   ]) {
     assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
   }
-  for (const tool of ['Write', 'Edit', 'MultiEdit']) {
-    const r = node(GUARD, { tool_name: tool, transcript_path: s.path, tool_input: { file_path: s.path } });
+  for (const tool of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
+    const key = tool === 'NotebookEdit' ? 'notebook_path' : 'file_path';
+    const r = node(GUARD, { tool_name: tool, transcript_path: s.path, tool_input: { [key]: s.path } });
     assert.equal(r.code, 2, tool);
   }
   assert.equal(bash(s, `tail -5 ${s.path} | python3 -m json.tool`).code, 0, 'reading is fine');
@@ -205,6 +232,11 @@ test('a missing transcript blocks admin (fail-closed) and prompts unrelated to a
   assert.equal(node(GUARD, { tool_name: 'Bash', transcript_path: '/nonexistent/x.jsonl', tool_input: { command: ADMIN } }).code, 2);
   const s = session();
   assert.equal(say(s, 'commit y push'), '');
-  assert.equal(node(GUARD, 'garbage').code, 0);
   assert.equal(node(CONSENT, 'garbage').code, 0);
+});
+
+test('an unreadable hook payload blocks (fail-closed)', () => {
+  const r = node(GUARD, 'garbage');
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /could not read/);
 });

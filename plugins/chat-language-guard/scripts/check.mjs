@@ -19,12 +19,18 @@ import { readFileSync } from 'node:fs';
 import { englishLines } from './lang.mjs';
 
 function readStdin() {
+  // Resolve on 'end'. The timer only guards against a caller that never closes stdin, and it
+  // is reset by every chunk, so a slow but live payload is never cut short.
   return new Promise((res) => {
     let d = '';
+    let timer = setTimeout(() => res(d), 10_000);
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (c) => { if (d.length < 1_000_000) d += c; });
-    process.stdin.on('end', () => res(d));
-    setTimeout(() => res(d), 2000).unref?.();
+    process.stdin.on('data', (c) => {
+      if (d.length < 16_000_000) d += c;
+      clearTimeout(timer);
+      timer = setTimeout(() => res(d), 10_000);
+    });
+    process.stdin.on('end', () => { clearTimeout(timer); res(d); });
   });
 }
 
@@ -60,7 +66,9 @@ async function main() {
   let input;
   try {
     input = JSON.parse(await readStdin());
-  } catch {
+  } catch (e) {
+    // Never block the user's turn on a hook problem, but say the check did not run.
+    process.stderr.write(`[chat-language-guard] could not read the Stop payload (${e.message}); language not checked this turn.\n`);
     process.exit(0);
   }
   if (input?.stop_hook_active) process.exit(0);

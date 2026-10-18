@@ -10,7 +10,8 @@
  *   - `gh pr create` / `gh pr new` without --draft (or with --draft=false)
  *   - `gh pr merge` (any form, including --auto)
  *   - `gh pr ready` (taking a PR out of draft); `gh pr ready --undo` is allowed
- *   - `gh api` calls that merge or mark ready (REST .../pulls/N/merge unless GET;
+ *   - `gh api` calls that merge or mark ready (REST .../pulls/N/merge unless GET, which is
+ *     gh's default when no body is passed;
  *     GraphQL mergePullRequest / markPullRequestReadyForReview / enablePullRequestAutoMerge)
  *   - `git merge <base>` / `git pull <remote> <base>` while on another branch, where
  *     <base> is one of PR_DRAFT_GUARD_BASES (default: main, master, dev, develop,
@@ -30,12 +31,18 @@ const BASES = new Set(
 const GRAPHQL_FORBIDDEN = /\b(mergePullRequest|markPullRequestReadyForReview|enablePullRequestAutoMerge)\b/;
 
 function readStdin() {
+  // Resolve on 'end'. The timer only guards against a caller that never closes stdin, and it
+  // is reset by every chunk, so a slow but live payload is never cut short.
   return new Promise((res) => {
     let d = '';
+    let timer = setTimeout(() => res(d), 10_000);
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (c) => { if (d.length < 1_000_000) d += c; });
-    process.stdin.on('end', () => res(d));
-    setTimeout(() => res(d), 2000).unref?.();
+    process.stdin.on('data', (c) => {
+      if (d.length < 16_000_000) d += c;
+      clearTimeout(timer);
+      timer = setTimeout(() => res(d), 10_000);
+    });
+    process.stdin.on('end', () => { clearTimeout(timer); res(d); });
   });
 }
 
@@ -94,8 +101,10 @@ function checkGh(args) {
     const ep = pos.slice(1).find((w) => /(^|\/)pulls\/\d+\/merge\/?$/.test(w));
     if (ep) {
       const mi = args.findIndex((w) => w === '-X' || w === '--method');
-      const method = mi !== -1 ? args[mi + 1] : (args.find((w) => w.startsWith('--method=')) || '').slice(9);
-      if ((method || '').toUpperCase() !== 'GET') {
+      let method = mi !== -1 ? args[mi + 1] : (args.find((w) => w.startsWith('--method=')) || '').slice(9);
+      // Like gh itself: no explicit method means GET, unless a request body is passed (then POST).
+      if (!method) method = args.some((w) => /^(-f|-F|--field|--raw-field|--input)(=|$)/.test(w)) ? 'POST' : 'GET';
+      if (method.toUpperCase() !== 'GET') {
         return `gh api on ${ep} merges a pull request. Claude never merges PRs; the human does.`;
       }
     }
@@ -157,8 +166,10 @@ async function main() {
   let input;
   try {
     input = JSON.parse(await readStdin());
-  } catch {
-    process.exit(0);
+  } catch (e) {
+    // A guard that cannot read what it is guarding must not say yes.
+    process.stderr.write(`[pr-draft-guard] BLOCKED. The hook could not read the tool call (${e.message}); retry the command.\n`);
+    process.exit(2);
   }
   if (input?.tool_name !== 'Bash') process.exit(0);
   const command = String(input?.tool_input?.command ?? '');
@@ -166,8 +177,8 @@ async function main() {
   try {
     reason = verdict(command, input.cwd);
   } catch (e) {
-    // Reader failure: fall back to a coarse check rather than letting a merge through.
-    if (/\bgh\b[\s\S]*\bpr\b[\s\S]*\bmerge\b/.test(command)) reason = `pr-draft-guard could not parse the command (${e.message}) and it looks like gh pr merge.`;
+    // Fail closed: an unparseable command could be any of the forbidden ones.
+    reason = `pr-draft-guard could not parse the command (${e.message}). Split it into simpler commands.`;
   }
   if (reason) {
     process.stderr.write(`[pr-draft-guard] BLOCKED. ${reason}\n`);

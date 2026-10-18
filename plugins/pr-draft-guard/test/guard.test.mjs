@@ -88,6 +88,8 @@ test('merging through the API is blocked; reading through it is allowed', () => 
   blocked(`gh api graphql -f query='mutation { mergePullRequest(input:{pullRequestId:"x"}) { clientMutationId } }'`);
   blocked(`gh api graphql -f query='mutation { markPullRequestReadyForReview(input:{pullRequestId:"x"}) { clientMutationId } }'`);
   allowed('gh api repos/o/r/pulls/12');
+  allowed('gh api repos/o/r/pulls/12/merge'); // gh defaults to GET without body flags
+  blocked('gh api repos/o/r/pulls/12/merge --input body.json');
   allowed('gh api -X GET repos/o/r/pulls/12/merge');
 });
 
@@ -126,8 +128,9 @@ test('the list of base branches is configurable', () => {
   blocked('git merge origin/trunk', { cwd: FEATURE, env: { PR_DRAFT_GUARD_BASES: 'trunk' } });
 });
 
-test('non-Bash tools and malformed input are ignored', () => {
+test('non-Bash tools are ignored; an unreadable payload blocks (fail-closed)', () => {
   assert.equal(run('gh pr merge 1', { tool: 'Read' }).code, 0);
   const r = spawnSync(process.execPath, [GUARD], { input: 'not json', encoding: 'utf8' });
-  assert.equal(r.status, 0);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /could not read/);
 });

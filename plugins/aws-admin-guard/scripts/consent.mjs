@@ -9,12 +9,18 @@
 import { classify, config, grantState, humanPrompts } from './consent-core.mjs';
 
 function readStdin() {
+  // Resolve on 'end'. The timer only guards against a caller that never closes stdin, and it
+  // is reset by every chunk, so a slow but live payload is never cut short.
   return new Promise((res) => {
     let d = '';
+    let timer = setTimeout(() => res(d), 10_000);
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (c) => { if (d.length < 1_000_000) d += c; });
-    process.stdin.on('end', () => res(d));
-    setTimeout(() => res(d), 2000).unref?.();
+    process.stdin.on('data', (c) => {
+      if (d.length < 16_000_000) d += c;
+      clearTimeout(timer);
+      timer = setTimeout(() => res(d), 10_000);
+    });
+    process.stdin.on('end', () => { clearTimeout(timer); res(d); });
   });
 }
 

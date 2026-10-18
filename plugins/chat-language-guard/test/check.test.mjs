@@ -30,6 +30,11 @@ test('real English messages are detected and real Spanish ones are not', () => {
   for (const t of ES_REAL) assert.deepEqual(englishLines(t), [], `should pass: ${t}`);
 });
 
+test('many short English lines are caught as a whole even if no line is long enough', () => {
+  const msg = ['Done now.', 'All of them.', 'It is pushed.', 'Now the PR.', 'Then the PR.'].join('\n');
+  assert.deepEqual(englishLines(msg), ['(the message as a whole is in English)']);
+});
+
 test('English that belongs in a Spanish message is allowed: code, quotes, paths, URLs', () => {
   const msg = [
     'Listo, el commit quedó así:', // EXEMPT-ES: Spanish user phrasing is the test data
@@ -134,6 +139,7 @@ test('it can be switched off, and garbage input is ignored', () => {
   const r = spawnSync(process.execPath, [CHECK], { input: 'nope', encoding: 'utf8' });
   assert.equal(r.status, 0);
   assert.equal(r.stdout, '');
+  assert.match(r.stderr, /could not read/, 'a skipped check is reported, not silent');
 });
 
 test('every prompt carries a one-line reminder of the rule', () => {

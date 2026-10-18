@@ -25,10 +25,16 @@ export const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // The negation must sit right before the verb ("no uses", "no lo uses", "don't use"), so a
 // later, unrelated "no" in the same prompt does not read as a refusal.
 const NEGATION = /\b(no|nunca|jamas|never|dont|don't|do not)\s+(\w+\s+)?(uses?|usar|usa|using|autoriz\w*|authoriz\w*|admin)\b/;
-const AUTHORIZE = /\b(autorizo|autorizado|autorizada|authorize|authorized|apruebo|approve|approved)\b/;
-const AFFIRM_USE = /\b(si|yes|ok|dale|adelante)\b\W+(\S+\W+){0,2}?(usa|usar|use|using)\b\W+(\S+\W+){0,3}?/;
+// Doubt is not consent: "no se si usar admin", "tal vez", "not sure", "maybe".
+const DOUBT = /\b(no se|no estoy segur\w*|tal vez|quizas?|a lo mejor|not sure|maybe|perhaps|might)\b/;
+const AUTHORIZE = /\b(autoriz\w*|authoriz\w*|apruebo|approve|approved)\b/;
+const AFFIRM_START = /^\W*(si|yes|ok|dale|adelante)\b/;
 const CONFIRM = /\b(confirmo|reconfirmo|confirm|confirmed)\b/;
 const REVOKE = /\b(revoco|revocar|revoca|revoke|revoked|retiro)\b/;
+
+/** The verb and the profile name must be close: "autorizo usar admin", "usa admin", "use the admin profile". */
+const nearProfile = (t, profiles) => profiles.some((p) =>
+  new RegExp(`\\b(autoriz\\w*|authoriz\\w*|apruebo|approve\\w*|usa|usar|uses?|using)\\b\\W+(\\S+\\W+){0,3}?${esc(fold(p))}\\b(?!-)`).test(t));
 
 /** What one human prompt means for the grant. */
 export function classify(text, profiles) {
@@ -36,7 +42,8 @@ export function classify(text, profiles) {
   const admin = mentions(t, profiles);
   if (REVOKE.test(t)) return 'revoke';
   if (admin && NEGATION.test(t)) return 'revoke';
-  if (admin && (AUTHORIZE.test(t) || AFFIRM_USE.test(t))) return 'authorize';
+  if (DOUBT.test(t)) return 'none';
+  if (nearProfile(t, profiles) && (AUTHORIZE.test(t) || AFFIRM_START.test(t))) return 'authorize';
   if (CONFIRM.test(t) && !NEGATION.test(t)) return 'confirm';
   return 'none';
 }
