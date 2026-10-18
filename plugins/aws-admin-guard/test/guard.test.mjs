@@ -254,3 +254,16 @@ test('a payload that never ends blocks within the time bound (fail-closed)', asy
   assert.equal(code, 2);
   assert.ok(Date.now() - started < 9000, 'blocked by the idle bound, not hung');
 });
+
+test('it still blocks when Claude Code runs it through a symlinked plugin directory', async () => {
+  const { mkdtempSync, symlinkSync, realpathSync: real } = await import('node:fs');
+  const { tmpdir: tmp } = await import('node:os');
+  const { join: j, dirname: d } = await import('node:path');
+  const { spawnSync: sp } = await import('node:child_process');
+  const link = j(real(mkdtempSync(j(tmp(), 'lnk-'))), 'plugin');
+  symlinkSync(j(d(GUARD), '..'), link);
+  const r = sp(process.execPath, [j(link, 'scripts', 'guard.mjs')], {
+    input: JSON.stringify({ tool_name: 'Bash', transcript_path: '/nonexistent', tool_input: { command: 'aws s3 ls --profile admin' } }), encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, r.stderr);
+});

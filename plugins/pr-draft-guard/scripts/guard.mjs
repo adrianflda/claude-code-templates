@@ -23,6 +23,8 @@
  */
 import { execFileSync } from 'node:child_process';
 import { simpleCommands } from './shell-words.mjs';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_BASES = 'main,master,dev,develop,development,staging,stage,production,prod';
 const BASES = new Set(
@@ -200,7 +202,16 @@ async function main() {
   process.exit(0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run as a hook, not when imported. Compare real paths: Claude Code may launch the script
+// through a symlinked plugin directory, and a mismatch here would silently skip the guard.
+const isEntry = (() => {
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
+if (isEntry) {
   // Any crash must still block: Claude Code treats exit codes other than 2 as "allow".
   const failClosed = (e) => {
     process.stderr.write(`[pr-draft-guard] BLOCKED. The hook failed (${e?.message || e}); retry the command.\n`);
