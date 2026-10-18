@@ -90,6 +90,7 @@ test('merging through the API is blocked; reading through it is allowed', () => 
   allowed('gh api repos/o/r/pulls/12');
   allowed('gh api repos/o/r/pulls/12/merge'); // gh defaults to GET without body flags
   blocked('gh api repos/o/r/pulls/12/merge --input body.json');
+  blocked('gh api repos/o/r/pulls/12/merge -fmerge_method=squash');
   allowed('gh api -X GET repos/o/r/pulls/12/merge');
 });
 

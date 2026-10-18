@@ -9,18 +9,31 @@
 import { classify, config, grantState, humanPrompts } from './consent-core.mjs';
 
 function readStdin() {
-  // Resolve on 'end'. The timer only guards against a caller that never closes stdin, and it
-  // is reset by every chunk, so a slow but live payload is never cut short.
+  // Read until EOF, bounded three ways: size (8 MB), idle time (5 s) and total time (15 s).
+  // Anything abnormal resolves to '' so the caller's JSON.parse fails and its fallback runs.
   return new Promise((res) => {
-    let d = '';
-    let timer = setTimeout(() => res(d), 10_000);
+    const chunks = [];
+    let size = 0;
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearTimeout(idle);
+      clearTimeout(hard);
+      res(ok ? chunks.join('') : '');
+    };
+    let idle = setTimeout(() => finish(false), 5_000);
+    const hard = setTimeout(() => finish(false), 15_000);
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', (c) => {
-      if (d.length < 16_000_000) d += c;
-      clearTimeout(timer);
-      timer = setTimeout(() => res(d), 10_000);
+      size += c.length;
+      if (size > 8_000_000) return finish(false);
+      chunks.push(c);
+      clearTimeout(idle);
+      idle = setTimeout(() => finish(false), 5_000);
     });
-    process.stdin.on('end', () => { clearTimeout(timer); res(d); });
+    process.stdin.on('end', () => finish(true));
+    process.stdin.on('error', () => finish(false));
   });
 }
 

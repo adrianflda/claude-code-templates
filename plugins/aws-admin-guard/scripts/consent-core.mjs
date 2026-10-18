@@ -27,7 +27,10 @@ export const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const NEGATION = /\b(no|nunca|jamas|never|dont|don't|do not)\s+(\w+\s+)?(uses?|usar|usa|using|autoriz\w*|authoriz\w*|admin)\b/;
 // Doubt is not consent: "no se si usar admin", "tal vez", "not sure", "maybe".
 const DOUBT = /\b(no se|no estoy segur\w*|tal vez|quizas?|a lo mejor|not sure|maybe|perhaps|might)\b/;
-const AUTHORIZE = /\b(autoriz\w*|authoriz\w*|apruebo|approve|approved)\b/;
+// First person only: "autorizo", not "autorizar" / "autorizaciones" / "authorizing".
+const AUTHORIZE = /\b(autorizo|autoriso|autorizado|autorizada|authorize|authorized|apruebo|approve|approved)\b/;
+// A question is not consent: "debo autorizar admin?".
+const QUESTION = /[?\u00bf]/;
 const AFFIRM_START = /^\W*(si|yes|ok|dale|adelante)\b/;
 const CONFIRM = /\b(confirmo|reconfirmo|confirm|confirmed)\b/;
 const REVOKE = /\b(revoco|revocar|revoca|revoke|revoked|retiro)\b/;
@@ -42,7 +45,7 @@ export function classify(text, profiles) {
   const admin = mentions(t, profiles);
   if (REVOKE.test(t)) return 'revoke';
   if (admin && NEGATION.test(t)) return 'revoke';
-  if (DOUBT.test(t)) return 'none';
+  if (DOUBT.test(t) || QUESTION.test(t)) return 'none';
   if (nearProfile(t, profiles) && (AUTHORIZE.test(t) || AFFIRM_START.test(t))) return 'authorize';
   if (CONFIRM.test(t) && !NEGATION.test(t)) return 'confirm';
   return 'none';

@@ -119,6 +119,9 @@ test('doubt, and the word admin used for a person, are not an authorization', ()
     'sí, usa el perfil default, hablé con el admin del equipo', // EXEMPT-ES: Spanish user phrasing is the test data
     'tal vez autorizo admin mañana', // EXEMPT-ES: Spanish user phrasing is the test data
     'I am not sure we should use admin here',
+    '¿debo autorizar admin?', // EXEMPT-ES: Spanish user phrasing is the test data
+    'el tema de autorizaciones de admin sigue pendiente',
+    'should I be authorizing the admin profile?',
   ]) {
     const s = session();
     say(s, a);
