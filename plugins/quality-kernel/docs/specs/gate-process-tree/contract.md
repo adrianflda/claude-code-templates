@@ -23,7 +23,7 @@ leaves open is under "Open questions" and is NOT specified here.
 ## Residual risk (read first)
 
 1. A process that leaves its process group, hides or scrubs its environment (macOS: Apple platform binaries such as `/usr/bin/perl` and `/usr/bin/python3` do not expose their environment to `ps`, so the marker layer cannot see them), AND is created and detached from the tracked tree within one snapshot interval (500 ms) may escape every mechanism below. Not covered; no criterion claims otherwise.
-2. SIGKILL of the referee (or of the whole machine) cannot be intercepted. Orphans from that event live until the NEXT run's stale-lock takeover (PT-C4/PT-C5), except a descendant that was created and detached within one snapshot interval of the last lock update; that exception is bounded by residual risk 1.
+2. SIGKILL of the referee (or of the whole machine) cannot be intercepted. Orphans from that event live until the NEXT run's stale-lock takeover (PT-C4/PT-C5), except (a) a descendant that was created and detached within one snapshot interval of the last lock update, and (b) a process forked by a surviving orphan AFTER the referee died: no tracker is running then, so (b) is never recorded in the lock and is reaped only if it still carries `QK_RUN_ID` or stays in a recorded process group. Both exceptions are bounded by residual risk 1. The killed referee's temporary directory under `TMPDIR` is also left behind; no criterion requires its removal.
 3. Only macOS is empirically verified in the design; Linux behavior is INFERRED. Windows is unsupported and fails closed (PT-A14).
 4. Memory thresholds are judgment values from the design, not measurements. Linux thresholds have no override.
 
