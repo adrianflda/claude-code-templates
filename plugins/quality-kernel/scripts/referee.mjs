@@ -25,8 +25,17 @@
 // fingerprinting, and a baseline with genuinely no tests. Only a black-box probe in a
 // prod-indistinguishable environment closes these. Symlinks in a committed tree => indeterminate.
 //
+// PROCESS TREE (spec: docs/specs/gate-process-tree/contract.md): every command runs in its own process
+// group with a per-command timeout (tools.json "timeoutSeconds", default 300, read from base). On
+// timeout the whole group gets SIGTERM, then SIGKILL after 5 s; after every command the group and every
+// process carrying the run marker (QK_RUN_ID) are killed. Pre-flight order: validation, memory guard,
+// repository lock. On any exit path the referee controls (verdict, signal, uncaught exception, parent
+// death) it kills every live tree and releases the lock. Env: QK_LOCK_DIR (lock directory, default the
+// OS temp dir), QK_MEM_GUARD=on|off, QK_MEM_MAX_PRESSURE_LEVEL, QK_MEM_MIN_LEVEL_PCT (see mem-guard.mjs).
+//
 // Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>]
 // Exit:   0 = PASS · 1 = real FAIL · 2 = indeterminate (fail-closed)
+//         (killed by SIGINT/SIGTERM/SIGHUP: 130/143/129; parent died: 129)
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync } from 'node:fs';
@@ -34,6 +43,9 @@ import { join, dirname, isAbsolute, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
 import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
+import { resolveTimeoutSeconds, unsupportedPlatformReason, newRunId, createRunner, installCleanup } from './proc-tree.mjs';
+import { acquireLock } from './gate-lock.mjs';
+import { runMemoryGuard } from './mem-guard.mjs';
 
 // CONVERGENCE FIX (panel v2.6 root cause): there is NO silent "inert" / "harness-by-name" allow-list
 // of changes the gate skips — that path-name allow-list always leaked a real runtime input (a prompt
@@ -95,6 +107,24 @@ function ledgerAppend(repoDir, record) {
 }
 function indeterminate(reason) { emit({ pass: false, indeterminate: true, evidence: null, reason }); process.exit(2); }
 
+// --- process-tree lifecycle (PT-A9..A14): installed before anything can be spawned ---
+const RUN_ID = newRunId();
+const tmpTrees = new Set();
+let runner = null, lock = null;
+const platformRefusal = unsupportedPlatformReason(process.platform);
+if (platformRefusal) indeterminate(platformRefusal);
+installCleanup({
+  cleanup: () => {
+    if (runner) runner.killAll('SIGKILL');
+    if (lock) lock.release();
+    for (const t of tmpTrees) { try { rmSync(t, { recursive: true, force: true }); } catch { /* best-effort */ } }
+  },
+  onFatal: (e) => emit({ pass: false, indeterminate: true, evidence: null, reason: `referee crashed: ${e && e.message ? e.message : e}` }),
+});
+// PT-A13: the launching process died (even by SIGKILL) -> kill every tree, release the lock, exit.
+const launcherPid = process.ppid;
+setInterval(() => { if (process.ppid !== launcherPid) process.exit(129); }, 1000).unref();
+
 // --- args ---
 const args = process.argv.slice(2);
 let repo = null, base = null, head = 'HEAD';
@@ -132,7 +162,10 @@ function loadToolsAtBase() {
   for (const g of (Array.isArray(j.testGlobs) ? j.testGlobs : [])) {
     if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`testGlobs entry "${g}" is too broad`);
   }
+  const timeout = resolveTimeoutSeconds(j); // PT-B3: invalid is indeterminate, never clamped or defaulted
+  if (timeout.error) indeterminate(timeout.error);
   return {
+    timeoutSeconds: timeout.seconds,
     verify: j.verify.trim(),
     productionGlobs: j.productionGlobs,
     testGlobs: Array.isArray(j.testGlobs) && j.testGlobs.length ? j.testGlobs : DEFAULT_TEST_GLOBS,
@@ -165,7 +198,7 @@ if (tools.acceptance) {
   }
 }
 
-const childEnv = { ...process.env };
+const childEnv = { ...process.env, QK_RUN_ID: RUN_ID }; // PT-A7: the marker every command carries
 delete childEnv.NODE_TEST_CONTEXT;
 
 function diffPaths() {
@@ -253,7 +286,7 @@ if (sym) indeterminate(`symlink in a committed tree is not allowed under the gat
 }
 
 // --- tree building ---
-function tmpDir() { return mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); }
+function tmpDir() { const d = mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); tmpTrees.add(d); return d; }
 function safeJoin(root, p) { const d = normalize(join(root, p)); return (d === root || d.startsWith(root + '/')) ? d : null; }
 // No shell. The previous `bash -c` form interpolated repo/ref/into with JSON.stringify, which only
 // adds double quotes — command substitution ($(…), backticks) still executes inside them, so a ref or
@@ -334,22 +367,32 @@ function buildHeadTree() {
   return tmp;
 }
 
-function run(cmd, cwd, label) {
-  const r = spawnSync(cmd, { cwd, shell: true, encoding: 'utf8', env: childEnv, timeout: 300000 });
-  if (r.error || r.status === null || r.status === undefined) indeterminate(`${label} could not complete: "${cmd}" (${r.signal ? `timed out (${r.signal})` : (r.error ? r.error.message : 'no exit status')})`);
-  if ((r.status === 127 || r.status === 126) && !(r.stdout && r.stdout.trim())) indeterminate(`${label} not executable (exit ${r.status}): "${cmd}"`);
-  return r.status;
+async function run(cmd, cwd, label) {
+  const r = await runner.run(cmd, cwd);
+  if (r.timedOut) indeterminate(`${label} timed out after ${tools.timeoutSeconds}s; process tree killed: "${cmd}"`);
+  if (r.error || r.code === null) indeterminate(`${label} could not complete: "${cmd}" (${r.error ? r.error.message : (r.signal ? `killed by ${r.signal}` : 'no exit status')})`);
+  if ((r.code === 127 || r.code === 126) && !r.hasStdout) indeterminate(`${label} not executable (exit ${r.code}): "${cmd}"`);
+  return r.code;
 }
-function setup(cwd, label) { if (tools.verifySetup) { const s = run(tools.verifySetup, cwd, `${label} setup`); if (s !== 0) indeterminate(`${label} setup failed (exit ${s}): "${tools.verifySetup}"`); } }
+async function setup(cwd, label) { if (tools.verifySetup) { const s = await run(tools.verifySetup, cwd, `${label} setup`); if (s !== 0) indeterminate(`${label} setup failed (exit ${s}): "${tools.verifySetup}"`); } }
+
+// --- PRE-FLIGHT (PT-C1): validation is done above; now the memory guard, then the repository lock —
+// both before any temp tree exists, so a refusal leaves nothing behind. ---
+const guard = runMemoryGuard();
+if (!guard.ok) indeterminate(guard.reason);
+const acquired = acquireLock({ repo, runId: RUN_ID, dir: process.env.QK_LOCK_DIR || tmpdir() });
+if (!acquired.ok) indeterminate(acquired.reason);
+lock = acquired.lock;
+runner = createRunner({ runId: RUN_ID, env: childEnv, timeoutMs: tools.timeoutSeconds * 1000, onGroup: (pgid) => lock.addPgid(pgid) });
 
 // TRUSTED run + harness-integrity check
 const trusted = buildTrustedTree();
 let trustedExit, acceptanceExit = null;
 try {
   const before = snapshot(trusted);
-  setup(trusted, 'trusted');
-  trustedExit = run(tools.verify, trusted, 'verify (base harness × head production)');
-  if (tools.acceptance) acceptanceExit = run(tools.acceptance, trusted, 'acceptance oracle');
+  await setup(trusted, 'trusted');
+  trustedExit = await run(tools.verify, trusted, 'verify (base harness × head production)');
+  if (tools.acceptance) acceptanceExit = await run(tools.acceptance, trusted, 'acceptance oracle');
   const after = snapshot(trusted);
   const bail = (msg) => { rmSync(trusted, { recursive: true, force: true }); indeterminate(msg); };
   for (const [k, b] of before) {
@@ -369,7 +412,7 @@ try {
 // HEAD-AS-IS run
 const headTree = buildHeadTree();
 let headExit;
-try { setup(headTree, 'head'); headExit = run(tools.verify, headTree, 'verify (head as-is)'); }
+try { await setup(headTree, 'head'); headExit = await run(tools.verify, headTree, 'verify (head as-is)'); }
 finally { rmSync(headTree, { recursive: true, force: true }); }
 
 const pass = trustedExit === 0 && headExit === 0 && (acceptanceExit === null || acceptanceExit === 0);

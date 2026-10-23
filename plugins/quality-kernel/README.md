@@ -100,6 +100,20 @@ Then:
 - CLI: `node scripts/qk-gate.mjs --repo . --base <base-sha> --head <head-sha>`
 - Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
 
+**Process safety (referee).** Each command (`verifySetup`, `verify`, `acceptance`) runs in its own
+process group with a timeout: `timeoutSeconds` in `tools.json` (integer 1–3600, default 300, read from
+the base ref; anything else is indeterminate). On timeout the whole group gets SIGTERM, then SIGKILL
+after 5 s; after every command the group and every process carrying the run's `QK_RUN_ID` marker are
+killed, so nothing outlives a gate run. Before any temp tree exists the referee checks, in order:
+`tools.json` validation, a **memory-pressure guard**, and a **per-repository lock** (shared by every
+worktree; a lock left by a SIGKILLed run is taken over and its recorded process groups are killed).
+POSIX only (win32 is refused). Environment: `QK_LOCK_DIR` (lock directory, default the OS temp dir);
+`QK_MEM_GUARD=off` skips the guard; `QK_MEM_MAX_PRESSURE_LEVEL` (macOS, default 2) and
+`QK_MEM_MIN_LEVEL_PCT` (macOS level percent, default 20; on Linux MemAvailable/MemTotal percent,
+default 15) tune it; Linux also refuses when PSI `some avg10` > 25 (fixed). A non-numeric value is
+indeterminate, never silently defaulted. A process that leaves its group AND scrubs its environment
+escapes the sweep; a SIGKILLed referee leaves orphans until the next run's takeover.
+
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
 Tests that spawn git import `scripts/hermetic-git.mjs` first, so your global/system git config
 (excludesfile, XDG ignore, hooksPath) cannot change their result — do the same in new ones.

@@ -7,6 +7,8 @@
   "$docsNote": "Declare docs/**, **/*.md here ONLY if production reads them at runtime AND no test reads their content as an expected value. If your tests assert on README/docs content (doctests, 'the examples are tested'), those files are ORACLE, not production — declaring them in productionGlobs would let a change re-golden them from head. Keep such files out of productionGlobs, or declare them in testGlobs.",
   "testGlobs": ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "tests/**", "test/**"],
   "$testGlobsHelp": "The immutable suite THIS repo declares — stays at base (never overlaid) and is executed. Kept separate from route's broad tier heuristic so a production file merely NAMED like a test (lib/spec/**, *-test.*) is not silently treated as harness.",
+  "timeoutSeconds": 300,
+  "$timeoutSecondsHelp": "Optional per-command timeout (verifySetup, verify, acceptance each get the full budget). Integer 1-3600, default 300. Read from the base ref only. On timeout the whole process tree is killed and the run is indeterminate. Any other value (0, 1.5, \"5\", null, 3601) is indeterminate, never clamped.",
   "acceptance": null,
   "$acceptanceHelp": "Optional. A human-approved, machine-checkable criteria command DISTINCT from the coder's own tests (Constitution P3). Lives outside productionGlobs so it stays immutable-from-base. Example: \"node --test acceptance/*.mjs\".",
   "linkPaths": [],
