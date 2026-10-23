@@ -19,9 +19,10 @@ export const readLinuxSample = (readText = readUtf8) => ({
   psiAvg10: tryParse(readText, '/proc/pressure/memory', parsePsiAvg10),
   availPct: tryParse(readText, '/proc/meminfo', parseAvailPct),
 });
-export function readSample(platform) {
+// `readText` is the Linux /proc reader (injectable, as in readLinuxSample).
+export function readSample(platform, readText = readUtf8) {
   const none = { pressureLevel: null, levelPct: null, psiAvg10: null, availPct: null };
   if (platform === 'darwin') return { ...none, pressureLevel: sysctlInt('kern.memorystatus_vm_pressure_level'), levelPct: sysctlInt('kern.memorystatus_level') };
-  if (platform === 'linux') return { ...none, ...readLinuxSample() };
+  if (platform === 'linux') return { ...none, ...readLinuxSample(readText) };
   return none;
 }

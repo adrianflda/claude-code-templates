@@ -6,9 +6,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { EventEmitter } from 'node:events';
 import {
   KILL_GRACE_MS, DEFAULT_TIMEOUT_SECONDS, resolveTimeoutSeconds, unsupportedPlatformReason,
-  newRunId, killGroup, groupAlive, sweepByMarker, procfsPidsCarrying, createRunner,
+  newRunId, killGroup, groupAlive, sweepByMarker, procfsPidsCarrying, createRunner, installCleanup,
 } from './process-safety/proc-tree.mjs';
 import { newMarker, pgrepMarker, pkillMarker, isAlive, waitFor, markedSleep } from './proc-test-kit.mjs';
 
@@ -222,4 +223,122 @@ test('procfsPidsCarrying (Linux branch) matches numeric entries whose environ ca
     mkdirSync(join(root, '303')); // numeric entry without an environ file: gone or not ours
     assert.deepStrictEqual(procfsPidsCarrying('QK_RUN_ID=abc', root), [101]);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// --- hardening: survivors of the mutation run (each names the production harm it guards against) ---
+const IGNORE_TERM = `"${process.execPath}" -e "process.on('SIGTERM',()=>{});setTimeout(()=>{},60000)"`;
+const pidIn = async (f) => { await waitFor(() => { try { return readFileSync(f, 'utf8').trim(); } catch { return ''; } }); return Number(readFileSync(f, 'utf8').trim()); };
+const foreignGroup = () => {
+  if (process.getuid() === 0) return null;
+  const rows = spawnSync('ps', ['-axo', 'pid=,pgid=,user='], { encoding: 'utf8' }).stdout.split('\n').map((l) => l.trim().split(/\s+/));
+  const row = rows.find(([pid, pgid, user]) => user === 'root' && pid === pgid && Number(pid) > 1);
+  return row ? Number(row[0]) : null;
+};
+
+test('killGroup surfaces EPERM and groupAlive reports a foreign group as alive (signal 0 only)', { skip: foreignGroup() === null && 'no foreign process group visible' }, () => {
+  // harm: swallowing EPERM hides a failed kill; reporting it dead ends the SIGTERM grace early
+  const g = foreignGroup();
+  assert.throws(() => killGroup(g, 0), { code: 'EPERM' });
+  assert.strictEqual(groupAlive(g), true);
+});
+
+test('PT-A6 — sweepByMarker uses SIGKILL: a SIGTERM-ignoring marker carrier dies', async () => {
+  const id = newRunId(); const m = mark();
+  const c = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{});console.log('r');setTimeout(()=>{},60000)", m], { detached: true, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, QK_RUN_ID: id } });
+  await new Promise((r) => c.stdout.once('data', r));
+  sweepByMarker(id);
+  assert.ok(await waitFor(() => !isAlive(c.pid), { timeoutMs: 3000 }));
+});
+
+test('PT-A6 — sweepByMarker never kills the calling process even when it carries the marker', () => {
+  // harm: a nested gate run (launched under the stale run's marker) would SIGKILL itself mid-takeover
+  const id = newRunId();
+  const code = `import { sweepByMarker } from ${JSON.stringify(pathToFileURL(join(here, 'process-safety', 'proc-tree.mjs')).href)}; sweepByMarker(process.env.QK_RUN_ID); console.log('alive');`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', env: { ...process.env, QK_RUN_ID: id } });
+  assert.deepStrictEqual([r.status, r.signal, r.stdout.trim()], [0, null, 'alive']);
+});
+
+const fakeProc = () => {
+  const p = new EventEmitter(); p.exits = []; p.err = '';
+  p.exit = (c) => { p.exits.push(c); }; p.stderr = { write: (s) => { p.err += s; } };
+  return p;
+};
+test('PT-A9 — SIGINT/SIGTERM/SIGHUP run the cleanup once and exit 130/143/129', () => {
+  for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) {
+    const proc = fakeProc(); let n = 0;
+    installCleanup({ cleanup: () => { n++; }, proc });
+    proc.emit(sig); proc.emit('exit');
+    assert.deepStrictEqual([n, proc.exits], [1, [code]], sig);
+  }
+});
+test('PT-A9 — a normal exit runs the cleanup', () => {
+  const proc = fakeProc(); let n = 0;
+  installCleanup({ cleanup: () => { n++; }, proc });
+  proc.emit('exit');
+  assert.strictEqual(n, 1);
+});
+test('PT-A10 — an uncaught exception runs the cleanup, prints the stack, reports it and exits 2', () => {
+  const proc = fakeProc(); let n = 0; const fatal = [];
+  installCleanup({ cleanup: () => { n++; }, onFatal: (e) => fatal.push(e), proc });
+  const err = new Error('boom');
+  proc.emit('uncaughtException', err); proc.emit('exit');
+  assert.deepStrictEqual([n, proc.exits, fatal], [1, [2], [err]]);
+  assert.strictEqual(proc.err, `${err.stack}\n`);
+  const plain = fakeProc();
+  installCleanup({ cleanup: () => {}, proc: plain });
+  plain.emit('uncaughtException', 'plain failure');
+  assert.strictEqual(plain.err, 'plain failure\n', 'a thrown non-Error is printed as is');
+});
+
+test('commands get no stdin (EOF at once): a command reading stdin does not hang until the timeout', async () => {
+  // harm: a prompting command (npm init, git credential) blocks the gate for the whole budget
+  const r = mkRunner({ timeoutMs: 4000 });
+  const out = await r.run('cat', tmpdir());
+  assert.deepStrictEqual([out.timedOut, out.code], [false, 0]);
+});
+
+test('a spawn that throws synchronously resolves with the error (never rejects)', async () => {
+  const out = await mkRunner().run('exit 0', 123);
+  assert.ok(out.error instanceof Error, JSON.stringify(out));
+  assert.strictEqual(out.code, null);
+});
+
+test('a spawn that fails asynchronously (missing cwd) resolves with the error and registers no group', async () => {
+  // harm: persisting an undefined pgid into the lock, or a result with no error for a command that never ran
+  const seen = []; const r = mkRunner({ onGroup: (g) => seen.push(g) });
+  const out = await r.run('exit 0', join(tmpdir(), 'qk-no-such-dir', 'x'));
+  assert.strictEqual(out.error && out.error.code, 'ENOENT');
+  assert.deepStrictEqual(seen, []);
+});
+
+test('Decision 18 — if the group cannot be persisted the command is killed and the error returned', async () => {
+  // harm: an unrecorded group would escape the takeover after a crash; the command must not run on
+  const dir = scratch(); const f = join(dir, 'ran');
+  try {
+    const r = mkRunner({ onGroup: () => { throw new Error('persist failed'); } });
+    const out = await r.run(`sleep 0.3; touch ${f}`, dir);
+    assert.strictEqual(out.error && out.error.message, 'persist failed');
+    await new Promise((res) => setTimeout(res, 600));
+    assert.deepStrictEqual(readdirSync(dir), [], 'the command must have been killed');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('PT-A4 — at command end the group gets SIGKILL: a scrubbed SIGTERM-ignoring straggler dies', async () => {
+  const dir = scratch(); const pf = join(dir, 'pid'); let pid;
+  try {
+    const out = await mkRunner().run(`env -i ${IGNORE_TERM} & echo $! > ${pf}; sleep 0.4; exit 0`, dir);
+    assert.strictEqual(out.code, 0);
+    pid = await pidIn(pf);
+    assert.ok(await waitFor(() => !isAlive(pid), { timeoutMs: 3000 }), 'scrubbed SIGTERM-ignorer must be dead');
+  } finally { if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('PT-A2 — after the grace the group gets SIGKILL: a scrubbed SIGTERM-ignoring member dies', async () => {
+  const dir = scratch(); const pf = join(dir, 'pid'); let pid;
+  try {
+    const out = await mkRunner({ timeoutMs: 600, graceMs: 300 }).run(`env -i ${IGNORE_TERM} & echo $! > ${pf}; wait`, dir);
+    assert.strictEqual(out.timedOut, true);
+    pid = await pidIn(pf);
+    assert.ok(await waitFor(() => !isAlive(pid), { timeoutMs: 3000 }), 'scrubbed SIGTERM-ignorer must be dead');
+  } finally { if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } rmSync(dir, { recursive: true, force: true }); }
 });

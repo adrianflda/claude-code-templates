@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { evaluatePressure, resolveGuardConfig, readSample, readLinuxSample, runMemoryGuard } from './process-safety/mem-guard.mjs';
 
 const T = { maxLevel: 2, minPct: 20 };
@@ -144,4 +147,55 @@ test('readLinuxSample reports an absent or malformed probe as null (unreadable)'
   const s = readLinuxSample(fakeProc({ '/proc/pressure/memory': 'garbage', '/proc/meminfo': 'MemTotal: 0 kB\nMemAvailable: 5 kB\n' }));
   assert.deepStrictEqual(s, { psiAvg10: null, availPct: null });
   assert.strictEqual(readLinuxSample(fakeProc({ '/proc/meminfo': 'MemTotal: 10 kB\n' })).availPct, null);
+});
+
+// --- hardening: survivors of the mutation run (each names the production harm it guards against) ---
+test('Decision 17 — multi-digit levels and multi-decimal percentages are valid overrides', () => {
+  // harm: a one-digit-only pattern would refuse a correct QK_MEM_MAX_PRESSURE_LEVEL=12 / QK_MEM_MIN_LEVEL_PCT=12.25
+  assert.strictEqual(resolveGuardConfig({ QK_MEM_MAX_PRESSURE_LEVEL: '12' }, 'darwin').maxLevel, 12);
+  assert.strictEqual(resolveGuardConfig({ QK_MEM_MIN_LEVEL_PCT: '12.25' }, 'darwin').minPct, 12.25);
+});
+test('Decision 17 — the error states the accepted values, not only the variable', () => {
+  // harm: "must be  (got ...)" leaves the operator guessing what to set
+  assert.match(resolveGuardConfig({ QK_MEM_GUARD: 'x' }, 'darwin').error, /"on" or "off"/);
+  assert.match(resolveGuardConfig({ QK_MEM_MAX_PRESSURE_LEVEL: 'x' }, 'darwin').error, /integer >= 1/);
+  assert.match(resolveGuardConfig({ QK_MEM_MIN_LEVEL_PCT: 'x' }, 'darwin').error, /number >= 0/);
+});
+test('PT-C9 — a readable healthy sample passes without the "no signal" warning', () => {
+  // harm: a false "proceeding without the memory guard" warning on every run hides the real one
+  const warnings = [];
+  const r = runMemoryGuard({ env: {}, platform: 'darwin', read: () => ({ ...none, pressureLevel: 1, levelPct: 80 }), warn: (m) => warnings.push(m) });
+  assert.deepStrictEqual(r, { ok: true });
+  assert.deepStrictEqual(warnings, []);
+});
+test('PT-C8 — several breaches are reported as separate clauses', () => {
+  const r = runMemoryGuard({ env: {}, platform: 'darwin', read: () => ({ ...none, pressureLevel: 4, levelPct: 5 }) });
+  const clauses = r.reason.replace(/^[^:]*: /, '').split('; ');
+  assert.strictEqual(clauses.length, 2, r.reason);
+  assert.match(clauses[0], /pressure_level = 4 \(threshold 2\)$/);
+  assert.match(clauses[1], /memorystatus_level = 5 \(threshold 20\)$/);
+});
+test('readSample on macOS reads both sysctl signals as finite numbers', { skip: process.platform !== 'darwin' && 'macOS only' }, () => {
+  // harm: a misnamed sysctl yields null, which silently disables the 20 percent threshold
+  const s = readSample('darwin');
+  assert.ok(Number.isFinite(s.pressureLevel) && Number.isFinite(s.levelPct), JSON.stringify(s));
+});
+test('PT-C9 — a failing or garbled sysctl is unreadable (null), never a guessed 0', () => {
+  // harm: a failed sysctl read as 0 percent would refuse every run
+  const bin = mkdtempSync(join(tmpdir(), 'qk-sysctl-'));
+  const orig = process.env.PATH;
+  try {
+    for (const body of ['exit 1', 'echo garbage']) {
+      writeFileSync(join(bin, 'sysctl'), `#!/bin/sh\n${body}\n`); chmodSync(join(bin, 'sysctl'), 0o755);
+      process.env.PATH = `${bin}:${orig}`;
+      const s = readSample('darwin');
+      assert.deepStrictEqual([s.pressureLevel, s.levelPct], [null, null], body);
+    }
+  } finally { process.env.PATH = orig; rmSync(bin, { recursive: true, force: true }); }
+});
+test('readSample on Linux reads /proc through the reader; other platforms never read', () => {
+  // harm: a wrong platform branch leaves the Linux guard with no signal at all
+  const files = { '/proc/pressure/memory': 'some avg10=30.00 avg60=0 avg300=0 total=0\n', '/proc/meminfo': 'MemTotal: 200 kB\nMemAvailable: 50 kB\n' };
+  assert.deepStrictEqual(readSample('linux', fakeProc(files)), { pressureLevel: null, levelPct: null, psiAvg10: 30, availPct: 25 });
+  assert.deepStrictEqual(readSample('freebsd', () => { throw new Error('must not read'); }), none);
 });

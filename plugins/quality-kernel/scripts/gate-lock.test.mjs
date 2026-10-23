@@ -4,10 +4,11 @@ import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { lockPathFor, processStart, classifyLock, acquireLock } from './process-safety/gate-lock.mjs';
 import { newRunId } from './process-safety/proc-tree.mjs';
+import { takeOverStale } from './process-safety/lock-takeover.mjs';
 import { newMarker, pgrepMarker, pkillMarker, isAlive, waitFor, markedSleep } from './proc-test-kit.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -155,4 +156,106 @@ process.stdin.resume(); process.stdin.on('end', () => { if (got.ok) got.lock.rel
   for (const r of results.filter((x) => !x.ok)) assert.match(r.reason, /another gate run is active/);
   await Promise.all(racers.map(({ c }) => new Promise((res) => c.on('exit', res))));
   assert.deepStrictEqual(readdirSync(lockDir), []);
+});
+
+// --- hardening: survivors of the mutation run (each names the production harm it guards against) ---
+test('processStart is locale-independent and trimmed (the PID-reuse discriminator must compare across shells)', () => {
+  // harm: a lock written under LANG=fr_FR ("jeu. 22 oct.") and checked under C would look stale -> a live run is killed
+  const keep = { LANG: process.env.LANG, LC_ALL: process.env.LC_ALL, LC_TIME: process.env.LC_TIME };
+  const c = spawnSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).stdout.trim();
+  let s;
+  try { Object.assign(process.env, { LANG: 'fr_FR.UTF-8', LC_TIME: 'fr_FR.UTF-8' }); delete process.env.LC_ALL; s = processStart(process.pid); }
+  finally { for (const [k, v] of Object.entries(keep)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+  assert.strictEqual(s, c);
+});
+
+test('PT-C3 — a pid that exists but cannot be signalled (EPERM) is live, never stale', () => {
+  // harm: a holder owned by another user (shared QK_LOCK_DIR) judged stale -> its lock is stolen and two runs overlap
+  assert.strictEqual(classifyLock({ pid: 1, lstart: null }), 'live');
+});
+
+test('PT-C3 — a live holder with no recorded start time is reported as "started unknown"', () => {
+  const { repo } = mkRepo(); const dir = scratch();
+  writeFileSync(lockPathFor(repo, dir), JSON.stringify({ pid: process.pid, lstart: null, runId: newRunId(), repo, pgids: [] }));
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, false);
+  assert.match(got.reason, /started unknown,/);
+});
+
+test('fail closed — a path that is not a git repository refuses with a reason instead of throwing', () => {
+  // harm: an uncaught throw in pre-flight, or a lock keyed by a non-repository path
+  const notRepo = scratch();
+  const got = acquireLock({ repo: notRepo, runId: newRunId(), dir: scratch() });
+  assert.strictEqual(got.ok, false);
+  assert.match(got.reason, /^cannot create the repository lock: git common dir unavailable for /);
+  assert.ok(got.reason.includes(notRepo), got.reason);
+});
+
+test('fail closed — a lock path that cannot be read (a directory) is refused as unreadable, not retried', () => {
+  // harm: an EISDIR/EACCES lock treated as "no lock" -> a misleading retry loop instead of the real reason
+  const { repo } = mkRepo(); const dir = scratch();
+  mkdirSync(lockPathFor(repo, dir));
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, false);
+  assert.match(got.reason, /unreadable or corrupt/);
+});
+
+test('PT-C6 — a lock that keeps changing hands ends in a bounded refusal (dangling lock link)', () => {
+  // harm: an unbounded retry loop hangs the gate forever
+  const { repo } = mkRepo(); const dir = scratch(); const path = lockPathFor(repo, dir);
+  symlinkSync(join(dir, 'nowhere'), path);
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, false);
+  assert.match(got.reason, /^another gate run is active for this repository \(lock .* changed hands repeatedly\)$/);
+  assert.deepStrictEqual(readdirSync(dir), [path.split('/').pop()], 'no temp residue');
+});
+
+test('PT-C7 — release removes only its own lock: never one re-taken by another run, and never throws when gone', () => {
+  // harm: deleting a lock that now belongs to another run lets a third run start beside it
+  const lstart = processStart(process.pid);
+  for (const foreign of [{ pid: process.pid, runId: newRunId() }, { pid: deadPid(), runId: null }]) {
+    const { repo } = mkRepo(); const dir = scratch(); const runId = newRunId();
+    const { lock } = acquireLock({ repo, runId, dir });
+    const other = { pid: foreign.pid, lstart, runId: foreign.runId ?? runId, repo, pgids: [] };
+    writeFileSync(lock.path, JSON.stringify(other));
+    lock.release();
+    assert.deepStrictEqual(JSON.parse(readFileSync(lock.path, 'utf8')), other, JSON.stringify(foreign));
+  }
+  const { repo } = mkRepo(); const { lock } = acquireLock({ repo, runId: newRunId(), dir: scratch() });
+  unlinkSync(lock.path);
+  assert.doesNotThrow(() => lock.release());
+});
+
+test('PT-C6 — takeover puts back a lock that is not the one judged stale, leaving no residue', () => {
+  // harm: a fresh live lock that slipped in between the judgement and the rename is deleted -> two runs overlap
+  const live = { pid: process.pid, lstart: processStart(process.pid), runId: newRunId(), repo: '/r', pgids: [] };
+  const judged = [
+    { pid: deadPid(), runId: newRunId(), pgids: [] },  // different holder entirely
+    { pid: process.pid, runId: newRunId(), pgids: [] }, // same pid, another run
+    { pid: deadPid(), runId: live.runId, pgids: [] },  // same run id, another pid
+  ];
+  for (const held of judged) {
+    const dir = scratch(); const path = join(dir, 'qk-gate-x.lock');
+    writeFileSync(path, JSON.stringify(live));
+    takeOverStale(path, held);
+    assert.deepStrictEqual(JSON.parse(readFileSync(path, 'utf8')), live, JSON.stringify(held));
+    assert.deepStrictEqual(readdirSync(dir), ['qk-gate-x.lock']);
+  }
+  const dir = scratch(); const path = join(dir, 'qk-gate-x.lock');
+  writeFileSync(path, '{corrupt');
+  assert.doesNotThrow(() => takeOverStale(path, judged[0]));
+  assert.strictEqual(readFileSync(path, 'utf8'), '{corrupt');
+  assert.doesNotThrow(() => takeOverStale(join(dir, 'absent.lock'), judged[0]), 'a lock already gone is not an error');
+});
+
+test('PT-C4 — a recorded group that ignores SIGTERM is still killed on takeover (SIGKILL)', async () => {
+  const { repo } = mkRepo(); const dir = scratch(); const env = { ...process.env }; delete env.QK_RUN_ID;
+  const c = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{});console.log('r');setTimeout(()=>{},60000)"], { detached: true, stdio: ['ignore', 'pipe', 'ignore'], env });
+  kids.push(c.pid);
+  await new Promise((r) => c.stdout.once('data', r));
+  writeFileSync(lockPathFor(repo, dir), JSON.stringify({ pid: deadPid(), lstart: 'x', runId: newRunId(), repo, pgids: [c.pid] }));
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  assert.ok(await waitFor(() => !isAlive(c.pid), { timeoutMs: 3000 }), 'SIGTERM-ignoring member must die');
+  got.lock.release();
 });
