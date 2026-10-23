@@ -1,8 +1,8 @@
 // Lock-file storage for the repository lock (spec: docs/specs/gate-process-tree/contract.md, PT-C2..C7, PT-C12):
 // one file per repository, keyed by the git common directory so every worktree shares it.
 //
-// Lock schema: {pid, lstart, runId, repo, pgids: [{pgid, start} | legacy number], descendants: [{pid, start}]}.
-// parseLock is the only reader; it normalises `descendants` to [] for locks written before PT-A18.
+// Lock schema: {pid, lstart, runId, repo, pgids: [{pgid, start}], descendants: [{pid, start}]}.
+// parseLock is the only reader and is strict: there are no legacy formats (decision 26), so any other shape is corrupt.
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsc, readFileSync, fstatSync, linkSync, unlinkSync, realpathSync, renameSync, openSync, writeSync, closeSync, mkdirSync, lstatSync } from 'node:fs';
@@ -39,11 +39,14 @@ export function ensureLockDir(dir, uid = process.getuid()) {
 export const defaultLockDir = (base = tmpdir(), uid = process.getuid()) => ensureLockDir(join(base, `qk-gate-${uid}`), uid);
 
 const parseJson = (raw) => { try { return JSON.parse(raw); } catch { return null; } };
-const isLock = (j) => Boolean(j) && Number.isInteger(j.pid) && j.pid > 0 && typeof j.runId === 'string' && RUN_ID_RE.test(j.runId) && Array.isArray(j.pgids);
+const isPgidEntry = (e) => Boolean(e) && typeof e === 'object' && Number.isInteger(e.pgid) && (e.start === null || typeof e.start === 'string');
+const isDescendant = (e) => Boolean(e) && typeof e === 'object' && Number.isInteger(e.pid) && typeof e.start === 'string';
+const isLock = (j) => Boolean(j) && Number.isInteger(j.pid) && j.pid > 0 && typeof j.runId === 'string' && RUN_ID_RE.test(j.runId)
+  && Array.isArray(j.pgids) && j.pgids.every(isPgidEntry) && Array.isArray(j.descendants) && j.descendants.every(isDescendant);
 // Lock-file text -> the parsed lock, or null when malformed.
 export function parseLock(raw) {
   const j = parseJson(raw);
-  return isLock(j) ? { ...j, descendants: Array.isArray(j.descendants) ? j.descendants : [] } : null;
+  return isLock(j) ? j : null;
 }
 // PT-C13: a lock is never opened until lstat says regular file (opening a FIFO for reading blocks
 // forever); it is then opened O_NONBLOCK|O_NOFOLLOW and the OPENED descriptor is re-verified (regular,

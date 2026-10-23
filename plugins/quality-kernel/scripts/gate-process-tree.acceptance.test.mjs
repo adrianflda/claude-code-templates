@@ -8,7 +8,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { lockPathFor, processStart } from './process-safety/gate-lock.mjs';
@@ -373,7 +373,7 @@ scenario('a lock whose holder pid does not exist is taken over and its processes
 scenario('PID reuse is treated as stale and the unrelated process is untouched', async () => {
   const fx = fixture();
   const unrelated = spawn('sleep', ['30'], { stdio: 'ignore' }); pids.push(unrelated.pid);
-  writeFileSync(lockPathFor(fx.repo, fx.locks), JSON.stringify({ pid: unrelated.pid, lstart: 'Thu Jan  1 00:00:00 1970', runId: '0123456789abcdef', repo: fx.repo, pgids: [] }));
+  writeFileSync(lockPathFor(fx.repo, fx.locks), JSON.stringify({ pid: unrelated.pid, lstart: 'Thu Jan  1 00:00:00 1970', runId: '0123456789abcdef', repo: fx.repo, pgids: [], descendants: [] }));
   const r = await run(REFEREE, fx);
   assert.strictEqual(r.code, 0, r.stdout);
   assert.ok(isAlive(unrelated.pid), 'the unrelated process is still alive');
@@ -383,7 +383,7 @@ scenario('PID reuse is treated as stale and the unrelated process is untouched',
 scenario('of two runs racing for a stale lock at most one proceeds', async () => {
   const fx = fixture({ tools: { verify: 'sleep 2' } });
   const dead = spawnSync('node', ['-e', '0']).pid;
-  writeFileSync(lockPathFor(fx.repo, fx.locks), JSON.stringify({ pid: dead, lstart: processStart(process.pid), runId: '0123456789abcdef', repo: fx.repo, pgids: [] }));
+  writeFileSync(lockPathFor(fx.repo, fx.locks), JSON.stringify({ pid: dead, lstart: processStart(process.pid), runId: '0123456789abcdef', repo: fx.repo, pgids: [], descendants: [] }));
   const rs = await Promise.all([run(REFEREE, fx), run(REFEREE, fx)]);
   assert.ok(rs.some((r) => r.code === 0), `codes ${rs.map((r) => r.code)}`);
   for (const r of rs.filter((x) => x.code !== 0)) {
@@ -418,7 +418,7 @@ test('QK_MEM_GUARD=off disables the guard', { ...T, ...MAC }, async () => {
 });
 
 scenario('validation is checked before the memory guard, which is checked before the lock', async () => {
-  const liveLock = (fx) => writeFileSync(lockPathFor(fx.repo, fx.locks), JSON.stringify({ pid: process.pid, lstart: processStart(process.pid), runId: '0123456789abcdef', repo: fx.repo, pgids: [] }));
+  const liveLock = (fx) => writeFileSync(lockPathFor(fx.repo, fx.locks), JSON.stringify({ pid: process.pid, lstart: processStart(process.pid), runId: '0123456789abcdef', repo: fx.repo, pgids: [], descendants: [] }));
   const bad = fixture({ toolsRaw: '{"verify":"exit 0","productionGlobs":["src/**"],"timeoutSeconds":0}' }); liveLock(bad);
   assert.match((await run(REFEREE, bad)).verdict.reason, /timeoutSeconds/);
   const plain = fixture(); liveLock(plain);
@@ -430,6 +430,19 @@ scenario('validation is checked before the memory guard, which is checked before
     const m = await run(REFEREE, mem, { env: envFor(mem, { QK_MEM_GUARD: undefined, QK_MEM_MIN_LEVEL_PCT: '101' }) });
     assert.match(m.verdict.reason, /memory pressure/);
   }
+});
+
+scenario('validation wins when it fails together with the memory guard and a live lock', async () => {
+  const fx = fixture({ toolsRaw: '{"verify":"exit 0","productionGlobs":["src/**"],"timeoutSeconds":0}' });
+  const lockPath = lockPathFor(fx.repo, fx.locks);
+  writeFileSync(lockPath, JSON.stringify({ pid: process.pid, lstart: processStart(process.pid), runId: '0123456789abcdef', repo: fx.repo, pgids: [], descendants: [] }));
+  const before = readFileSync(lockPath, 'utf8');
+  const r = await run(REFEREE, fx, { env: envFor(fx, { QK_MEM_GUARD: undefined, QK_MEM_MIN_LEVEL_PCT: '101' }) });
+  assert.strictEqual(r.code, 2);
+  assert.match(r.verdict.reason, /timeoutSeconds/);
+  assert.doesNotMatch(r.verdict.reason, /memory pressure|another gate run is active/);
+  assert.strictEqual(readFileSync(lockPath, 'utf8'), before, 'the lock was not consulted or touched');
+  assert.deepStrictEqual(readdirSync(fx.locks), [basename(lockPath)]);
 });
 
 scenario('takeover kills a recorded process group even when its members scrubbed the marker', async () => {

@@ -7,17 +7,16 @@ import { killGroup, killRecorded, sweepByMarker, pidsCarryingMarker, pgidsOf, st
 import { readLock, untrustedReason } from './lock-store.mjs';
 import { classifyLock } from './lock-liveness.mjs';
 
-// A pgids entry is {pgid, start} or, in locks written before PT-C14, a plain number without identity.
-const asEntry = (g) => (g !== null && typeof g === 'object' ? { pgid: g.pgid, start: g.start ?? null, legacy: false } : { pgid: g, start: null, legacy: true });
-
 // `kill` is injectable so tests can assert which groups are (not) signalled.
 export function sweepStale(stale, { kill = killGroup } = {}) {
   const carriers = pidsCarryingMarker(stale.runId);
   const markedGroups = pgidsOf(carriers);
   const own = pgidsOf([process.pid]);
-  for (const { pgid, start, legacy } of stale.pgids.map(asEntry)) {
+  for (const entry of stale.pgids) {
+    if (entry === null || typeof entry !== 'object') continue; // parseLock rejects these; injected records stay safe
+    const { pgid, start = null } = entry;
     if (!Number.isInteger(pgid) || pgid <= 1 || own.has(pgid)) continue;
-    const identified = legacy || (start !== null && startTimeOf(pgid) === start) || markedGroups.has(pgid);
+    const identified = (start !== null && startTimeOf(pgid) === start) || markedGroups.has(pgid);
     if (!identified) continue; // PT-C14: the pgid may have been recycled for an unrelated group
     try { kill(pgid, 'SIGKILL'); } catch { /* not ours / gone */ }
   }
