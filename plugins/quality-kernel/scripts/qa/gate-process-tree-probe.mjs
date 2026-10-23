@@ -79,6 +79,8 @@ const sameStart = (a, b) => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, 
 const marked = (m, secs = 60) => `node -e "setTimeout(()=>{},${secs * 1000})" ${m}`;
 const termIgnorer = (m) => `node -e "process.on('SIGTERM',()=>{});setTimeout(()=>{},60000)" ${m}`;
 const escapee = (m) => `node -e "require('child_process').spawn('node',['-e','setTimeout(()=>{},60000)','${m}'],{detached:true,stdio:'ignore'}).unref()"`;
+// Apple platform binary: its environment is invisible to `ps` on macOS, so only descendant tracking sees it.
+const perl = (m, escape) => `/usr/bin/perl -e 'use POSIX; sleep 1; ${escape}; sleep 60' ${m}`;
 const big = (stream) => `node -e "process.${stream}.write('x'.repeat(3*1048576))"`;
 const longRun = (m, pf) => `${marked(m)} & echo $! > ${pf}; sleep 60`;
 
@@ -228,6 +230,23 @@ S['escapee'] = { inv: ['INV-PT-3'], step: 4, async run(ctx) {
   ctx.check('gate pass, exit 0', r.code === 0, [r.code, reasonOf(r)]);
   await noSurvivor(ctx, m, 'no new-session marker process after gate returns');
   shapeChecks(ctx, r);
+} };
+
+S['platform-escapee'] = { inv: ['INV-PT-1', 'INV-PT-3'], step: '4b', async run(ctx) {
+  const cases = [
+    { label: 'perl setpgrp(0,0), verify exits 0', escape: 'setpgrp(0,0)', tail: 'sleep 2; exit 0', code: 0 },
+    { label: 'perl POSIX::setsid(), verify exits 0', escape: 'POSIX::setsid()', tail: 'sleep 2; exit 0', code: 0 },
+    { label: 'perl setpgrp(0,0), 3 s timeout', escape: 'setpgrp(0,0)', tail: 'sleep 60', code: 2, timeout: 3 },
+    { label: 'perl POSIX::setsid(), 3 s timeout', escape: 'POSIX::setsid()', tail: 'sleep 60', code: 2, timeout: 3 },
+  ];
+  for (const c of cases) {
+    const m = ctx.mark(); const T = ctx.dir('tmp'), L = ctx.dir('locks');
+    const fx = fixture(ctx, pair({ verify: `${perl(m, c.escape)} & ${c.tail}`, timeoutRaw: c.timeout }));
+    const r = await launch(ctx, 'gate', { repo: fx.repo, base: fx.shas[0], head: fx.shas[1], tmp: T, locks: L }).done;
+    ctx.check(`${c.label}: exit ${c.code}`, r.code === c.code, [r.code, reasonOf(r)]);
+    await noSurvivor(ctx, m, `${c.label}: no marker process after the gate returns`);
+    emptyDir(ctx, L, `${c.label}: $L empty`); shapeChecks(ctx, r);
+  }
 } };
 
 S['large-output'] = { inv: ['INV-PT-17', 'INV-PT-19'], step: 5, async run(ctx) {

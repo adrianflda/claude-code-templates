@@ -140,8 +140,8 @@ scenario('stragglers of "verifySetup" are reaped before "verify" starts', async 
   assert.strictEqual(r.code, 0, r.stdout);
 });
 
-scenario('a descendant that left the process group is swept by the run marker', async () => {
-  // "verify" fails with exit 4 if the setup's escapee is still alive when it starts, so the sweep must
+scenario(`a descendant that left the process group is killed whether or not its environment is visible [node detached]`, async () => {
+  // "verify" fails with exit 4 if the setup's escapee is still alive when it starts, so the kill must
   // happen at the end of the setup command, not merely when the referee exits.
   const m = mark();
   const fx = fixture({ tools: { verifySetup: `${cmdEscapee(m)}; exit 0`, verify: `if pgrep -f "[${m[0]}]${m.slice(1)}" >/dev/null; then exit 4; else exit 0; fi` } });
@@ -149,6 +149,19 @@ scenario('a descendant that left the process group is swept by the run marker', 
   assert.strictEqual(r.code, 0, r.stdout);
   assert.ok(await noMarker(m, 3000), 'no process carries MARK');
 });
+
+// Apple platform binaries hide their environment from ps, so only descendant tracking can see them.
+const cmdPerl = (m, escape) => `/usr/bin/perl -e 'use POSIX; sleep 1; ${escape}; sleep 60' ${m}`;
+for (const [escape, ending, refExit] of [['setpgrp(0,0)', 'exits 0', 0], ['POSIX::setsid()', 'exits 0', 0], ['setpgrp(0,0)', 'timeout', 2], ['POSIX::setsid()', 'timeout', 2]]) {
+  scenario(`a descendant that left the process group is killed whether or not its environment is visible [perl ${escape} ${ending}]`, async () => {
+    const m = mark();
+    const verify = ending === 'timeout' ? `${cmdPerl(m, escape)} & sleep 60` : `${cmdPerl(m, escape)} & sleep 2; exit 0`;
+    const fx = fixture({ tools: { verify, ...(ending === 'timeout' ? { timeoutSeconds: 3 } : {}) } });
+    const r = await run(REFEREE, fx);
+    assert.strictEqual(r.code, refExit, r.stdout);
+    assert.deepStrictEqual(pgrepMarker(m), [], 'no process carries MARK at the moment the referee exits');
+  });
+}
 
 scenario('every command sees one run marker per run and no NODE_TEST_CONTEXT', async () => {
   const w = join(sideDir(), 'witness');
