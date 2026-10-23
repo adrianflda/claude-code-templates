@@ -25,15 +25,26 @@
 // fingerprinting, and a baseline with genuinely no tests. Only a black-box probe in a
 // prod-indistinguishable environment closes these. Symlinks in a committed tree => indeterminate.
 //
+// PROCESS TREE (spec: docs/specs/gate-process-tree/contract.md): every command runs in its own process
+// group with a per-command timeout (tools.json "timeoutSeconds", default 300, read from base). On
+// timeout the whole group gets SIGTERM, then SIGKILL after 5 s; after every command the group and every
+// process carrying the run marker (QK_RUN_ID) are killed. Pre-flight order: validation, memory guard,
+// repository lock. On any exit path the referee controls (verdict, signal, uncaught exception, parent
+// death) it kills every live tree and releases the lock (process-safety/gate-session.mjs). Env:
+// QK_LOCK_DIR (lock directory, default the OS temp dir), QK_MEM_GUARD=on|off, QK_MEM_MAX_PRESSURE_LEVEL,
+// QK_MEM_MIN_LEVEL_PCT (see process-safety/mem-guard.mjs).
+//
 // Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>]
 // Exit:   0 = PASS · 1 = real FAIL · 2 = indeterminate (fail-closed)
+//         (killed by SIGINT/SIGTERM/SIGHUP: 130/143/129; parent died: 129)
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync } from 'node:fs';
+import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync } from 'node:fs';
 import { join, dirname, isAbsolute, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
 import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
+import { resolveTimeoutSeconds, unsupportedPlatformReason, commandFailure, openSession } from './process-safety/gate-session.mjs';
 
 // CONVERGENCE FIX (panel v2.6 root cause): there is NO silent "inert" / "harness-by-name" allow-list
 // of changes the gate skips — that path-name allow-list always leaked a real runtime input (a prompt
@@ -95,6 +106,13 @@ function ledgerAppend(repoDir, record) {
 }
 function indeterminate(reason) { emit({ pass: false, indeterminate: true, evidence: null, reason }); process.exit(2); }
 
+// --- process-tree lifecycle (PT-A9..A14): installed before anything can be spawned ---
+const platformRefusal = unsupportedPlatformReason(process.platform);
+if (platformRefusal) indeterminate(platformRefusal);
+const session = openSession({
+  onFatal: (e) => emit({ pass: false, indeterminate: true, evidence: null, reason: `referee crashed: ${e && e.message ? e.message : e}` }),
+});
+
 // --- args ---
 const args = process.argv.slice(2);
 let repo = null, base = null, head = 'HEAD';
@@ -117,29 +135,42 @@ for (const ref of [base, head]) {
 const show = (ref, path, enc = 'utf8') => spawnSync('git', ['-C', repo, 'show', `${ref}:${path}`], { encoding: enc });
 
 // --- contract from the BASE ref (immutable to the change) ---
-function loadToolsAtBase() {
+const tooBroad = (g) => typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim());
+const arrayOr = (v, fallback) => (Array.isArray(v) ? v : fallback);
+const nonEmptyArrayOr = (v, fallback) => (Array.isArray(v) && v.length ? v : fallback);
+const trimmedStringOrNull = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+function checkGlobs(globs, describe) {
+  for (const g of globs) if (tooBroad(g)) indeterminate(describe(g));
+}
+function readToolsJson() {
   const raw = show(base, '.quality-kernel/tools.json');
   if (raw.status !== 0) indeterminate(`no .quality-kernel/tools.json at base ${base} (the verify contract must be committed in the baseline)`);
-  let j; try { j = JSON.parse(raw.stdout); } catch (e) { indeterminate(`unreadable tools.json at base ${base}: ${e.message}`); }
+  try { return JSON.parse(raw.stdout); } catch (e) { indeterminate(`unreadable tools.json at base ${base}: ${e.message}`); }
+}
+function validateRequired(j) {
   if (!j || typeof j.verify !== 'string' || !j.verify.trim()) indeterminate('tools.json "verify" must be a non-empty string at base');
   if (!Array.isArray(j.productionGlobs) || j.productionGlobs.length === 0) indeterminate('tools.json "productionGlobs" must be a non-empty array at base');
-  for (const g of j.productionGlobs) {
-    if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`productionGlobs entry "${g}" is too broad — use narrow source globs like "src/**"`);
-  }
-  for (const g of (Array.isArray(j.outputGlobs) ? j.outputGlobs : [])) {
-    if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`outputGlobs entry "${g}" is too broad — it would disable the created-file check; name specific build/coverage dirs like "dist/**"`);
-  }
-  for (const g of (Array.isArray(j.testGlobs) ? j.testGlobs : [])) {
-    if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`testGlobs entry "${g}" is too broad`);
-  }
+}
+function validateGlobs(j) {
+  checkGlobs(j.productionGlobs, (g) => `productionGlobs entry "${g}" is too broad — use narrow source globs like "src/**"`);
+  checkGlobs(arrayOr(j.outputGlobs, []), (g) => `outputGlobs entry "${g}" is too broad — it would disable the created-file check; name specific build/coverage dirs like "dist/**"`);
+  checkGlobs(arrayOr(j.testGlobs, []), (g) => `testGlobs entry "${g}" is too broad`);
+}
+function loadToolsAtBase() {
+  const j = readToolsJson();
+  validateRequired(j);
+  validateGlobs(j);
+  const timeout = resolveTimeoutSeconds(j); // PT-B3: invalid is indeterminate, never clamped or defaulted
+  if (timeout.error) indeterminate(timeout.error);
   return {
+    timeoutSeconds: timeout.seconds,
     verify: j.verify.trim(),
     productionGlobs: j.productionGlobs,
-    testGlobs: Array.isArray(j.testGlobs) && j.testGlobs.length ? j.testGlobs : DEFAULT_TEST_GLOBS,
-    acceptance: typeof j.acceptance === 'string' && j.acceptance.trim() ? j.acceptance.trim() : null,
-    verifySetup: typeof j.verifySetup === 'string' && j.verifySetup.trim() ? j.verifySetup.trim() : null,
-    linkPaths: Array.isArray(j.linkPaths) ? j.linkPaths : DEFAULT_LINK_PATHS,
-    outputGlobs: Array.isArray(j.outputGlobs) ? j.outputGlobs : [],
+    testGlobs: nonEmptyArrayOr(j.testGlobs, DEFAULT_TEST_GLOBS),
+    acceptance: trimmedStringOrNull(j.acceptance),
+    verifySetup: trimmedStringOrNull(j.verifySetup),
+    linkPaths: arrayOr(j.linkPaths, DEFAULT_LINK_PATHS),
+    outputGlobs: arrayOr(j.outputGlobs, []),
   };
 }
 const tools = loadToolsAtBase();
@@ -164,9 +195,6 @@ if (tools.acceptance) {
     if (isProd(p)) indeterminate(`the acceptance oracle executes "${p}", which is overlaid production code (head-controlled) — the change would control its own acceptance oracle. Move it out of productionGlobs (e.g. an acceptance/ dir declared in testGlobs).`);
   }
 }
-
-const childEnv = { ...process.env };
-delete childEnv.NODE_TEST_CONTEXT;
 
 function diffPaths() {
   const d = spawnSync('git', ['-C', repo, 'diff', '-z', '--name-status', '-M', `${base}..${head}`], { encoding: 'utf8' });
@@ -253,7 +281,6 @@ if (sym) indeterminate(`symlink in a committed tree is not allowed under the gat
 }
 
 // --- tree building ---
-function tmpDir() { return mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); }
 function safeJoin(root, p) { const d = normalize(join(root, p)); return (d === root || d.startsWith(root + '/')) ? d : null; }
 // No shell. The previous `bash -c` form interpolated repo/ref/into with JSON.stringify, which only
 // adds double quotes — command substitution ($(…), backticks) still executes inside them, so a ref or
@@ -305,7 +332,7 @@ function snapshot(root) {
 }
 
 function buildTrustedTree() {
-  const tmp = tmpDir();
+  const tmp = session.tempTree();
   if (!archive(base, tmp)) { rmSync(tmp, { recursive: true, force: true }); indeterminate('git archive of base failed'); }
   // full archive-strip detection: every committed base file must have materialized (export-ignore).
   for (const e of baseEntries) {
@@ -328,28 +355,33 @@ function buildTrustedTree() {
   return tmp;
 }
 function buildHeadTree() {
-  const tmp = tmpDir();
+  const tmp = session.tempTree();
   if (!archive(head, tmp)) { rmSync(tmp, { recursive: true, force: true }); indeterminate('git archive of head failed'); }
   linkDeps(tmp);
   return tmp;
 }
 
-function run(cmd, cwd, label) {
-  const r = spawnSync(cmd, { cwd, shell: true, encoding: 'utf8', env: childEnv, timeout: 300000 });
-  if (r.error || r.status === null || r.status === undefined) indeterminate(`${label} could not complete: "${cmd}" (${r.signal ? `timed out (${r.signal})` : (r.error ? r.error.message : 'no exit status')})`);
-  if ((r.status === 127 || r.status === 126) && !(r.stdout && r.stdout.trim())) indeterminate(`${label} not executable (exit ${r.status}): "${cmd}"`);
-  return r.status;
+async function run(cmd, cwd, label) {
+  const r = await session.run(cmd, cwd);
+  const failure = commandFailure(r, { label, cmd, timeoutSeconds: tools.timeoutSeconds });
+  if (failure) indeterminate(failure);
+  return r.code;
 }
-function setup(cwd, label) { if (tools.verifySetup) { const s = run(tools.verifySetup, cwd, `${label} setup`); if (s !== 0) indeterminate(`${label} setup failed (exit ${s}): "${tools.verifySetup}"`); } }
+async function setup(cwd, label) { if (tools.verifySetup) { const s = await run(tools.verifySetup, cwd, `${label} setup`); if (s !== 0) indeterminate(`${label} setup failed (exit ${s}): "${tools.verifySetup}"`); } }
+
+// --- PRE-FLIGHT (PT-C1): validation is done above; now the memory guard, then the repository lock —
+// both before any temp tree exists, so a refusal leaves nothing behind. ---
+const refusal = session.preflight({ repo, timeoutMs: tools.timeoutSeconds * 1000 });
+if (refusal) indeterminate(refusal);
 
 // TRUSTED run + harness-integrity check
 const trusted = buildTrustedTree();
 let trustedExit, acceptanceExit = null;
 try {
   const before = snapshot(trusted);
-  setup(trusted, 'trusted');
-  trustedExit = run(tools.verify, trusted, 'verify (base harness × head production)');
-  if (tools.acceptance) acceptanceExit = run(tools.acceptance, trusted, 'acceptance oracle');
+  await setup(trusted, 'trusted');
+  trustedExit = await run(tools.verify, trusted, 'verify (base harness × head production)');
+  if (tools.acceptance) acceptanceExit = await run(tools.acceptance, trusted, 'acceptance oracle');
   const after = snapshot(trusted);
   const bail = (msg) => { rmSync(trusted, { recursive: true, force: true }); indeterminate(msg); };
   for (const [k, b] of before) {
@@ -369,7 +401,7 @@ try {
 // HEAD-AS-IS run
 const headTree = buildHeadTree();
 let headExit;
-try { setup(headTree, 'head'); headExit = run(tools.verify, headTree, 'verify (head as-is)'); }
+try { await setup(headTree, 'head'); headExit = await run(tools.verify, headTree, 'verify (head as-is)'); }
 finally { rmSync(headTree, { recursive: true, force: true }); }
 
 const pass = trustedExit === 0 && headExit === 0 && (acceptanceExit === null || acceptanceExit === 0);
