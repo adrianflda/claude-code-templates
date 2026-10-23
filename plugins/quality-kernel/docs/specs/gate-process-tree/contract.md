@@ -207,16 +207,11 @@ Probe notation: `$MARK` unique marker in the grandchild argv; `$T` the run's scr
 | 16 | Linux uses the same override variables: `QK_MEM_MIN_LEVEL_PCT` applies to MemAvailable/MemTotal percent (Linux default 15; macOS default 20), and PSI `some avg10` > 25 refuses (fixed, no override) | PT-C8, PT-C10 |
 | 17 | A non-numeric or out-of-range `QK_MEM_MAX_PRESSURE_LEVEL` / `QK_MEM_MIN_LEVEL_PCT`, or a `QK_MEM_GUARD` other than unset, `on` or `off`, yields INDETERMINATE naming the variable (fail closed, never silently defaulted). Valid: level = integer >= 1; percentage = number >= 0 | PT-C8, PT-C10, PT-C11 |
 | 18 | Process groups are persisted into the lock at each command spawn, via an atomic write (temp file plus rename), so a SIGKILL mid-command is recoverable | PT-C4 |
+| 19 | Cucumber.js is not added (the plugin stays zero-dependency); the `node:test` acceptance harness with verbatim scenario titles plus a trace test is the accepted Gherkin binding | none |
 
 Unit-test-only criteria (no Gherkin scenario by design): PT-A10, PT-A14, PT-B1 (default 300), PT-C9,
 and the boundary arithmetic of PT-C8.
 
 ## Open questions
 
-- OPEN-Q16 Linux thresholds (PSI 25, MemAvailable 15 percent) have no environment override; only
-  `QK_MEM_GUARD=off` disables them. Confirm this is intended.
-- OPEN-Q17 Behavior of a non-numeric or out-of-range `QK_MEM_MAX_PRESSURE_LEVEL` /
-  `QK_MEM_MIN_LEVEL_PCT`, and of `QK_MEM_GUARD` values other than `off`. Not specified; neither the
-  contract nor the feature exercises them.
-- OPEN-Q18 How the pgids of a running command reach the lock: at spawn of each command (INFERRED,
-  needed so a SIGKILL mid-command is recoverable). PT-C4 states only the effect.
+None. Q16-Q18 are resolved in decisions 16-18 above.

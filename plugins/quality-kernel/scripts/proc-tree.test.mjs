@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, rmSyn
 import { tmpdir } from 'node:os';
 import {
   KILL_GRACE_MS, DEFAULT_TIMEOUT_SECONDS, resolveTimeoutSeconds, unsupportedPlatformReason,
-  newRunId, killGroup, groupAlive, sweepByMarker, createRunner,
+  newRunId, killGroup, groupAlive, sweepByMarker, procfsPidsCarrying, createRunner,
 } from './proc-tree.mjs';
 import { newMarker, pgrepMarker, pkillMarker, isAlive, waitFor, markedSleep } from './proc-test-kit.mjs';
 
@@ -210,4 +210,16 @@ setTimeout(() => { throw new Error('injected fault'); }, 1500);
     assert.deepStrictEqual(await waitFor(() => pgrepMarker(m).length === 0, { timeoutMs: 3000 }), true, 'tree must be dead');
     assert.deepStrictEqual(readdirSync(lockDir), [], 'lock must be released');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('procfsPidsCarrying (Linux branch) matches numeric entries whose environ carries the needle, skipping unreadable ones', () => {
+  const root = mkdtempSync(join(tmpdir(), 'qkpt-procfs-'));
+  try {
+    for (const [name, environ] of [['101', 'A=1\0QK_RUN_ID=abc\0'], ['202', 'A=1\0'], ['self', 'QK_RUN_ID=abc\0']]) {
+      mkdirSync(join(root, name));
+      writeFileSync(join(root, name, 'environ'), environ);
+    }
+    mkdirSync(join(root, '303')); // numeric entry without an environ file: gone or not ours
+    assert.deepStrictEqual(procfsPidsCarrying('QK_RUN_ID=abc', root), [101]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

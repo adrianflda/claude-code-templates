@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { evaluatePressure, resolveGuardConfig, readSample, runMemoryGuard } from './mem-guard.mjs';
+import { evaluatePressure, resolveGuardConfig, readSample, readLinuxSample, runMemoryGuard } from './mem-guard.mjs';
 
 const T = { maxLevel: 2, minPct: 20 };
 const none = { pressureLevel: null, levelPct: null, psiAvg10: null, availPct: null };
@@ -126,4 +126,22 @@ test('readSample on macOS returns real sysctl values', { skip: process.platform 
 });
 test('readSample on an unsupported platform returns all-null (unreadable)', () => {
   assert.deepStrictEqual(readSample('freebsd'), none);
+});
+
+// --- readLinuxSample with an injected reader (the Linux probes cannot run on this macOS host) ---
+const fakeProc = (files) => (path) => { if (!(path in files)) throw new Error('ENOENT'); return files[path]; };
+
+test('readLinuxSample parses PSI some avg10 and MemAvailable/MemTotal percent', () => {
+  const s = readLinuxSample(fakeProc({
+    '/proc/pressure/memory': 'some avg10=12.50 avg60=1.00 avg300=0.00 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n',
+    '/proc/meminfo': 'MemTotal:       1000 kB\nMemFree: 1 kB\nMemAvailable:    250 kB\n',
+  }));
+  assert.deepStrictEqual(s, { psiAvg10: 12.5, availPct: 25 });
+});
+
+test('readLinuxSample reports an absent or malformed probe as null (unreadable)', () => {
+  assert.deepStrictEqual(readLinuxSample(fakeProc({})), { psiAvg10: null, availPct: null });
+  const s = readLinuxSample(fakeProc({ '/proc/pressure/memory': 'garbage', '/proc/meminfo': 'MemTotal: 0 kB\nMemAvailable: 5 kB\n' }));
+  assert.deepStrictEqual(s, { psiAvg10: null, availPct: null });
+  assert.strictEqual(readLinuxSample(fakeProc({ '/proc/meminfo': 'MemTotal: 10 kB\n' })).availPct, null);
 });

@@ -147,32 +147,42 @@ for (const ref of [base, head]) {
 const show = (ref, path, enc = 'utf8') => spawnSync('git', ['-C', repo, 'show', `${ref}:${path}`], { encoding: enc });
 
 // --- contract from the BASE ref (immutable to the change) ---
-function loadToolsAtBase() {
+const tooBroad = (g) => typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim());
+const arrayOr = (v, fallback) => (Array.isArray(v) ? v : fallback);
+const nonEmptyArrayOr = (v, fallback) => (Array.isArray(v) && v.length ? v : fallback);
+const trimmedStringOrNull = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+function checkGlobs(globs, describe) {
+  for (const g of globs) if (tooBroad(g)) indeterminate(describe(g));
+}
+function readToolsJson() {
   const raw = show(base, '.quality-kernel/tools.json');
   if (raw.status !== 0) indeterminate(`no .quality-kernel/tools.json at base ${base} (the verify contract must be committed in the baseline)`);
-  let j; try { j = JSON.parse(raw.stdout); } catch (e) { indeterminate(`unreadable tools.json at base ${base}: ${e.message}`); }
+  try { return JSON.parse(raw.stdout); } catch (e) { indeterminate(`unreadable tools.json at base ${base}: ${e.message}`); }
+}
+function validateRequired(j) {
   if (!j || typeof j.verify !== 'string' || !j.verify.trim()) indeterminate('tools.json "verify" must be a non-empty string at base');
   if (!Array.isArray(j.productionGlobs) || j.productionGlobs.length === 0) indeterminate('tools.json "productionGlobs" must be a non-empty array at base');
-  for (const g of j.productionGlobs) {
-    if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`productionGlobs entry "${g}" is too broad — use narrow source globs like "src/**"`);
-  }
-  for (const g of (Array.isArray(j.outputGlobs) ? j.outputGlobs : [])) {
-    if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`outputGlobs entry "${g}" is too broad — it would disable the created-file check; name specific build/coverage dirs like "dist/**"`);
-  }
-  for (const g of (Array.isArray(j.testGlobs) ? j.testGlobs : [])) {
-    if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`testGlobs entry "${g}" is too broad`);
-  }
+}
+function validateGlobs(j) {
+  checkGlobs(j.productionGlobs, (g) => `productionGlobs entry "${g}" is too broad — use narrow source globs like "src/**"`);
+  checkGlobs(arrayOr(j.outputGlobs, []), (g) => `outputGlobs entry "${g}" is too broad — it would disable the created-file check; name specific build/coverage dirs like "dist/**"`);
+  checkGlobs(arrayOr(j.testGlobs, []), (g) => `testGlobs entry "${g}" is too broad`);
+}
+function loadToolsAtBase() {
+  const j = readToolsJson();
+  validateRequired(j);
+  validateGlobs(j);
   const timeout = resolveTimeoutSeconds(j); // PT-B3: invalid is indeterminate, never clamped or defaulted
   if (timeout.error) indeterminate(timeout.error);
   return {
     timeoutSeconds: timeout.seconds,
     verify: j.verify.trim(),
     productionGlobs: j.productionGlobs,
-    testGlobs: Array.isArray(j.testGlobs) && j.testGlobs.length ? j.testGlobs : DEFAULT_TEST_GLOBS,
-    acceptance: typeof j.acceptance === 'string' && j.acceptance.trim() ? j.acceptance.trim() : null,
-    verifySetup: typeof j.verifySetup === 'string' && j.verifySetup.trim() ? j.verifySetup.trim() : null,
-    linkPaths: Array.isArray(j.linkPaths) ? j.linkPaths : DEFAULT_LINK_PATHS,
-    outputGlobs: Array.isArray(j.outputGlobs) ? j.outputGlobs : [],
+    testGlobs: nonEmptyArrayOr(j.testGlobs, DEFAULT_TEST_GLOBS),
+    acceptance: trimmedStringOrNull(j.acceptance),
+    verifySetup: trimmedStringOrNull(j.verifySetup),
+    linkPaths: arrayOr(j.linkPaths, DEFAULT_LINK_PATHS),
+    outputGlobs: arrayOr(j.outputGlobs, []),
   };
 }
 const tools = loadToolsAtBase();
@@ -367,11 +377,13 @@ function buildHeadTree() {
   return tmp;
 }
 
+const NOT_EXECUTABLE_CODES = new Set([126, 127]);
+const incompleteDetail = (r) => (r.error ? r.error.message : (r.signal ? `killed by ${r.signal}` : 'no exit status'));
 async function run(cmd, cwd, label) {
   const r = await runner.run(cmd, cwd);
   if (r.timedOut) indeterminate(`${label} timed out after ${tools.timeoutSeconds}s; process tree killed: "${cmd}"`);
-  if (r.error || r.code === null) indeterminate(`${label} could not complete: "${cmd}" (${r.error ? r.error.message : (r.signal ? `killed by ${r.signal}` : 'no exit status')})`);
-  if ((r.code === 127 || r.code === 126) && !r.hasStdout) indeterminate(`${label} not executable (exit ${r.code}): "${cmd}"`);
+  if (r.error || r.code === null) indeterminate(`${label} could not complete: "${cmd}" (${incompleteDetail(r)})`);
+  if (NOT_EXECUTABLE_CODES.has(r.code) && !r.hasStdout) indeterminate(`${label} not executable (exit ${r.code}): "${cmd}"`);
   return r.code;
 }
 async function setup(cwd, label) { if (tools.verifySetup) { const s = await run(tools.verifySetup, cwd, `${label} setup`); if (s !== 0) indeterminate(`${label} setup failed (exit ${s}): "${tools.verifySetup}"`); } }

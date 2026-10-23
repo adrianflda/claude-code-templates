@@ -15,11 +15,12 @@ export const isAlive = (pid) => {
 // Poll `pred` until it returns a truthy value or the bound elapses; returns the last value.
 export async function waitFor(pred, { timeoutMs = 5000, stepMs = 25 } = {}) {
   const end = Date.now() + timeoutMs;
-  for (;;) {
-    const v = await pred();
-    if (v || Date.now() >= end) return v;
+  let v = await pred();
+  while (!v && Date.now() < end) {
     await new Promise((r) => setTimeout(r, stepMs));
+    v = await pred();
   }
+  return v;
 }
 // A portable long-lived process whose argv carries `mark` (found by pgrep -f).
 export const markedSleep = (mark, secs = 60) => `node -e "setTimeout(()=>{},${secs * 1000})" ${mark}`;
