@@ -30,22 +30,21 @@
 // timeout the whole group gets SIGTERM, then SIGKILL after 5 s; after every command the group and every
 // process carrying the run marker (QK_RUN_ID) are killed. Pre-flight order: validation, memory guard,
 // repository lock. On any exit path the referee controls (verdict, signal, uncaught exception, parent
-// death) it kills every live tree and releases the lock. Env: QK_LOCK_DIR (lock directory, default the
-// OS temp dir), QK_MEM_GUARD=on|off, QK_MEM_MAX_PRESSURE_LEVEL, QK_MEM_MIN_LEVEL_PCT (see mem-guard.mjs).
+// death) it kills every live tree and releases the lock (process-safety/gate-session.mjs). Env:
+// QK_LOCK_DIR (lock directory, default the OS temp dir), QK_MEM_GUARD=on|off, QK_MEM_MAX_PRESSURE_LEVEL,
+// QK_MEM_MIN_LEVEL_PCT (see process-safety/mem-guard.mjs).
 //
 // Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>]
 // Exit:   0 = PASS · 1 = real FAIL · 2 = indeterminate (fail-closed)
 //         (killed by SIGINT/SIGTERM/SIGHUP: 130/143/129; parent died: 129)
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync } from 'node:fs';
+import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync } from 'node:fs';
 import { join, dirname, isAbsolute, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
 import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
-import { resolveTimeoutSeconds, unsupportedPlatformReason, newRunId, createRunner, installCleanup } from './proc-tree.mjs';
-import { acquireLock } from './gate-lock.mjs';
-import { runMemoryGuard } from './mem-guard.mjs';
+import { resolveTimeoutSeconds, unsupportedPlatformReason, commandFailure, openSession } from './process-safety/gate-session.mjs';
 
 // CONVERGENCE FIX (panel v2.6 root cause): there is NO silent "inert" / "harness-by-name" allow-list
 // of changes the gate skips — that path-name allow-list always leaked a real runtime input (a prompt
@@ -108,22 +107,11 @@ function ledgerAppend(repoDir, record) {
 function indeterminate(reason) { emit({ pass: false, indeterminate: true, evidence: null, reason }); process.exit(2); }
 
 // --- process-tree lifecycle (PT-A9..A14): installed before anything can be spawned ---
-const RUN_ID = newRunId();
-const tmpTrees = new Set();
-let runner = null, lock = null;
 const platformRefusal = unsupportedPlatformReason(process.platform);
 if (platformRefusal) indeterminate(platformRefusal);
-installCleanup({
-  cleanup: () => {
-    if (runner) runner.killAll('SIGKILL');
-    if (lock) lock.release();
-    for (const t of tmpTrees) { try { rmSync(t, { recursive: true, force: true }); } catch { /* best-effort */ } }
-  },
+const session = openSession({
   onFatal: (e) => emit({ pass: false, indeterminate: true, evidence: null, reason: `referee crashed: ${e && e.message ? e.message : e}` }),
 });
-// PT-A13: the launching process died (even by SIGKILL) -> kill every tree, release the lock, exit.
-const launcherPid = process.ppid;
-setInterval(() => { if (process.ppid !== launcherPid) process.exit(129); }, 1000).unref();
 
 // --- args ---
 const args = process.argv.slice(2);
@@ -208,7 +196,7 @@ if (tools.acceptance) {
   }
 }
 
-const childEnv = { ...process.env, QK_RUN_ID: RUN_ID }; // PT-A7: the marker every command carries
+const childEnv = { ...process.env, QK_RUN_ID: session.runId }; // PT-A7: the marker every command carries
 delete childEnv.NODE_TEST_CONTEXT;
 
 function diffPaths() {
@@ -296,7 +284,6 @@ if (sym) indeterminate(`symlink in a committed tree is not allowed under the gat
 }
 
 // --- tree building ---
-function tmpDir() { const d = mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); tmpTrees.add(d); return d; }
 function safeJoin(root, p) { const d = normalize(join(root, p)); return (d === root || d.startsWith(root + '/')) ? d : null; }
 // No shell. The previous `bash -c` form interpolated repo/ref/into with JSON.stringify, which only
 // adds double quotes — command substitution ($(…), backticks) still executes inside them, so a ref or
@@ -348,7 +335,7 @@ function snapshot(root) {
 }
 
 function buildTrustedTree() {
-  const tmp = tmpDir();
+  const tmp = session.tempTree();
   if (!archive(base, tmp)) { rmSync(tmp, { recursive: true, force: true }); indeterminate('git archive of base failed'); }
   // full archive-strip detection: every committed base file must have materialized (export-ignore).
   for (const e of baseEntries) {
@@ -371,31 +358,24 @@ function buildTrustedTree() {
   return tmp;
 }
 function buildHeadTree() {
-  const tmp = tmpDir();
+  const tmp = session.tempTree();
   if (!archive(head, tmp)) { rmSync(tmp, { recursive: true, force: true }); indeterminate('git archive of head failed'); }
   linkDeps(tmp);
   return tmp;
 }
 
-const NOT_EXECUTABLE_CODES = new Set([126, 127]);
-const incompleteDetail = (r) => (r.error ? r.error.message : (r.signal ? `killed by ${r.signal}` : 'no exit status'));
 async function run(cmd, cwd, label) {
-  const r = await runner.run(cmd, cwd);
-  if (r.timedOut) indeterminate(`${label} timed out after ${tools.timeoutSeconds}s; process tree killed: "${cmd}"`);
-  if (r.error || r.code === null) indeterminate(`${label} could not complete: "${cmd}" (${incompleteDetail(r)})`);
-  if (NOT_EXECUTABLE_CODES.has(r.code) && !r.hasStdout) indeterminate(`${label} not executable (exit ${r.code}): "${cmd}"`);
+  const r = await session.run(cmd, cwd);
+  const failure = commandFailure(r, { label, cmd, timeoutSeconds: tools.timeoutSeconds });
+  if (failure) indeterminate(failure);
   return r.code;
 }
 async function setup(cwd, label) { if (tools.verifySetup) { const s = await run(tools.verifySetup, cwd, `${label} setup`); if (s !== 0) indeterminate(`${label} setup failed (exit ${s}): "${tools.verifySetup}"`); } }
 
 // --- PRE-FLIGHT (PT-C1): validation is done above; now the memory guard, then the repository lock —
 // both before any temp tree exists, so a refusal leaves nothing behind. ---
-const guard = runMemoryGuard();
-if (!guard.ok) indeterminate(guard.reason);
-const acquired = acquireLock({ repo, runId: RUN_ID, dir: process.env.QK_LOCK_DIR || tmpdir() });
-if (!acquired.ok) indeterminate(acquired.reason);
-lock = acquired.lock;
-runner = createRunner({ runId: RUN_ID, env: childEnv, timeoutMs: tools.timeoutSeconds * 1000, onGroup: (pgid) => lock.addPgid(pgid) });
+const refusal = session.preflight({ repo, env: childEnv, timeoutMs: tools.timeoutSeconds * 1000 });
+if (refusal) indeterminate(refusal);
 
 // TRUSTED run + harness-integrity check
 const trusted = buildTrustedTree();

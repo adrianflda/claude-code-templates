@@ -13,9 +13,9 @@
 // `notes` and via exit 3 rather than pretending to satisfy it. For an enforced critical merge,
 // call `breaker-gate.mjs --breaker ...` instead of this script.
 
-import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createForwarder } from './process-safety/proc-forward.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -23,42 +23,10 @@ const repoIdx = argv.indexOf('--repo');
 const baseIdx = argv.indexOf('--base');
 const passthrough = argv; // route + referee accept the same --repo/--base/--head flags
 
-// The gate must stay responsive while a child runs: with a blocking spawnSync a SIGTERM aimed at the
-// gate would kill it by default disposition and orphan the referee and every tree under it (PT-A12).
-// So the child is async, and SIGINT/SIGTERM/SIGHUP are forwarded to it; the referee kills its trees on
-// those signals and exits, then the gate exits 128+signal.
-const SIGNALS = [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]];
-const FORWARD_GRACE_MS = 10000;
-let current = null, terminatingWith = null;
-
-function runJson(script) {
-  return new Promise((resolve) => {
-    // the referee's stderr (e.g. the memory-guard warning) stays visible; route's is discarded as before
-    const child = spawn('node', [join(here, script), ...passthrough], { stdio: ['ignore', 'pipe', script === 'referee.mjs' ? 'inherit' : 'ignore'] });
-    current = child;
-    let out = '';
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (d) => { out += d; });
-    const settle = (code) => {
-      current = null;
-      if (terminatingWith !== null) process.exit(terminatingWith);
-      let json = null;
-      try { json = JSON.parse(out.trim().split('\n').filter(Boolean).pop()); } catch { /* leave null */ }
-      resolve({ code, json });
-    };
-    child.on('error', () => settle(null));
-    child.on('close', (code) => settle(code));
-  });
-}
-for (const [sig, code] of SIGNALS) {
-  process.on(sig, () => {
-    if (terminatingWith !== null) return;
-    terminatingWith = code;
-    if (!current) process.exit(code);
-    current.kill(sig);
-    setTimeout(() => { try { current.kill('SIGKILL'); } catch { /* gone */ } process.exit(code); }, FORWARD_GRACE_MS).unref();
-  });
-}
+// PT-A12: children run async and SIGINT/SIGTERM/SIGHUP are forwarded to them (see proc-forward.mjs).
+const forwarder = createForwarder();
+// the referee's stderr (e.g. the memory-guard warning) stays visible; route's is discarded as before
+const runJson = (script) => forwarder.runJson(join(here, script), passthrough, { stderr: script === 'referee.mjs' ? 'inherit' : 'ignore' });
 
 if (repoIdx === -1 || baseIdx === -1) {
   process.stdout.write(JSON.stringify({ pass: false, error: 'need --repo <dir> --base <ref> [--head <ref>]' }) + '\n');

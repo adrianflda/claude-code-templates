@@ -6,13 +6,14 @@
 // Residual limit: a process that leaves the group AND scrubs its environment escapes every mechanism here.
 import { randomBytes } from 'node:crypto';
 
-// The pieces live in proc-group.mjs and proc-runner.mjs; this module stays the single public entry.
+// The pieces live in proc-group.mjs and proc-runner.mjs; other modules import them only through this one
+// (enforced by import-graph.test.mjs).
 export { killGroup, groupAlive, sweepByMarker, procfsPidsCarrying } from './proc-group.mjs';
 export { KILL_GRACE_MS, createRunner } from './proc-runner.mjs';
 
 export const DEFAULT_TIMEOUT_SECONDS = 300;
 const MIN_TIMEOUT_SECONDS = 1, MAX_TIMEOUT_SECONDS = 3600;
-const SIGNALS = [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]; // 128 + signal number
+export const TERMINATION_SIGNALS = [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]; // 128 + signal number
 
 // PT-B1..B3: absent -> 300; present (even null) must be an integer 1..3600; never clamped or defaulted.
 export function resolveTimeoutSeconds(tools) {
@@ -39,7 +40,7 @@ export function installCleanup({ cleanup, onFatal = () => {}, proc = process }) 
   let ran = false;
   const once = () => { if (!ran) { ran = true; cleanup(); } };
   proc.on('exit', once);
-  for (const [sig, code] of SIGNALS) proc.on(sig, () => { once(); proc.exit(code); });
+  for (const [sig, code] of TERMINATION_SIGNALS) proc.on(sig, () => { once(); proc.exit(code); });
   proc.on('uncaughtException', (err) => {
     once();
     try { proc.stderr.write(`${err && err.stack ? err.stack : err}\n`); onFatal(err); } finally { proc.exit(2); }

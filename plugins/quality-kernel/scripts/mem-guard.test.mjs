@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { evaluatePressure, resolveGuardConfig, readSample, readLinuxSample, runMemoryGuard } from './mem-guard.mjs';
+import { evaluatePressure, resolveGuardConfig, readSample, readLinuxSample, runMemoryGuard } from './process-safety/mem-guard.mjs';
 
 const T = { maxLevel: 2, minPct: 20 };
 const none = { pressureLevel: null, levelPct: null, psiAvg10: null, availPct: null };

@@ -17,14 +17,18 @@ export function lockPathFor(repo, dir) {
   return join(dir, `qk-gate-${key}.lock`);
 }
 
-// undefined = no file, null = unreadable/malformed, else the parsed lock.
 const parseJson = (raw) => { try { return JSON.parse(raw); } catch { return null; } };
 const isLock = (j) => Boolean(j) && Number.isInteger(j.pid) && j.pid > 0 && typeof j.runId === 'string' && RUN_ID_RE.test(j.runId) && Array.isArray(j.pgids);
+// Lock-file text -> the parsed lock, or null when malformed.
+export function parseLock(raw) {
+  const j = parseJson(raw);
+  return isLock(j) ? j : null;
+}
+// undefined = no file, null = unreadable/malformed, else the parsed lock.
 export function readLock(path) {
   let raw;
   try { raw = readFileSync(path, 'utf8'); } catch (e) { return e.code === 'ENOENT' ? undefined : null; }
-  const j = parseJson(raw);
-  return isLock(j) ? j : null;
+  return parseLock(raw);
 }
 export const tmpFor = (path) => `${path}.${process.pid}.tmp`;
 // Create the lock with its full content or not at all: write a temp file, then link() it into place

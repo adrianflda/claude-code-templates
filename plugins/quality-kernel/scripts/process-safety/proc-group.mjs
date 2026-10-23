@@ -21,15 +21,19 @@ export function procfsPidsCarrying(needle, root = '/proc') {
   }
   return out;
 }
-function psPidsCarrying(needle) {
+// Pids on `ps -o pid=,command=` lines that carry `needle`, minus `psPid` (the ps process itself).
+export function parsePsPids(stdout, needle, psPid) {
   const out = [];
-  const ps = spawnSync('ps', ['axeww', '-o', 'pid=,command='], { encoding: 'utf8', maxBuffer: 64 << 20 });
-  for (const line of (ps.stdout || '').split('\n')) {
+  for (const line of stdout.split('\n')) {
     if (!line.includes(needle)) continue;
     const pid = Number(line.trim().split(/\s+/)[0]);
-    if (pid && pid !== ps.pid) out.push(pid);
+    if (pid && pid !== psPid) out.push(pid);
   }
   return out;
+}
+function psPidsCarrying(needle) {
+  const ps = spawnSync('ps', ['axeww', '-o', 'pid=,command='], { encoding: 'utf8', maxBuffer: 64 << 20 });
+  return parsePsPids(ps.stdout || '', needle, ps.pid);
 }
 const pidsCarrying = (needle) => (existsSync('/proc/self/environ') ? procfsPidsCarrying(needle) : psPidsCarrying(needle));
 // PT-A6 / PT-C4: SIGKILL every process carrying the run marker (never this process).

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { lockPathFor, processStart } from './gate-lock.mjs';
+import { lockPathFor, processStart } from './process-safety/gate-lock.mjs';
 import { newMarker, pgrepMarker, pkillMarker, isAlive, waitFor, markedSleep } from './proc-test-kit.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));

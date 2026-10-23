@@ -6,8 +6,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { lockPathFor, processStart, classifyLock, acquireLock } from './gate-lock.mjs';
-import { newRunId } from './proc-tree.mjs';
+import { lockPathFor, processStart, classifyLock, acquireLock } from './process-safety/gate-lock.mjs';
+import { newRunId } from './process-safety/proc-tree.mjs';
 import { newMarker, pgrepMarker, pkillMarker, isAlive, waitFor, markedSleep } from './proc-test-kit.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -135,8 +135,8 @@ test('PT-C6 — six runs racing for one stale lock: exactly one wins, the rest r
   const script = join(dir, 'racer.mjs');
   writeFileSync(script, `
 import { existsSync } from 'node:fs';
-import { acquireLock } from ${JSON.stringify(pathToFileURL(join(here, 'gate-lock.mjs')).href)};
-import { newRunId } from ${JSON.stringify(pathToFileURL(join(here, 'proc-tree.mjs')).href)};
+import { acquireLock } from ${JSON.stringify(pathToFileURL(join(here, 'process-safety', 'gate-lock.mjs')).href)};
+import { newRunId } from ${JSON.stringify(pathToFileURL(join(here, 'process-safety', 'proc-tree.mjs')).href)};
 while (!existsSync(${JSON.stringify(gate)})) {}
 const got = acquireLock({ repo: ${JSON.stringify(repo)}, runId: newRunId(), dir: ${JSON.stringify(lockDir)} });
 console.log(JSON.stringify({ ok: got.ok, reason: got.reason ?? null }));

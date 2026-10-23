@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import {
   KILL_GRACE_MS, DEFAULT_TIMEOUT_SECONDS, resolveTimeoutSeconds, unsupportedPlatformReason,
   newRunId, killGroup, groupAlive, sweepByMarker, procfsPidsCarrying, createRunner,
-} from './proc-tree.mjs';
+} from './process-safety/proc-tree.mjs';
 import { newMarker, pgrepMarker, pkillMarker, isAlive, waitFor, markedSleep } from './proc-test-kit.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -191,8 +191,8 @@ test('PT-A10 — an uncaught exception kills every live tree and releases the lo
   const url = (f) => JSON.stringify(pathToFileURL(join(here, f)).href);
   const script = join(dir, 'inject.mjs');
   writeFileSync(script, `
-import { createRunner, installCleanup, newRunId } from ${url('proc-tree.mjs')};
-import { acquireLock } from ${url('gate-lock.mjs')};
+import { createRunner, installCleanup, newRunId } from ${url('process-safety/proc-tree.mjs')};
+import { acquireLock } from ${url('process-safety/gate-lock.mjs')};
 const runId = newRunId();
 const got = acquireLock({ repo: ${JSON.stringify(repo)}, runId, dir: ${JSON.stringify(lockDir)} });
 const runner = createRunner({ runId, env: { ...process.env, QK_RUN_ID: runId }, timeoutMs: 60000, onGroup: (g) => got.lock.addPgid(g) });

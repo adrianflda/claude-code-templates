@@ -112,9 +112,13 @@ POSIX only (win32 is refused). Environment: `QK_LOCK_DIR` (lock directory, defau
 `QK_MEM_MIN_LEVEL_PCT` (macOS level percent, default 20; on Linux MemAvailable/MemTotal percent,
 default 15) tune it; Linux also refuses when PSI `some avg10` > 25 (fixed). A non-numeric value is
 indeterminate, never silently defaulted. A process that leaves its group AND scrubs its environment
-escapes the sweep; a SIGKILLed referee leaves orphans until the next run's takeover.
+escapes the sweep; a SIGKILLed referee leaves orphans until the next run's takeover. The code lives in
+`scripts/process-safety/`; the referee enters it only through `gate-session.mjs` and the composed gate
+through `proc-forward.mjs` (enforced, with no import cycles, by `scripts/import-graph.test.mjs`).
 
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
+Property tests are a separate command: `node --test scripts/*.prop.mjs` (dependency-free kit in
+`scripts/prop-kit.mjs`; seeded, a failure prints its seed — replay it with `QK_PROP_SEED=<seed>`).
 Tests that spawn git import `scripts/hermetic-git.mjs` first, so your global/system git config
 (excludesfile, XDG ignore, hooksPath) cannot change their result — do the same in new ones.
 `scripts/manifest-consistency.test.mjs` fails the suite if versions (plugin.json, marketplace.json,

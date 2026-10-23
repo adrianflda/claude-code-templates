@@ -54,5 +54,5 @@ export function createRunner({ runId, env, timeoutMs, graceMs = KILL_GRACE_MS, o
       });
     });
   }
-  return { run, killAll, live };
+  return { run, killAll };
 }
