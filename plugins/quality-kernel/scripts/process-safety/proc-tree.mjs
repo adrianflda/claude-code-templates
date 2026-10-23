@@ -8,9 +8,9 @@ import { randomBytes } from 'node:crypto';
 
 // The pieces live in proc-group.mjs and proc-runner.mjs; other modules import them only through this one
 // (enforced by import-graph.test.mjs).
-export { killGroup, groupAlive, sweepByMarker, procfsPidsCarrying } from './proc-group.mjs';
+export { killGroup, groupAlive, sweepByMarker, pidsCarryingMarker, pgidsOf, procfsPidsCarrying } from './proc-group.mjs';
 export { KILL_GRACE_MS, createRunner } from './proc-runner.mjs';
-export { killRecorded } from './proc-descendants.mjs';
+export { killRecorded, snapshotTable, startTimeOf } from './proc-descendants.mjs';
 
 export const DEFAULT_TIMEOUT_SECONDS = 300;
 const MIN_TIMEOUT_SECONDS = 1, MAX_TIMEOUT_SECONDS = 3600;

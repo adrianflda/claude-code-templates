@@ -9,8 +9,9 @@ const DRAIN_MS = 1000; // bounded wait for stdout EOF once the group is dead (a 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Runs commands, each in its own process group. `env` must already carry the marker. `onGroup(pgid)`
-// is invoked synchronously at spawn so the lock can persist it (Decision 18).
-export function createRunner({ runId, env, timeoutMs, graceMs = KILL_GRACE_MS, onGroup = () => {}, onTracked = () => {} }) {
+// is invoked synchronously at spawn so the lock can persist it (Decision 18); `onGroupEnd(pgid)` once that
+// group has been reaped (PT-C14).
+export function createRunner({ runId, env, timeoutMs, graceMs = KILL_GRACE_MS, onGroup = () => {}, onGroupEnd = () => {}, onTracked = () => {} }) {
   const live = new Set(), trackers = new Set();
   const killAll = (sig) => { for (const g of live) killGroup(g, sig); sweepByMarker(runId); for (const t of trackers) t.killRemaining(); };
 
@@ -21,6 +22,7 @@ export function createRunner({ runId, env, timeoutMs, graceMs = KILL_GRACE_MS, o
         if (done) return;
         done = true; clearTimeout(timer); live.delete(pgid);
         if (tracker) { tracker.stop(); trackers.delete(tracker); onTracked([]); }
+        if (pgid !== undefined) onGroupEnd(pgid);
         resolve({ code: null, signal: null, timedOut, hasStdout, ...r });
       };
       try { c = spawn(cmd, { cwd, shell: true, detached: true, env, stdio: ['ignore', 'pipe', 'pipe'] }); }

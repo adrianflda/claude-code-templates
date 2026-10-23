@@ -196,9 +196,6 @@ if (tools.acceptance) {
   }
 }
 
-const childEnv = { ...process.env, QK_RUN_ID: session.runId }; // PT-A7: the marker every command carries
-delete childEnv.NODE_TEST_CONTEXT;
-
 function diffPaths() {
   const d = spawnSync('git', ['-C', repo, 'diff', '-z', '--name-status', '-M', `${base}..${head}`], { encoding: 'utf8' });
   if (d.status !== 0) indeterminate(`git diff base..head failed: ${(d.stderr || '').trim()}`);
@@ -374,7 +371,7 @@ async function setup(cwd, label) { if (tools.verifySetup) { const s = await run(
 
 // --- PRE-FLIGHT (PT-C1): validation is done above; now the memory guard, then the repository lock —
 // both before any temp tree exists, so a refusal leaves nothing behind. ---
-const refusal = session.preflight({ repo, env: childEnv, timeoutMs: tools.timeoutSeconds * 1000 });
+const refusal = session.preflight({ repo, timeoutMs: tools.timeoutSeconds * 1000 });
 if (refusal) indeterminate(refusal);
 
 // TRUSTED run + harness-integrity check

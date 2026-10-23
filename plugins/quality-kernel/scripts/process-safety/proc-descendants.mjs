@@ -45,6 +45,16 @@ export function snapshotTable() {
   return parsePsTable(ps.stdout || '');
 }
 
+// Start time of one pid in the snapshot format, or null when it is not alive. A targeted lookup (not a full
+// table) because the lock records it synchronously at command spawn, where every millisecond is a window.
+export function startTimeOf(pid) {
+  if (existsSync('/proc/self/stat')) {
+    try { return parseProcStat(pid, readFileSync(`/proc/${pid}/stat`, 'latin1'))?.start ?? null; } catch { return null; }
+  }
+  const ps = spawnSync('ps', ['-o', 'pid=,ppid=,lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+  return parsePsTable(ps.stdout || '')[0]?.start ?? null;
+}
+
 // Adds to `tracked` (pid -> {ppid, start}) every process in `table` that is the root or a child of a
 // tracked process. A parent counts only if its current start time equals the recorded one, so a reused
 // pid can neither be mistaken for a tracked process nor extend the chain. Records are never dropped.

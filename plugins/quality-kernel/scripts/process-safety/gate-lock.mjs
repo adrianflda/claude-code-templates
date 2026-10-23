@@ -1,14 +1,14 @@
-// Repository lock for the referee (spec: docs/specs/gate-process-tree/contract.md, PT-C2..C7).
-// One lock file per repository (keyed by the git common directory, so every worktree shares it):
-// {pid, lstart, runId, repo, pgids[]}. A holder is live only if its pid exists AND its start time
-// still equals the recorded `lstart` (PID reuse => stale). Taking over a stale lock kills every
-// process group the dead run recorded and every process carrying its marker.
-import { writeFileSync, renameSync, mkdirSync, unlinkSync } from 'node:fs';
-import { lockPathFor, readLock, tmpFor, createExclusive } from './lock-store.mjs';
+// Repository lock for the referee (spec: docs/specs/gate-process-tree/contract.md, PT-C2..C7, PT-C12..C15).
+// One lock file per repository (keyed by the git common directory, so every worktree shares it); the
+// schema lives in lock-store.mjs. A holder is live only if its pid exists AND its start time still equals
+// the recorded `lstart` (PID reuse => stale). Taking over a stale lock kills what the dead run left behind.
+import { unlinkSync } from 'node:fs';
+import { lockPathFor, readLock, replaceLock, createExclusive, ensureLockDir, defaultLockDir } from './lock-store.mjs';
+import { startTimeOf } from './proc-tree.mjs';
 import { processStart, classifyLock } from './lock-liveness.mjs';
 import { takeOverStale } from './lock-takeover.mjs';
 
-export { lockPathFor, processStart, classifyLock };
+export { lockPathFor, processStart, classifyLock, defaultLockDir };
 
 // null = the holder may be taken over (stale), else the refusal reason.
 function holderRefusal(held, path) {
@@ -17,9 +17,9 @@ function holderRefusal(held, path) {
   return `another gate run is active for this repository (pid ${held.pid}, started ${held.lstart || 'unknown'}, lock ${path})`;
 }
 
-export function acquireLock({ repo, runId, dir }) {
+export function acquireLock({ repo, runId, dir, uid = process.getuid() }) {
   let path;
-  try { mkdirSync(dir, { recursive: true }); path = lockPathFor(repo, dir); }
+  try { ensureLockDir(dir, uid); path = lockPathFor(repo, dir); }
   catch (e) { return { ok: false, reason: `cannot create the repository lock: ${e.message}` }; }
   const payload = { pid: process.pid, lstart: processStart(process.pid), runId, repo, pgids: [], descendants: [] };
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -28,7 +28,8 @@ export function acquireLock({ repo, runId, dir }) {
     if (held === undefined) continue;
     const reason = holderRefusal(held, path);
     if (reason) return { ok: false, reason };
-    takeOverStale(path, held);
+    const refusal = takeOverStale(path, held);
+    if (refusal) return { ok: false, reason: refusal };
   }
   return { ok: false, reason: `another gate run is active for this repository (lock ${path} changed hands repeatedly)` };
 }
@@ -36,17 +37,21 @@ export function acquireLock({ repo, runId, dir }) {
 function ownedLock(path, payload) {
   const pgids = [];
   let descendants = [];
-  const persist = () => {
-    const tmp = tmpFor(path);
-    writeFileSync(tmp, JSON.stringify({ ...payload, pgids, descendants }));
-    renameSync(tmp, path);
-  };
+  const persist = () => replaceLock(path, { ...payload, pgids, descendants });
   return {
     path,
     // Decision 18: persisted at every spawn through temp file + rename, so a SIGKILL mid-command is recoverable.
+    // PT-C14: the leader's start time is recorded with the pgid, so a recycled pgid is recognisable.
     addPgid(g) {
-      if (pgids.includes(g)) return;
-      pgids.push(g);
+      if (pgids.some((e) => e.pgid === g)) return;
+      pgids.push({ pgid: g, start: startTimeOf(g) });
+      persist();
+    },
+    // PT-C14: a reaped group no longer needs to be killed by a later takeover.
+    removePgid(g) {
+      const i = pgids.findIndex((e) => e.pgid === g);
+      if (i < 0) return;
+      pgids.splice(i, 1);
       persist();
     },
     // PT-A18: the tracked descendants, replaced atomically; an unchanged set is not rewritten.

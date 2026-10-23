@@ -36,10 +36,18 @@ function psPidsCarrying(needle) {
   return parsePsPids(ps.stdout || '', needle, ps.pid);
 }
 const pidsCarrying = (needle) => (existsSync('/proc/self/environ') ? procfsPidsCarrying(needle) : psPidsCarrying(needle));
+// Pids carrying the run marker, never this process.
+export const pidsCarryingMarker = (runId) => pidsCarrying(`QK_RUN_ID=${runId}`).filter((pid) => pid !== process.pid);
 // PT-A6 / PT-C4: SIGKILL every process carrying the run marker (never this process).
-export function sweepByMarker(runId) {
-  for (const pid of pidsCarrying(`QK_RUN_ID=${runId}`)) {
-    if (pid === process.pid) continue;
-    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
-  }
+export function sweepByMarker(runId, pids = pidsCarryingMarker(runId)) {
+  for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+}
+
+// Process groups of `pids` (a Set). `ps -o pid=,pgid=` is the same on macOS and Linux.
+export function pgidsOf(pids) {
+  if (!pids.length) return new Set();
+  const ps = spawnSync('ps', ['-o', 'pid=,pgid=', '-p', pids.join(',')], { encoding: 'utf8' });
+  const out = new Set();
+  for (const line of (ps.stdout || '').split('\n')) { const [, g] = line.trim().split(/\s+/).map(Number); if (Number.isInteger(g) && g > 0) out.add(g); }
+  return out;
 }

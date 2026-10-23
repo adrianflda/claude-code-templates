@@ -62,8 +62,9 @@ test('commandFailure: a timeout always wins and names the budget; otherwise it f
 });
 
 test('parseLock round-trips every well-formed lock and rejects arbitrary text', () => {
-  const lockGen = gen.record({ pid: gen.int(1, 99999), lstart: gen.string(), runId: gen.map(gen.array(gen.elements(...'0123456789abcdef'), { maxLength: 16 }), (xs) => xs.join('').padEnd(16, '0')), repo: gen.string(), pgids: gen.array(gen.int(2, 99999)) });
+  const lockGen = gen.record({ pid: gen.int(1, 99999), lstart: gen.string(), runId: gen.map(gen.array(gen.elements(...'0123456789abcdef'), { maxLength: 16 }), (xs) => xs.join('').padEnd(16, '0')), repo: gen.string(), pgids: gen.array(gen.int(2, 99999)), descendants: gen.array(gen.record({ pid: gen.int(2, 99999), start: gen.string() })) });
   forAll(lockGen, (l) => assert.deepStrictEqual(parseLock(JSON.stringify(l)), l));
+  forAll(lockGen, (l) => { const { descendants, ...legacy } = l; return JSON.stringify(parseLock(JSON.stringify(legacy)).descendants) === '[]'; });
   forAll(gen.string(), (s) => { const r = parseLock(s); return r === null || Number.isInteger(r.pid); });
 });
 

@@ -342,3 +342,13 @@ test('PT-A2 — after the grace the group gets SIGKILL: a scrubbed SIGTERM-ignor
     assert.ok(await waitFor(() => !isAlive(pid), { timeoutMs: 3000 }), 'scrubbed SIGTERM-ignorer must be dead');
   } finally { if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('PT-C14 — onGroupEnd reports the command group once it has been reaped, on success and on timeout', async () => {
+  for (const [cmd, timeoutMs] of [['true', 60000], ['sleep 30', 300]]) {
+    const events = []; const m = mkRunner({ timeoutMs, graceMs: 200, onGroup: (g) => events.push(['start', g]), onGroupEnd: (g) => events.push(['end', g, groupAlive(g)]) });
+    await m.run(cmd, tmpdir());
+    assert.strictEqual(events.length, 2, JSON.stringify(events));
+    assert.strictEqual(events[0][0], 'start');
+    assert.deepStrictEqual(events[1], ['end', events[0][1], false], 'reported after the group is dead');
+  }
+});

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { newRunId, createRunner, installCleanup } from './proc-tree.mjs';
-import { acquireLock } from './gate-lock.mjs';
+import { acquireLock, defaultLockDir } from './gate-lock.mjs';
 import { runMemoryGuard } from './mem-guard.mjs';
 
 export { resolveTimeoutSeconds, unsupportedPlatformReason } from './proc-tree.mjs';
@@ -22,8 +22,19 @@ export function commandFailure(r, { label, cmd, timeoutSeconds }) {
   return null;
 }
 
+// PT-A7/D6: the environment every command sees: inherited, plus the run marker, minus NODE_TEST_CONTEXT.
+function commandEnv(inherited, runId) {
+  const env = { ...inherited, QK_RUN_ID: runId };
+  delete env.NODE_TEST_CONTEXT;
+  return env;
+}
+// The lock directory: injected, else QK_LOCK_DIR, else the private per-user directory (PT-C12).
+const resolveLockDir = (lockDir) => lockDir || process.env.QK_LOCK_DIR || defaultLockDir();
+const NO_PREFLIGHT = { code: null, signal: null, timedOut: false, hasStdout: false, error: new Error('run() called before a successful preflight()') };
+
 // Installs the cleanup before anything can be spawned. `onFatal(err)` reports an uncaught exception.
-export function openSession({ onFatal }) {
+// `lockDir` and `guardEnv` (the environment the memory guard reads) are injectable for tests.
+export function openSession({ onFatal, lockDir, guardEnv = process.env }) {
   const runId = newRunId();
   const trees = new Set();
   let runner = null, lock = null;
@@ -44,16 +55,21 @@ export function openSession({ onFatal }) {
     // A fresh temp directory, removed by the cleanup if the caller does not remove it first.
     tempTree() { const d = mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); trees.add(d); return d; },
     // PT-C1: the memory guard, then the repository lock, then the runner -> null, or the refusal reason.
-    // `env` must already carry the run marker.
-    preflight({ repo, env, timeoutMs }) {
-      const guard = runMemoryGuard();
+    preflight({ repo, timeoutMs }) {
+      const guard = runMemoryGuard({ env: guardEnv });
       if (!guard.ok) return guard.reason;
-      const acquired = acquireLock({ repo, runId, dir: process.env.QK_LOCK_DIR || tmpdir() });
+      let dir;
+      try { dir = resolveLockDir(lockDir); } catch (e) { return `cannot create the repository lock: ${e.message}`; }
+      const acquired = acquireLock({ repo, runId, dir });
       if (!acquired.ok) return acquired.reason;
       lock = acquired.lock;
-      runner = createRunner({ runId, env, timeoutMs, onGroup: (pgid) => lock.addPgid(pgid), onTracked: (list) => lock.setDescendants(list) });
+      runner = createRunner({
+        runId, env: commandEnv(process.env, runId), timeoutMs,
+        onGroup: (pgid) => lock.addPgid(pgid), onGroupEnd: (pgid) => lock.removePgid(pgid), onTracked: (list) => lock.setDescendants(list),
+      });
       return null;
     },
-    run: (cmd, cwd) => runner.run(cmd, cwd),
+    // Resolves to a failed result (not a throw) when pre-flight has not succeeded.
+    run: (cmd, cwd) => (runner ? runner.run(cmd, cwd) : Promise.resolve(NO_PREFLIGHT)),
   };
 }

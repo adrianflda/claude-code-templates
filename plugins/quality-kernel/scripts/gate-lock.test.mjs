@@ -4,9 +4,10 @@ import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, statSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { lockPathFor, processStart, classifyLock, acquireLock } from './process-safety/gate-lock.mjs';
+import { lockPathFor, processStart, classifyLock, acquireLock, defaultLockDir } from './process-safety/gate-lock.mjs';
+import { parseLock } from './process-safety/lock-store.mjs';
 import { newRunId } from './process-safety/proc-tree.mjs';
 import { snapshotTable } from './process-safety/proc-descendants.mjs';
 import { takeOverStale } from './process-safety/lock-takeover.mjs';
@@ -82,7 +83,7 @@ test('Q18/PT-C4 — addPgid persists group ids atomically (no temp residue), ded
   const { lock } = acquireLock({ repo, runId: newRunId(), dir });
   lock.addPgid(4242); lock.addPgid(4343); lock.addPgid(4242);
   assert.deepStrictEqual(readdirSync(dir), lockFiles(dir));
-  assert.deepStrictEqual(JSON.parse(readFileSync(lock.path, 'utf8')).pgids, [4242, 4343]);
+  assert.deepStrictEqual(JSON.parse(readFileSync(lock.path, 'utf8')).pgids, [{ pgid: 4242, start: null }, { pgid: 4343, start: null }], 'an unreadable leader start is recorded as null');
   lock.release();
 });
 
@@ -293,5 +294,173 @@ test('PT-C4/A18 — takeover kills a recorded descendant whose start time matche
   assert.strictEqual(got.ok, true);
   assert.ok(await waitFor(() => !isAlive(hit)), 'the matching descendant must be killed');
   assert.ok(isAlive(spared), 'a differing start time must be spared');
+  got.lock.release();
+});
+
+// --- pre-push panel hardening (PT-C12..C15) ---
+const staleLock = (repo, dir, over = {}) => { const path = lockPathFor(repo, dir); writeFileSync(path, JSON.stringify({ pid: deadPid(), lstart: 'x', runId: newRunId(), repo, pgids: [], descendants: [], ...over })); return path; };
+
+test('PT-C12 — the default lock directory is <tmp>/qk-gate-<uid>, created 0700; a trusted existing one is reused', () => {
+  const base = scratch(); const dir = defaultLockDir(base);
+  assert.strictEqual(dir, join(base, `qk-gate-${process.getuid()}`));
+  assert.strictEqual(statSync(dir).mode & 0o777, 0o700);
+  assert.strictEqual(defaultLockDir(base), dir);
+});
+
+test('PT-C12 — a lock directory that is group/world-writable, a symlink, or not a directory is refused, naming it', () => {
+  const { repo } = mkRepo();
+  const open = scratch(); chmodSync(open, 0o777);
+  const g = scratch(); chmodSync(g, 0o770);
+  const real = scratch(); const link = join(scratch(), 'link'); symlinkSync(real, link);
+  const file = join(scratch(), 'f'); writeFileSync(file, '');
+  for (const dir of [open, g, link, file]) {
+    const got = acquireLock({ repo, runId: newRunId(), dir });
+    assert.strictEqual(got.ok, false, dir);
+    assert.ok(got.reason.includes(dir), got.reason);
+    assert.deepStrictEqual(existsSync(dir) && statSync(dir).isDirectory() ? readdirSync(dir) : [], [], 'nothing written');
+  }
+});
+
+test('PT-C12 — a directory owned by another user is refused (uid check)', () => {
+  const { repo } = mkRepo();
+  const got = acquireLock({ repo, runId: newRunId(), dir: '/', uid: process.getuid() + 1 });
+  assert.strictEqual(got.ok, false);
+  assert.match(got.reason, /not owned by uid/);
+});
+
+test('PT-C12 — lock and temp files are created exclusively (0600), never through a planted symlink', () => {
+  const { repo } = mkRepo(); const dir = scratch(); const victim = join(scratch(), 'victim'); writeFileSync(victim, 'VICTIM');
+  const path = lockPathFor(repo, dir);
+  symlinkSync(victim, `${path}.${process.pid}.tmp`);                  // the old, predictable temp name
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  got.lock.addPgid(4242); got.lock.setDescendants([{ pid: 4343, start: 'a' }]);
+  assert.strictEqual(readFileSync(victim, 'utf8'), 'VICTIM', 'a symlink at the old temp name must not be followed');
+  assert.strictEqual(statSync(path).mode & 0o777, 0o600);
+  const planted = basenameOf(`${path}.${process.pid}.tmp`);
+  assert.deepStrictEqual(readdirSync(dir).sort(), [basenameOf(path), planted].sort(), 'no temp residue besides the planted link');
+  got.lock.release();
+});
+const basenameOf = (p) => p.split('/').pop();
+
+test('PT-C13 — a stale lock that is not a trusted regular file is refused, kills nothing and stays in place', () => {
+  const { repo } = mkRepo();
+  for (const how of ['world-writable', 'symlink']) {
+    const dir = scratch(); const bystander = longSleep(true);
+    const path = staleLock(repo, dir, { pgids: [{ pgid: bystander, start: startNorm(bystander) }] });
+    if (how === 'world-writable') chmodSync(path, 0o666);
+    else { const real = join(scratch(), 'real.lock'); writeFileSync(real, readFileSync(path)); unlinkSync(path); symlinkSync(real, path); }
+    const got = acquireLock({ repo, runId: newRunId(), dir });
+    assert.strictEqual(got.ok, false, how);
+    assert.match(got.reason, /untrusted/);
+    assert.ok(isAlive(bystander), `${how}: nothing may be killed`);
+    assert.ok(existsSync(path));
+  }
+});
+
+test('PT-C14 — takeover never signals its own process group, legacy number or identity entry', async () => {
+  // runs in a child with its own group: the pre-fix code would SIGKILL that whole group, i.e. the child
+  const { repo } = mkRepo(); const dir = scratch(); const script = join(scratch(), 'self.mjs');
+  writeFileSync(script, `
+import { writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { acquireLock, lockPathFor } from ${JSON.stringify(pathToFileURL(join(here, 'process-safety', 'gate-lock.mjs')).href)};
+const own = Number(spawnSync('ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).stdout.trim());
+writeFileSync(lockPathFor(${JSON.stringify(repo)}, ${JSON.stringify(dir)}), JSON.stringify({ pid: 99999999, lstart: 'x', runId: '0123456789abcdef', repo: ${JSON.stringify(repo)}, pgids: [own, { pgid: own, start: null }], descendants: [] }));
+const got = acquireLock({ repo: ${JSON.stringify(repo)}, runId: 'fedcba9876543210', dir: ${JSON.stringify(dir)} });
+console.log(JSON.stringify({ ok: got.ok })); got.lock && got.lock.release();`);
+  const c = spawn(process.execPath, [script], { detached: true, stdio: ['ignore', 'pipe', 'inherit'] }); kids.push(c.pid);
+  let out = ''; c.stdout.on('data', (d) => { out += d; });
+  const [code, signal] = await new Promise((r) => c.on('exit', (a, b) => r([a, b])));
+  assert.deepStrictEqual([code, signal], [0, null]);
+  assert.deepStrictEqual(JSON.parse(out), { ok: true });
+});
+
+test('PT-C14 — a recorded group is killed when its leader start time matches, spared when it differs (pgid recycling)', async () => {
+  const { repo } = mkRepo();
+  const hit = longSleep(true), recycled = longSleep(true);
+  const dir = scratch();
+  staleLock(repo, dir, { pgids: [{ pgid: hit, start: startNorm(hit) }, { pgid: recycled, start: 'Thu Jan 1 00:00:00 1970' }] });
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  assert.ok(await waitFor(() => !isAlive(hit)), 'identity match: group killed');
+  assert.ok(isAlive(recycled), 'identity mismatch and no marker carrier: group skipped');
+  got.lock.release();
+});
+
+test('PT-C14 — a group whose recorded start is null is spared unless a member carries the stale marker', async () => {
+  const { repo } = mkRepo(); const dir = scratch();
+  const unknown = longSleep(true);
+  staleLock(repo, dir, { pgids: [{ pgid: unknown, start: null }] });
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  assert.ok(isAlive(unknown));
+  got.lock.release();
+});
+
+test('PT-C14 — a mismatching leader start is still killed when a group member carries the stale marker (scrubbed siblings die too)', async () => {
+  const { repo } = mkRepo(); const dir = scratch(); const m = mark(); const staleRun = newRunId();
+  // the leader carries the stale marker; its sibling in the same group has a scrubbed environment
+  const leaderSrc = "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},60000)',process.env.SIB],{stdio:'ignore',env:{}});setTimeout(()=>{},60000)";
+  const leader = spawn(process.execPath, ['-e', leaderSrc], { detached: true, stdio: 'ignore', env: { ...process.env, QK_RUN_ID: staleRun, SIB: m } });
+  leader.unref(); kids.push(leader.pid);
+  assert.ok(await waitFor(() => pgrepMarker(m).length > 0), 'scrubbed sibling started');
+  const sibling = pgrepMarker(m)[0];
+  staleLock(repo, dir, { runId: staleRun, pgids: [{ pgid: leader.pid, start: 'Thu Jan 1 00:00:00 1970' }] });
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  assert.ok(await waitFor(() => !isAlive(sibling) && !isAlive(leader.pid)), 'the whole recorded group, including the scrubbed sibling, must die');
+  got.lock.release();
+});
+
+test('PT-C14 — addPgid records the leader start time; removePgid drops a reaped group', () => {
+  const { repo } = mkRepo(); const dir = scratch(); const pid = longSleep(true);
+  const { lock } = acquireLock({ repo, runId: newRunId(), dir });
+  lock.addPgid(pid); lock.addPgid(4242);
+  assert.deepStrictEqual(JSON.parse(readFileSync(lock.path, 'utf8')).pgids, [{ pgid: pid, start: startNorm(pid) }, { pgid: 4242, start: null }]);
+  lock.removePgid(pid); lock.removePgid(999999);
+  assert.deepStrictEqual(JSON.parse(readFileSync(lock.path, 'utf8')).pgids, [{ pgid: 4242, start: null }]);
+  lock.release();
+});
+
+test('PT-C15 — takeover restores a moved-aside lock whose lstart differs from the judged one', () => {
+  const live = { pid: process.pid, lstart: processStart(process.pid), runId: newRunId(), repo: '/r', pgids: [], descendants: [] };
+  const dir = scratch(); const path = join(dir, 'qk-gate-x.lock'); writeFileSync(path, JSON.stringify(live));
+  let swept = false;
+  const out = takeOverStale(path, { ...live, lstart: 'Thu Jan 1 00:00:00 1970' }, { sweep: () => { swept = true; } });
+  assert.strictEqual(out, null);
+  assert.strictEqual(swept, false);
+  assert.deepStrictEqual(JSON.parse(readFileSync(path, 'utf8')), live);
+  assert.deepStrictEqual(readdirSync(dir), ['qk-gate-x.lock']);
+});
+
+test('PT-C15 — if the moved-aside lock cannot be put back, takeover reports it and keeps the record', () => {
+  const live = { pid: process.pid, lstart: processStart(process.pid), runId: newRunId(), repo: '/r', pgids: [], descendants: [] };
+  const dir = scratch(); const path = join(dir, 'qk-gate-x.lock'); writeFileSync(path, JSON.stringify(live));
+  const out = takeOverStale(path, { pid: deadPid(), lstart: 'x', runId: newRunId(), pgids: [], descendants: [] }, { link: () => { const e = new Error('exists'); e.code = 'EEXIST'; throw e; } });
+  assert.match(out, /could not be restored/);
+  assert.ok(readdirSync(dir).some((f) => f.endsWith('.stale')), 'the displaced record is kept, not destroyed');
+});
+
+test('PT-C15 — the stale run is swept while its record still exists, and the record is removed afterwards', () => {
+  const dir = scratch(); const path = join(dir, 'qk-gate-x.lock');
+  const held = { pid: deadPid(), lstart: 'x', runId: newRunId(), repo: '/r', pgids: [], descendants: [] };
+  writeFileSync(path, JSON.stringify(held));
+  let during;
+  const out = takeOverStale(path, held, { sweep: () => { during = readdirSync(dir); } });
+  assert.strictEqual(out, null);
+  assert.strictEqual(during.length, 1, 'the claimed record exists during the sweep');
+  assert.deepStrictEqual(readdirSync(dir), [], 'and is gone afterwards');
+});
+
+test('lock schema — parseLock normalises a legacy lock without descendants; a legacy lock is still taken over', async () => {
+  const legacy = { pid: 5, lstart: 'x', runId: newRunId(), repo: '/r', pgids: [7] };
+  assert.deepStrictEqual(parseLock(JSON.stringify(legacy)), { ...legacy, descendants: [] });
+  assert.deepStrictEqual(parseLock(JSON.stringify({ ...legacy, descendants: 'junk' })).descendants, []);
+  const { repo } = mkRepo(); const dir = scratch(); const g = longSleep(true);
+  writeFileSync(lockPathFor(repo, dir), JSON.stringify({ ...legacy, pid: deadPid(), pgids: [g] }));
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  assert.ok(await waitFor(() => !isAlive(g)), 'a legacy plain-number pgid is still killed');
   got.lock.release();
 });
