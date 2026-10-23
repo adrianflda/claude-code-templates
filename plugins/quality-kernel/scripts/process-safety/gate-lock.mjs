@@ -6,7 +6,7 @@ import { unlinkSync } from 'node:fs';
 import { lockPathFor, readLock, replaceLock, createExclusive, ensureLockDir, defaultLockDir } from './lock-store.mjs';
 import { startTimeOf } from './proc-tree.mjs';
 import { processStart, classifyLock } from './lock-liveness.mjs';
-import { takeOverStale, reapStranded, lockDistrust } from './lock-takeover.mjs';
+import { takeOverStale, reapStranded, reapTempFiles, lockDistrust } from './lock-takeover.mjs';
 
 export { lockPathFor, processStart, classifyLock, defaultLockDir };
 
@@ -21,6 +21,7 @@ export function acquireLock({ repo, runId, dir, uid = process.getuid() }) {
   let path;
   try { ensureLockDir(dir, uid); path = lockPathFor(repo, dir); }
   catch (e) { return { ok: false, reason: `cannot create the repository lock: ${e.message}` }; }
+  reapTempFiles(path, { uid });
   const stranded = reapStranded(path, { uid });
   if (stranded) return { ok: false, reason: stranded };
   const payload = { pid: process.pid, lstart: processStart(process.pid), runId, repo, pgids: [], descendants: [] };

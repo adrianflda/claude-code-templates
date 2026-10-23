@@ -1,4 +1,4 @@
-// Taking over a stale repository lock (spec: docs/specs/gate-process-tree/contract.md, PT-C5, PT-C6, PT-C13..C15):
+// Taking over a stale repository lock (spec: docs/specs/gate-process-tree/contract.md, PT-C5, PT-C6, PT-C13..C16):
 // kill every recorded process group whose identity still holds, every recorded descendant still alive with
 // its recorded start time (PT-A17), and every process carrying the run's marker.
 import { renameSync, linkSync, unlinkSync, lstatSync, readdirSync } from 'node:fs';
@@ -79,4 +79,17 @@ export function reapStranded(path, { sweep = sweepStale, link = linkSync, uid = 
     unlinkSync(claimed);
   }
   return null;
+}
+
+// PT-C16: temp files (`<lock>.<pid>.<12 hex>.tmp`, see writeTemp) left by a writer killed mid lock write.
+// Only this repository's names, only regular files we own that others cannot write (lstat, no link is
+// followed), only when the writer pid is dead; anything else is not a lock record and is left untouched.
+export function reapTempFiles(path, { uid = process.getuid() } = {}) {
+  const dir = dirname(path), prefix = `${basename(path)}.`;
+  for (const name of readdirSync(dir)) {
+    const m = name.startsWith(prefix) && /^(\d+)\.[0-9a-f]{12}\.tmp$/.exec(name.slice(prefix.length));
+    if (!m || pidExists(Number(m[1]))) continue;
+    const file = join(dir, name);
+    try { if (!untrustedReason(lstatSync(file), uid, 'file')) unlinkSync(file); } catch { /* gone or not ours to judge */ }
+  }
 }

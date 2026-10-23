@@ -4,13 +4,13 @@ import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, statSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, statSync, chmodSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { lockPathFor, processStart, classifyLock, acquireLock, defaultLockDir } from './process-safety/gate-lock.mjs';
 import { parseLock, readLock, writeTemp } from './process-safety/lock-store.mjs';
 import { newRunId } from './process-safety/proc-tree.mjs';
 import { snapshotTable } from './process-safety/proc-descendants.mjs';
-import { takeOverStale, sweepStale } from './process-safety/lock-takeover.mjs';
+import { takeOverStale, sweepStale, reapTempFiles } from './process-safety/lock-takeover.mjs';
 import { newMarker, pgrepMarker, pkillMarker, isAlive, waitFor, markedSleep } from './proc-test-kit.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -572,4 +572,64 @@ test('PT-C12 — temp file names are random per write, created exclusively with 
   const fixed = () => Buffer.from('aabbccddeeff', 'hex');
   writeTemp(path, {}, fixed);
   assert.throws(() => writeTemp(path, { x: 1 }, fixed), { code: 'EEXIST' }, 'an existing name is never overwritten or followed');
+});
+
+// ---- gate repair round 2 (breaker round 5): PT-C16 leftover temp files of a killed writer ----
+
+const tempPath = (path, pid, hex = 'abcdef012345') => `${path}.${pid}.${hex}.tmp`;
+
+test('PT-C16 — a temp file left by a dead writer (SIGKILL mid lock write) is removed, and the run proceeds and releases to an empty dir', () => {
+  const { repo } = mkRepo(); const dir = scratch();
+  const path = lockPathFor(repo, dir);
+  const leftover = tempPath(path, deadPid());
+  writeFileSync(leftover, '{"pid":', { mode: 0o600 });
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  assert.ok(!existsSync(leftover), 'the dead writer\'s temp file is removed');
+  got.lock.release();
+  assert.deepStrictEqual(readdirSync(dir), [], 'INV-PT-12: the lock dir is empty after release');
+});
+
+test('PT-C16 — a temp file whose writer is alive, another repo\'s temp file, and non-matching names are left untouched', () => {
+  const { repo } = mkRepo(); const dir = scratch();
+  const path = lockPathFor(repo, dir);
+  const keep = [
+    tempPath(path, process.pid),                                        // writer alive
+    join(dir, `qk-gate-0000000000000000.lock.${deadPid()}.abcdef012345.tmp`), // another repository's lock
+    `${path}.${deadPid()}.ABCDEF012345.tmp`,                            // not 12 lowercase hex
+    `${path}.${deadPid()}.abcdef01234.tmp`,                             // 11 hex
+    `${path}.${deadPid()}.abcdef012345.tmp.bak`,                        // extra suffix
+    `${path}.x.abcdef012345.tmp`,                                       // non-numeric pid
+  ];
+  for (const f of keep) writeFileSync(f, 'x', { mode: 0o600 });
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  for (const f of keep) assert.ok(existsSync(f), f);
+  got.lock.release();
+});
+
+test('PT-C16 — an untrusted temp file (symlink, FIFO, group/world-writable) is left untouched and does not block the run', () => {
+  for (const how of ['symlink', 'fifo', 'world-writable', 'group-writable']) {
+    const { repo } = mkRepo(); const dir = scratch();
+    const path = lockPathFor(repo, dir); const file = tempPath(path, deadPid());
+    const target = join(scratch(), 'precious'); writeFileSync(target, 'keep', { mode: 0o600 });
+    if (how === 'fifo') spawnSync('mkfifo', [file]);
+    else if (how === 'symlink') symlinkSync(target, file);
+    else { writeFileSync(file, 'x'); chmodSync(file, how === 'world-writable' ? 0o666 : 0o660); }
+    const got = acquireLock({ repo, runId: newRunId(), dir });
+    assert.strictEqual(got.ok, true, how);
+    assert.ok(lstatSync(file), `${how} left in place`);
+    assert.strictEqual(readFileSync(target, 'utf8'), 'keep', how);
+    got.lock.release();
+  }
+});
+
+test('PT-C16 — a temp file owned by another uid is left untouched (uid check)', () => {
+  const { repo } = mkRepo(); const dir = scratch();
+  const path = lockPathFor(repo, dir); const file = tempPath(path, deadPid());
+  writeFileSync(file, 'x', { mode: 0o600 });
+  assert.strictEqual(reapTempFiles(path, { uid: process.getuid() + 1 }), undefined);
+  assert.ok(existsSync(file));
+  reapTempFiles(path, { uid: process.getuid() });
+  assert.ok(!existsSync(file));
 });
