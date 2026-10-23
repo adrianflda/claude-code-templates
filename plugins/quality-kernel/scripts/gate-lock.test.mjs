@@ -4,10 +4,11 @@ import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { lockPathFor, processStart, classifyLock, acquireLock } from './process-safety/gate-lock.mjs';
 import { newRunId } from './process-safety/proc-tree.mjs';
+import { snapshotTable } from './process-safety/proc-descendants.mjs';
 import { takeOverStale } from './process-safety/lock-takeover.mjs';
 import { newMarker, pgrepMarker, pkillMarker, isAlive, waitFor, markedSleep } from './proc-test-kit.mjs';
 
@@ -59,7 +60,7 @@ test('PT-C2/C7 — acquire writes {pid, lstart, runId, repo, pgids[]}; release e
   assert.strictEqual(files.length, 1);
   assert.deepStrictEqual(readdirSync(dir), files, 'no temp files may remain beside the lock');
   const body = JSON.parse(readFileSync(join(dir, files[0]), 'utf8'));
-  assert.deepStrictEqual(body, { pid: process.pid, lstart: processStart(process.pid), runId, repo, pgids: [] });
+  assert.deepStrictEqual(body, { pid: process.pid, lstart: processStart(process.pid), runId, repo, pgids: [], descendants: [] });
   got.lock.release();
   assert.deepStrictEqual(readdirSync(dir), []);
 });
@@ -257,5 +258,40 @@ test('PT-C4 — a recorded group that ignores SIGTERM is still killed on takeove
   const got = acquireLock({ repo, runId: newRunId(), dir });
   assert.strictEqual(got.ok, true);
   assert.ok(await waitFor(() => !isAlive(c.pid), { timeoutMs: 3000 }), 'SIGTERM-ignoring member must die');
+  got.lock.release();
+});
+
+// --- PT-A18 / PT-C4: persisted descendants ---
+test('PT-A18 — setDescendants persists {pid,start} atomically (no temp residue) and skips an unchanged set', () => {
+  const { repo } = mkRepo(); const dir = scratch();
+  const { lock } = acquireLock({ repo, runId: newRunId(), dir });
+  lock.setDescendants([{ pid: 4242, start: 'a' }]);
+  assert.deepStrictEqual(readdirSync(dir), lockFiles(dir));
+  assert.deepStrictEqual(JSON.parse(readFileSync(lock.path, 'utf8')).descendants, [{ pid: 4242, start: 'a' }]);
+  const ino = statSync(lock.path).ino;
+  lock.setDescendants([{ pid: 4242, start: 'a' }]);
+  assert.strictEqual(statSync(lock.path).ino, ino, 'an unchanged set must not rewrite the file');
+  lock.addPgid(77);
+  assert.deepStrictEqual(JSON.parse(readFileSync(lock.path, 'utf8')).descendants, [{ pid: 4242, start: 'a' }], 'addPgid keeps the descendants');
+  lock.setDescendants([]);
+  assert.deepStrictEqual(JSON.parse(readFileSync(lock.path, 'utf8')).descendants, []);
+  lock.release();
+});
+test('PT-A18 — a new lock starts with descendants: [] and a lock without the key is still readable', () => {
+  const { repo } = mkRepo(); const dir = scratch();
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.deepStrictEqual(JSON.parse(readFileSync(got.lock.path, 'utf8')).descendants, []);
+  got.lock.release();
+});
+const startNorm = (pid) => snapshotTable().find((e) => e.pid === pid).start;
+test('PT-C4/A18 — takeover kills a recorded descendant whose start time matches, spares a differing one (PT-A17)', async () => {
+  const { repo } = mkRepo(); const dir = scratch();
+  const hit = longSleep(false), spared = longSleep(false);
+  writeFileSync(lockPathFor(repo, dir), JSON.stringify({ pid: deadPid(), lstart: 'x', runId: newRunId(), repo, pgids: [],
+    descendants: [{ pid: hit, start: startNorm(hit) }, { pid: spared, start: 'Thu Jan 1 00:00:00 1970' }] }));
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  assert.ok(await waitFor(() => !isAlive(hit)), 'the matching descendant must be killed');
+  assert.ok(isAlive(spared), 'a differing start time must be spared');
   got.lock.release();
 });

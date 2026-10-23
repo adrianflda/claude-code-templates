@@ -163,6 +163,40 @@ for (const [escape, ending, refExit] of [['setpgrp(0,0)', 'exits 0', 0], ['POSIX
   });
 }
 
+const cmdStubborn = (m) => `/usr/bin/perl -e 'sleep 1; setpgrp(0,0); $SIG{TERM}="IGNORE"; sleep 60' ${m}`;
+scenario('a SIGTERM-ignoring descendant that left the group is SIGKILLed without grace', async () => {
+  const m = mark(); const fx = fixture({ tools: { verify: `${cmdStubborn(m)} & sleep 60`, timeoutSeconds: 2 } });
+  const r = await run(REFEREE, fx);
+  assert.strictEqual(r.code, 2);
+  assert.deepStrictEqual(pgrepMarker(m), []);
+  assert.ok(r.elapsed <= (2 + 5 + 3) * 1000, `elapsed ${r.elapsed}`);
+});
+
+scenario('takeover kills a recorded tracked descendant that left the group, hides its environment and ignores SIGTERM', async () => {
+  const pf = join(sideDir(), 'pid'); const m = mark();
+  const fx = fixture({ tools: { verify: `${cmdStubborn(m)} & echo $! > ${pf}; sleep 60`, timeoutSeconds: 300 } });
+  const first = start(REFEREE, fx);
+  const perl = await grandchildUp(pf); pids.push(perl);
+  const listed = () => readdirSync(fx.locks).some((f) => { try { return JSON.parse(readFileSync(join(fx.locks, f), 'utf8')).descendants.some((d) => d.pid === perl); } catch { return false; } });
+  assert.ok(await waitFor(listed, { timeoutMs: 10000 }), 'the lock lists the perl process in "descendants"');
+  first.child.kill('SIGKILL'); await first.done;
+  assert.ok(isAlive(perl), 'the perl process outlives a SIGKILLed referee');
+  const r = await run(REFEREE, fx, passingPair(fx));
+  assert.strictEqual(r.code, 0, r.stdout);
+  assert.ok(await gone(perl, 3000), 'the perl process is gone');
+});
+
+scenario('takeover never kills a pid whose start time differs from the recorded one', async () => {
+  const fx = fixture();
+  const unrelated = spawn('sleep', ['30'], { stdio: 'ignore' }); pids.push(unrelated.pid);
+  const dead = spawnSync('node', ['-e', '0']).pid;
+  writeFileSync(lockPathFor(fx.repo, fx.locks), JSON.stringify({ pid: dead, lstart: 'x', runId: '0123456789abcdef', repo: fx.repo, pgids: [], descendants: [{ pid: unrelated.pid, start: 'Thu Jan 1 00:00:00 1970' }] }));
+  const r = await run(REFEREE, fx);
+  assert.strictEqual(r.code, 0, r.stdout);
+  assert.ok(isAlive(unrelated.pid), 'the unrelated process is still alive');
+  unrelated.kill('SIGKILL');
+});
+
 scenario('every command sees one run marker per run and no NODE_TEST_CONTEXT', async () => {
   const w = join(sideDir(), 'witness');
   const rec = `printf '%s %s\\n' "$QK_RUN_ID" "\${NODE_TEST_CONTEXT-absent}" >> ${w}`;
@@ -446,6 +480,6 @@ for (const [behavior, verify, timeoutSeconds, lines] of [['exits 0', 'exit 0', u
 test('trace — every Gherkin scenario title appears in this harness', () => {
   const titles = [...readFileSync(FEATURE, 'utf8').matchAll(/^\s*Scenario(?: Outline)?:\s*(.+?)\s*$/gm)].map((m) => m[1]);
   const self = readFileSync(fileURLToPath(import.meta.url), 'utf8');
-  assert.strictEqual(titles.length, 31);
+  assert.strictEqual(titles.length, 34);
   for (const t of titles) assert.ok(self.includes(t.replace(/'/g, "\\'")) || self.includes(t), `missing scenario: ${t}`);
 });

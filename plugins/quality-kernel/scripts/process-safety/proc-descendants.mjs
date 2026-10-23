@@ -39,7 +39,7 @@ export function readProcTable(root = '/proc') {
   }
   return out;
 }
-function snapshotTable() {
+export function snapshotTable() {
   if (existsSync('/proc/self/stat')) return readProcTable();
   const ps = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,lstart='], { encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, LC_ALL: 'C' } });
   return parsePsTable(ps.stdout || '');
@@ -72,11 +72,33 @@ export function killablePids(tracked, table) {
 
 const sigkill = (pid) => { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } };
 
+// PT-A18: the tracked processes that are alive right now, as the lock records them.
+export function liveRecords(tracked, table) {
+  const startOf = new Map(table.map((e) => [e.pid, e.start]));
+  return [...tracked]
+    .filter(([pid, rec]) => startOf.get(pid) === rec.start)
+    .map(([pid, rec]) => ({ pid, start: rec.start }))
+    .sort((a, b) => a.pid - b.pid);
+}
+// PT-C4 (2): kill what a dead run recorded in its lock, under the PT-A17 start-time rule.
+export function killRecorded(records) {
+  const tracked = new Map();
+  for (const r of records) if (r && Number.isInteger(r.pid) && typeof r.start === 'string') tracked.set(r.pid, { ppid: 0, start: r.start });
+  killablePids(tracked, snapshotTable()).forEach(sigkill);
+}
+
 // One tracker per command. start() begins the snapshots, stop() ends them, killRemaining() is PT-A16.
-export function createTracker({ rootPid, snapshot = snapshotTable, intervalMs = SNAPSHOT_MS, kill = sigkill }) {
-  let tracked = new Map(), timer = null;
-  const observe = () => { const table = snapshot(); tracked = trackStep(tracked, table, rootPid); return table; };
+export function createTracker({ rootPid, snapshot = snapshotTable, intervalMs = SNAPSHOT_MS, kill = sigkill, onChange = () => {} }) {
+  let tracked = new Map(), timer = null, last = '';
+  const observe = () => {
+    const table = snapshot();
+    tracked = trackStep(tracked, table, rootPid);
+    const live = liveRecords(tracked, table), key = JSON.stringify(live);
+    if (key !== last) { last = key; onChange(live); } // PT-A18: only when the tracked set changed
+    return table;
+  };
   return {
+    observe,
     start() { observe(); timer = setInterval(observe, intervalMs); timer.unref(); },
     stop() { clearInterval(timer); },
     killRemaining() {

@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 // (enforced by import-graph.test.mjs).
 export { killGroup, groupAlive, sweepByMarker, procfsPidsCarrying } from './proc-group.mjs';
 export { KILL_GRACE_MS, createRunner } from './proc-runner.mjs';
+export { killRecorded } from './proc-descendants.mjs';
 
 export const DEFAULT_TIMEOUT_SECONDS = 300;
 const MIN_TIMEOUT_SECONDS = 1, MAX_TIMEOUT_SECONDS = 3600;

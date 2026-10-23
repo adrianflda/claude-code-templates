@@ -21,7 +21,7 @@ export function acquireLock({ repo, runId, dir }) {
   let path;
   try { mkdirSync(dir, { recursive: true }); path = lockPathFor(repo, dir); }
   catch (e) { return { ok: false, reason: `cannot create the repository lock: ${e.message}` }; }
-  const payload = { pid: process.pid, lstart: processStart(process.pid), runId, repo, pgids: [] };
+  const payload = { pid: process.pid, lstart: processStart(process.pid), runId, repo, pgids: [], descendants: [] };
   for (let attempt = 0; attempt < 3; attempt++) {
     if (createExclusive(path, payload)) return { ok: true, lock: ownedLock(path, payload) };
     const held = readLock(path);
@@ -35,15 +35,25 @@ export function acquireLock({ repo, runId, dir }) {
 
 function ownedLock(path, payload) {
   const pgids = [];
+  let descendants = [];
+  const persist = () => {
+    const tmp = tmpFor(path);
+    writeFileSync(tmp, JSON.stringify({ ...payload, pgids, descendants }));
+    renameSync(tmp, path);
+  };
   return {
     path,
     // Decision 18: persisted at every spawn through temp file + rename, so a SIGKILL mid-command is recoverable.
     addPgid(g) {
       if (pgids.includes(g)) return;
       pgids.push(g);
-      const tmp = tmpFor(path);
-      writeFileSync(tmp, JSON.stringify({ ...payload, pgids }));
-      renameSync(tmp, path);
+      persist();
+    },
+    // PT-A18: the tracked descendants, replaced atomically; an unchanged set is not rewritten.
+    setDescendants(list) {
+      if (JSON.stringify(list) === JSON.stringify(descendants)) return;
+      descendants = list;
+      persist();
     },
     release() {
       const cur = readLock(path);

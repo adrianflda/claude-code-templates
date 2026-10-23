@@ -10,7 +10,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Runs commands, each in its own process group. `env` must already carry the marker. `onGroup(pgid)`
 // is invoked synchronously at spawn so the lock can persist it (Decision 18).
-export function createRunner({ runId, env, timeoutMs, graceMs = KILL_GRACE_MS, onGroup = () => {} }) {
+export function createRunner({ runId, env, timeoutMs, graceMs = KILL_GRACE_MS, onGroup = () => {}, onTracked = () => {} }) {
   const live = new Set(), trackers = new Set();
   const killAll = (sig) => { for (const g of live) killGroup(g, sig); sweepByMarker(runId); for (const t of trackers) t.killRemaining(); };
 
@@ -20,7 +20,7 @@ export function createRunner({ runId, env, timeoutMs, graceMs = KILL_GRACE_MS, o
       const finish = (r) => {
         if (done) return;
         done = true; clearTimeout(timer); live.delete(pgid);
-        if (tracker) { tracker.stop(); trackers.delete(tracker); }
+        if (tracker) { tracker.stop(); trackers.delete(tracker); onTracked([]); }
         resolve({ code: null, signal: null, timedOut, hasStdout, ...r });
       };
       try { c = spawn(cmd, { cwd, shell: true, detached: true, env, stdio: ['ignore', 'pipe', 'pipe'] }); }
@@ -35,7 +35,7 @@ export function createRunner({ runId, env, timeoutMs, graceMs = KILL_GRACE_MS, o
       try { onGroup(pgid); }
       catch (error) { killGroup(pgid, 'SIGKILL'); finish({ error }); return; }
       // The pgid is persisted first (Decision 18): the snapshot below blocks for tens of milliseconds.
-      tracker = createTracker({ rootPid: pgid }); // PT-A15: sees descendants that later leave the group
+      tracker = createTracker({ rootPid: pgid, onChange: onTracked }); // PT-A15: sees descendants that later leave the group
       trackers.add(tracker); tracker.start();
       // PT-A4/A6/A16: kill the group, then marker carriers, then tracked descendants still alive.
       const reap = () => { killGroup(pgid, 'SIGKILL'); sweepByMarker(runId); tracker.killRemaining(); };

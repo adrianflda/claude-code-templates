@@ -3,9 +3,10 @@ import assert from 'node:assert';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parsePsTable, parseProcStat, readProcTable, trackStep, killablePids } from './process-safety/proc-descendants.mjs';
+import { parsePsTable, parseProcStat, readProcTable, trackStep, killablePids, liveRecords, killRecorded, snapshotTable, createTracker } from './process-safety/proc-descendants.mjs';
+import { spawn } from 'node:child_process';
 import { createRunner, newRunId } from './process-safety/proc-tree.mjs';
-import { newMarker, pgrepMarker, pkillMarker, waitFor } from './proc-test-kit.mjs';
+import { newMarker, pgrepMarker, pkillMarker, waitFor, isAlive } from './proc-test-kit.mjs';
 
 const markers = []; const dirs = [];
 const mark = () => { const m = newMarker(); markers.push(m); return m; };
@@ -81,4 +82,42 @@ test('PT-A16 — killAll (abnormal exit path) also kills a tracked escapee', asy
   r.killAll('SIGKILL');
   await p;
   assert.deepStrictEqual(await waitFor(() => pgrepMarker(m).length === 0, { timeoutMs: 2000 }), true);
+});
+
+// --- PT-A18: persisting what is tracked ---
+test('PT-A18 — liveRecords lists only tracked processes alive with the recorded start time, sorted by pid', () => {
+  const tracked = new Map([[300, { ppid: 1, start: 'c' }], [100, { ppid: 1, start: 'a' }], [200, { ppid: 100, start: 'b' }], [400, { ppid: 1, start: 'd' }]]);
+  const table = [E(100, 1, 'a'), E(200, 100, 'OTHER'), E(300, 1, 'c')]; // 200 reused, 400 gone
+  assert.deepStrictEqual(liveRecords(tracked, table), [{ pid: 100, start: 'a' }, { pid: 300, start: 'c' }]);
+});
+test('PT-A18 — the tracker reports the live set through onChange, once per change, never when unchanged', () => {
+  const tables = [[E(10, 1, 'a')], [E(10, 1, 'a'), E(11, 10, 'b')], [E(10, 1, 'a'), E(11, 10, 'b')], [E(10, 1, 'a')]];
+  let i = 0; const seen = [];
+  const t = createTracker({ rootPid: 10, snapshot: () => tables[Math.min(i++, tables.length - 1)], onChange: (l) => seen.push(l) });
+  t.start();                                     // table 0
+  i = 1; for (const _ of [1, 2, 3]) t.observe();  // tables 1, 2, 3
+  assert.deepStrictEqual(seen, [[{ pid: 10, start: 'a' }], [{ pid: 10, start: 'a' }, { pid: 11, start: 'b' }], [{ pid: 10, start: 'a' }]]);
+  t.stop();
+});
+
+// --- PT-C4 / PT-A17: killing what a dead run recorded ---
+const startOf = (pid) => snapshotTable().find((e) => e.pid === pid).start;
+test('PT-C4 — killRecorded kills a recorded process whose start time matches', async () => {
+  const c = spawn('sleep', ['60'], { stdio: 'ignore' }); c.unref();
+  killRecorded([{ pid: c.pid, start: startOf(c.pid) }]);
+  assert.ok(await waitFor(() => !isAlive(c.pid)), 'matching record must be killed');
+});
+test('PT-A17 — killRecorded never signals a pid whose start time differs, nor pid <= 1, nor garbage', async () => {
+  const c = spawn('sleep', ['60'], { stdio: 'ignore' }); c.unref();
+  killRecorded([{ pid: c.pid, start: 'Thu Jan 1 00:00:00 1970' }, { pid: 1, start: 'x' }, { pid: 0, start: 'x' }, { pid: 'z', start: 1 }, null]);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(isAlive(c.pid), 'a differing start time must be spared');
+  process.kill(c.pid, 'SIGKILL');
+});
+test('PT-A18 — the runner reports the perl escapee in onTracked while it runs and an empty set afterwards', async () => {
+  const m = mark(); const seen = [];
+  const out = await mkRunner({ onTracked: (l) => seen.push(l) }).run(`${perl(m, 'setpgrp(0,0)')} & sleep 3; exit 0`, tmpdir());
+  assert.strictEqual(out.code, 0);
+  assert.ok(seen.some((l) => l.length >= 2), 'a snapshot listing the shell and the perl process');
+  assert.deepStrictEqual(seen.at(-1), []);
 });

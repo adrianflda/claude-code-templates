@@ -1,7 +1,8 @@
 // Taking over a stale repository lock (spec: docs/specs/gate-process-tree/contract.md, PT-C5..C6): kill
-// every process group the dead run recorded and every process carrying its marker.
+// every process group the dead run recorded, every recorded descendant still alive with its recorded
+// start time (PT-A17), and every process carrying its marker.
 import { renameSync, linkSync, unlinkSync } from 'node:fs';
-import { killGroup, sweepByMarker } from './proc-tree.mjs';
+import { killGroup, killRecorded, sweepByMarker } from './proc-tree.mjs';
 import { readLock } from './lock-store.mjs';
 
 function sweepStale(stale) {
@@ -9,6 +10,7 @@ function sweepStale(stale) {
     if (!Number.isInteger(g) || g <= 1) continue;
     try { killGroup(g, 'SIGKILL'); } catch { /* not ours / gone */ }
   }
+  killRecorded(Array.isArray(stale.descendants) ? stale.descendants : []);
   sweepByMarker(stale.runId);
 }
 

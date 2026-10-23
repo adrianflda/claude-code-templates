@@ -51,7 +51,7 @@ export function openSession({ onFatal }) {
       const acquired = acquireLock({ repo, runId, dir: process.env.QK_LOCK_DIR || tmpdir() });
       if (!acquired.ok) return acquired.reason;
       lock = acquired.lock;
-      runner = createRunner({ runId, env, timeoutMs, onGroup: (pgid) => lock.addPgid(pgid) });
+      runner = createRunner({ runId, env, timeoutMs, onGroup: (pgid) => lock.addPgid(pgid), onTracked: (list) => lock.setDescendants(list) });
       return null;
     },
     run: (cmd, cwd) => runner.run(cmd, cwd),

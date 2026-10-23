@@ -97,8 +97,11 @@ class Ctx {
   check(name, ok, observed) { this.checks.push({ name, ok: !!ok, observed }); return !!ok; }
   instrument(cond, msg) { if (!cond) { this.broken = msg; throw new Error(`INSTRUMENT: ${msg}`); } }
   cleanup(keep) {
-    for (const m of this.marks) pkill9(m);
-    for (const p of this.pids.filter((x) => x > 1)) { try { process.kill(p, 'SIGKILL'); } catch { /* gone */ } }
+    // --keep leaves the vector's processes running for observation (they exit on their own, <= 60 s).
+    if (!keep) {
+      for (const m of this.marks) pkill9(m);
+      for (const p of this.pids.filter((x) => x > 1)) { try { process.kill(p, 'SIGKILL'); } catch { /* gone */ } }
+    }
     const survivors = this.marks.flatMap((m) => pgrep(m));
     if (!keep) rmSync(this.root, { recursive: true, force: true });
     return survivors;
@@ -323,11 +326,34 @@ S['lock-takeover'] = { inv: ['INV-PT-13'], step: 8, async run(ctx) {
   emptyDir(ctx, L, '$L empty'); shapeChecks(ctx, r);
 } };
 
+// V-K: the referee is SIGKILLed while a tracked platform-binary descendant (left its group, ignores TERM)
+// is alive; the NEXT run must still find it through the descendants recorded in the lock (PT-A18, PT-C4).
+S['takeover-descendant'] = { inv: ['INV-PT-13'], step: '8b', async run(ctx) {
+  const m = ctx.mark(); const side = ctx.dir('side'); const pf = join(side, 'pid');
+  const T = ctx.dir('tmp'), L = ctx.dir('locks');
+  const stubborn = `/usr/bin/perl -e 'sleep 1; setpgrp(0,0); $SIG{TERM}="IGNORE"; sleep 60' ${m}`;
+  const fx = fixture(ctx, [...pair({ verify: `${stubborn} & echo $! > ${pf}; sleep 60`, timeoutRaw: 300 }), ...pair({ verify: 'exit 0' })]);
+  const { child, done } = launch(ctx, 'referee', { repo: fx.repo, base: fx.shas[0], head: fx.shas[1], tmp: T, locks: L });
+  ctx.instrument(await waitFor(() => alive(readPid(pf)), 20000), 'perl never started');
+  const perlPid = readPid(pf); ctx.pids.push(perlPid);
+  const listed = () => ls(L).some((f) => { try { return JSON.parse(readFileSync(join(L, f), 'utf8')).descendants.some((d) => d.pid === perlPid); } catch { return false; } });
+  await sleep(2000);                                       // attached for 1 s, then setpgrp, then at least one more snapshot
+  ctx.check('the lock lists the perl process in descendants before the kill', await waitFor(listed, 3000), ls(L));
+  process.kill(child.pid, 'SIGKILL'); await done;
+  await sleep(500);
+  ctx.check('residual risk 2 documented: perl alive after referee SIGKILL', alive(perlPid), perlPid);
+  const r = await launch(ctx, 'gate', { repo: fx.repo, base: fx.shas[2], head: fx.shas[3], tmp: ctx.dir('tmp2'), locks: L }).done;
+  ctx.check('next run proceeds: gate pass', r.code === 0 && r.out && r.out.gate === 'pass', [r.code, reasonOf(r)]);
+  ctx.check('perl descendant gone after the takeover', await waitFor(() => !alive(perlPid), 2000), perlPid);
+  await noSurvivor(ctx, m, 'no marker process after the next run');
+  emptyDir(ctx, L, '$L empty'); shapeChecks(ctx, r);
+} };
+
 S['lock-pid-reuse'] = { inv: ['INV-PT-14'], step: 9, async run(ctx) {
   const T = ctx.dir('tmp'), L = ctx.dir('locks');
   const fx = fixture(ctx, [...pair({ verify: discoverVerify(ctx) }), ...pair({ verify: 'exit 0' })]);
   const lock = await discoverLock(ctx, fx, fx.shas[0], fx.shas[1], L, T);
-  ctx.check('discovered lock payload keys {pid,lstart,runId,repo,pgids}', sameKeys(lock.payload, ['pid', 'lstart', 'runId', 'repo', 'pgids']), lock.payload);
+  ctx.check('discovered lock payload keys {pid,lstart,runId,repo,pgids,descendants}', sameKeys(lock.payload, ['pid', 'lstart', 'runId', 'repo', 'pgids', 'descendants']), lock.payload);
   ctx.check('$L empty after the discovery run', ls(L).length === 0, ls(L));
   const unrelated = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' }); unrelated.unref(); ctx.pids.push(unrelated.pid);
   await sleep(200);
