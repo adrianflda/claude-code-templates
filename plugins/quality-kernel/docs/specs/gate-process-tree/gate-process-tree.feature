@@ -39,6 +39,15 @@ Feature: Gate commands never outlive the gate run
     And no process carries MARK
     And the elapsed time is at least 2 + 5 seconds and at most 2 + 5 + 3 seconds
 
+  @PT-A2 @PT-A15
+  Scenario: a SIGTERM-ignoring descendant that left the group is SIGKILLed without grace
+    Given base tools.json has "timeoutSeconds" 2
+    And "verify" starts /usr/bin/perl -e carrying MARK in argv that stays attached for 1 second, then calls setpgrp(0,0), ignores SIGTERM and sleeps 60 seconds
+    When the referee runs
+    Then the exit code is 2
+    And no process carries MARK
+    And the elapsed time is at most 2 + 5 + 3 seconds
+
   @PT-A3
   Scenario: exiting 0 during the grace period does not turn a timeout into PASS
     Given base tools.json has "timeoutSeconds" 1
@@ -259,6 +268,24 @@ Feature: Gate commands never outlive the gate run
     When a new referee runs on the same repository
     Then the exit code is 0
     And no process carries MARK
+
+  @PT-C4 @PT-A18
+  Scenario: takeover kills a recorded tracked descendant that left the group, hides its environment and ignores SIGTERM
+    Given a referee run was started with a "verify" that starts /usr/bin/perl -e carrying MARK in argv
+    And that perl process stays attached for 1 second, then calls setpgrp(0,0), ignores SIGTERM and sleeps 60 seconds
+    And at least 2 seconds have passed
+    And the lock in QK_LOCK_DIR lists the perl process in "descendants"
+    And that referee was killed with SIGKILL and the perl process is still alive
+    When a new referee runs on the same repository
+    Then the exit code is 0
+    And the perl process is gone
+
+  @PT-A17 @PT-C4
+  Scenario: takeover never kills a pid whose start time differs from the recorded one
+    Given a lock whose dead holder recorded in "descendants" the pid of a live unrelated "sleep 30" process with a wrong "start"
+    When the referee runs
+    Then the exit code is 0
+    And the unrelated process is still alive
 
   @PT-C5
   Scenario: PID reuse is treated as stale and the unrelated process is untouched

@@ -23,9 +23,7 @@ leaves open is under "Open questions" and is NOT specified here.
 ## Residual risk (read first)
 
 1. A process that leaves its process group, hides or scrubs its environment (macOS: Apple platform binaries such as `/usr/bin/perl` and `/usr/bin/python3` do not expose their environment to `ps`, so the marker layer cannot see them), AND is created and detached from the tracked tree within one snapshot interval (500 ms) may escape every mechanism below. Not covered; no criterion claims otherwise.
-2. SIGKILL of the referee (or of the whole machine) cannot be intercepted. Orphans from that
-   event are only reaped by the NEXT run's stale-lock takeover (PT-C4/PT-C5). Until that next run,
-   they live.
+2. SIGKILL of the referee (or of the whole machine) cannot be intercepted. Orphans from that event live until the NEXT run's stale-lock takeover (PT-C4/PT-C5), except a descendant that was created and detached within one snapshot interval of the last lock update; that exception is bounded by residual risk 1.
 3. Only macOS is empirically verified in the design; Linux behavior is INFERRED. Windows is unsupported and fails closed (PT-A14).
 4. Memory thresholds are judgment values from the design, not measurements. Linux thresholds have no override.
 
@@ -44,7 +42,7 @@ leaves open is under "Open questions" and is NOT specified here.
   `pgrep -f`, after the verdict has been emitted.
 - **INDETERMINATE**: referee stdout last line is `{"pass":false,"indeterminate":true,"evidence":null,"reason":"<text>"}`
   and exit code is `2`.
-- **repository lock**: a file in `QK_LOCK_DIR` (default: the OS temp directory) named `qk-gate-*.lock`, holding `{pid, lstart, runId, repo, pgids[]}`; a lock keyed by the repository's git common directory, so every worktree of
+- **repository lock**: a file in `QK_LOCK_DIR` (default: the OS temp directory) named `qk-gate-*.lock`, holding `{pid, lstart, runId, repo, pgids[], descendants: [{pid, start}]}`; a lock keyed by the repository's git common directory, so every worktree of
   one repository shares it.
 
 ## Acceptance criteria (EARS)
@@ -52,7 +50,7 @@ leaves open is under "Open questions" and is NOT specified here.
 ### A. Whole-tree termination
 
 - PT-A1 WHEN a command runs longer than its timeout THE SYSTEM SHALL send SIGTERM to the entire process group of that command.
-- PT-A2 IF any member of the group is still alive 5000 ms after the SIGTERM THEN THE SYSTEM SHALL send SIGKILL to the group.
+- PT-A2 IF any member of the command's process group is still alive 5000 ms after the SIGTERM THEN THE SYSTEM SHALL send SIGKILL to the group. The 5000 ms grace applies to the process group only: a tracked descendant that has left the group is sent SIGKILL directly, never SIGTERM, without a grace period, at reap time (when the command ends, or when the grace expires on the timeout path, whichever comes first).
 - PT-A3 WHEN a command times out THE SYSTEM SHALL emit INDETERMINATE (exit 2) whose reason contains `timed out after <N>s` and `process tree killed`, even if the command exits 0 during the grace period.
 - PT-A4 WHEN a command ends, with any exit status including 0, THE SYSTEM SHALL kill every remaining member of its process group before the next command starts and before the verdict is emitted.
 - PT-A5 WHEN a command ends while a background descendant still holds the command's output streams open THE SYSTEM SHALL NOT delay the command's result until that descendant releases them.
@@ -67,6 +65,7 @@ leaves open is under "Open questions" and is NOT specified here.
 - PT-A15 WHILE a command runs THE SYSTEM SHALL take process-table snapshots at an interval of at most 500 ms and track every descendant of the command, recording pid, ppid and start time, whether or not the descendant later leaves the command's process group (setpgrp, setsid) or is reparented, and whether or not its environment is visible.
 - PT-A16 WHEN a command ends, times out, or the referee exits abnormally (PT-A9, PT-A10, PT-A13) THE SYSTEM SHALL kill every tracked descendant that is still alive and whose current start time equals the recorded start time.
 - PT-A17 IF a tracked pid is alive but its start time differs from the recorded one (pid reuse) THEN THE SYSTEM SHALL NOT signal it. (Verified by a unit test of an exported pure function.)
+- PT-A18 WHILE a command runs THE SYSTEM SHALL write the tracked descendants into the repository lock as `descendants: [{pid, start}]`, replacing the lock file atomically (write a temporary file, then rename) whenever the tracked set changes, at most once per snapshot interval, so that the lock file is always either the previous or the new complete JSON document.
 - PT-A14 IF the platform is `win32` THEN THE SYSTEM SHALL emit INDETERMINATE whose reason names the unsupported platform, before creating any temp tree or running any command. (Verified by a unit test of an exported pure function; no environment seam.)
 
 ### B. Configurable timeout
@@ -82,7 +81,7 @@ leaves open is under "Open questions" and is NOT specified here.
 - PT-C1 WHEN a run starts THE SYSTEM SHALL perform, in this order and each before creating any temp tree or running any command: (1) argument, repository and `tools.json` validation (including `timeoutSeconds`), (2) the memory-pressure guard, (3) repository lock acquisition. The first step that refuses determines the INDETERMINATE reason.
 - PT-C2 THE SYSTEM SHALL allow at most one referee run at a time per repository, across all worktrees of that repository.
 - PT-C3 IF the lock is held by a live run THEN THE SYSTEM SHALL emit INDETERMINATE whose reason contains `another gate run is active` and the holder's pid and start time.
-- PT-C4 IF the lock's holder pid does not exist THEN THE SYSTEM SHALL take the lock over, kill every process group recorded in the stale lock, and kill every process carrying the stale run's marker, before proceeding. The lock records `{pid, lstart, runId, repo, pgids[]}`; `pgids` holds the process group of every command the stale run had launched.
+- PT-C4 IF the lock's holder pid does not exist THEN THE SYSTEM SHALL take the lock over and, before proceeding, apply three mechanisms: (1) kill every process group recorded in `pgids`; (2) kill every process recorded in `descendants` that is still alive and whose current start time equals the recorded `start` (PT-A17 applies: never a reused pid); (3) kill every process carrying the stale run's marker. The lock records `{pid, lstart, runId, repo, pgids[], descendants: [{pid, start}]}`; `pgids` holds the process group of every command the stale run had launched.
 - PT-C5 IF the lock's holder pid exists but its start time differs from the recorded `lstart` (pid reuse) THEN THE SYSTEM SHALL treat the lock as stale and act as in PT-C4, without signalling the unrelated live process.
 - PT-C6 IF two runs race for one stale lock THEN THE SYSTEM SHALL let at most one proceed; the other SHALL emit the PT-C3 INDETERMINATE.
 - PT-C7 WHEN the referee exits by any path it controls THE SYSTEM SHALL remove the lock it owns. The lock lives in the directory named by `QK_LOCK_DIR`, default the OS temp directory.
@@ -146,7 +145,7 @@ Fixture: `git init`, commit `.quality-kernel/tools.json` (`verify` per scenario,
    `not executable`).
 6. Gate killed (PT-A12, A13). Start the gate in the background with a long `verify` (grandchild with `$MARK`, `timeoutSeconds` 300) and `QK_LOCK_DIR=$L`. Wait until the grandchild exists. (a) `kill -TERM <gate pid>`; (b) in a fresh scenario `kill -KILL <gate pid>`. Expect no gate, no referee, no survivor and no lock file in `$L`: within 15 seconds for (a), within 5 seconds of the kill for (b).
 7. Referee killed by signal (PT-A9). Same as 6 but target the referee with `kill -INT`, `-TERM`, `-HUP` in three scenarios. Expect no survivor, no PASS output, and the referee exit code 130, 143 and 129 respectively.
-8. Referee SIGKILLed, next run recovers (PT-C4). Start a referee with a long `verify` that starts (a) a grandchild carrying `$MARK` and (b) a grandchild started with a scrubbed environment (`env -i`) in the same process group, `QK_LOCK_DIR=$L`. `kill -KILL` the referee and observe both grandchildren still alive (this documents residual risk 2). Then run a normal gate on the same repository. Expect that run to proceed (`gate` `pass`) and both grandchildren gone.
+8. Referee SIGKILLed, next run recovers (PT-C4, A18). Start a referee with a long `verify`, `QK_LOCK_DIR=$L`, that starts (a) a grandchild carrying `$MARK`, (b) a grandchild started with a scrubbed environment (`env -i`) in the same process group, and (c) `/usr/bin/perl -e` (argv carries `$MARK`) that stays attached for 1 second, then calls `setpgrp(0,0)` and ignores SIGTERM, sleeping 60 seconds. After at least 2 seconds `kill -KILL` the referee and observe (a), (b) and (c) still alive (this documents residual risk 2); read `$L/qk-gate-*.lock` and observe (c) listed in `descendants`. Then run a normal gate on the same repository. Expect that run to proceed (`gate` `pass`) and (a), (b) and (c) gone.
 9. Pid reuse (PT-C5). Write, into `$L`, a lock for the repository naming the pid of a long-lived unrelated `sleep 30` and a deliberately wrong `lstart`. Run the gate: expect it proceeds, and the unrelated `sleep 30` is still alive.
 10. Live lock across worktrees (PT-C2, C3, C7). Create a second worktree with `git worktree add`. With `QK_LOCK_DIR=$L` start a gate on worktree A with a long `verify`. Run a gate on worktree B with the same `QK_LOCK_DIR`: expect exit 2 and reason containing `another gate run is active`, the holder pid and start time, `$L` holding only the holder's lock and `TMPDIR` empty. Let A finish or kill it; `$L` is empty and a run on B now proceeds.
 11. Invalid timeout (PT-B3). For each of `0`, `-1`, `1.5`, `"5"`, `true`, `null`, `3601`, `99999` commit it as base `timeoutSeconds`: expect exit 2, reason containing `timeoutSeconds`, no marker process ever started (the `verify` would create a witness file; it must not exist), `TMPDIR` and `$L` empty. Boundaries `1` and `3600` (with a `verify` that exits 0) proceed.
@@ -174,13 +173,13 @@ Probe notation: `$MARK` unique marker in the grandchild argv; `$T` the run's scr
 | INV-PT-4 | After SIGINT, SIGTERM or SIGHUP to the referee, zero marker processes, no live referee, and exit code 130, 143, 129 respectively | `test -z "$(pgrep -f "$MARK")" && ! kill -0 $REF` and exit status check; harness: probe-signal |
 | INV-PT-5 | After SIGTERM to the gate, within 15 s, and after SIGKILL to the gate, within 5 s of the kill, zero marker processes, no referee, no lock file | `test -z "$(pgrep -f "$MARK")" && ! kill -0 $REF && test -z "$(ls -A $L)"`; harness: probe-gate-killed |
 | INV-PT-6 | A timed-out run's stdout last line is INDETERMINATE JSON, exit 2, reason matches `timed out after [0-9]+s.*process tree killed` | `node scripts/qk-gate.mjs ... ; echo $?` then assert regex on `referee.reason`; harness: probe-verdict |
-| INV-PT-7 | Elapsed time of a timed-out run is at most N + 5 + 3 s, and for a SIGTERM-ignoring member at least N + 5 s | wall-clock around the gate invocation; harness: probe-verdict |
+| INV-PT-7 | Elapsed time of a timed-out run is at most N + 5 + 3 s, and for a SIGTERM-ignoring member of the process group at least N + 5 s; a SIGTERM-ignoring tracked descendant that left the group adds no grace (it is SIGKILLed at reap time) | wall-clock around the gate invocation; harness: probe-verdict |
 | INV-PT-8 | For each invalid `timeoutSeconds` value the run exits 2 with a reason containing `timeoutSeconds`, no witness file written by `verify`, `$T` empty | `test -e $WITNESS` is false and `test -z "$(ls -A $T)"`; harness: probe-timeout-validation |
 | INV-PT-9 | `timeoutSeconds` 1 and 3600 are accepted by a real run; the default 300 is proven by a unit test of an exported pure function (no env seam) | exit 0 for both boundaries; unit test `node --test` on the exported function; harness: probe-timeout-validation |
 | INV-PT-10 | The timeout applied equals the BASE value even when the working tree differs | elapsed time and reason `after 2s`; harness: probe-timeout-source |
 | INV-PT-11 | While run A holds the lock, a run on another worktree of the same repo (same `QK_LOCK_DIR=$L`) exits 2 with reason containing `another gate run is active`, `$L` holds only A's lock file and `$T` is empty | `test "$(ls -A $L)" = "$LOCKNAME" && test -z "$(ls -A $T)"`; harness: probe-lock-live |
 | INV-PT-12 | After any run exiting by a path it controls, `$L` is empty | `test -z "$(ls -A $L)"`; harness: probe-lock-release |
-| INV-PT-13 | After a run following a SIGKILLed referee, processes carrying the dead run's marker AND processes in its recorded pgids (even with scrubbed env) are gone and the new run proceeds | `test -z "$(pgrep -f "$MARK_OLD")" && ! kill -0 $SCRUBBED_PID`, verdict `pass`; harness: probe-lock-takeover |
+| INV-PT-13 | After a run following a SIGKILLed referee, processes carrying the dead run's marker, processes in its recorded pgids (even with scrubbed env) AND recorded descendants (including an Apple platform binary such as `/usr/bin/perl` that called `setpgrp` and ignores SIGTERM) are gone, and the new run proceeds; before the new run, the lock lists that descendant | `grep -c "$PERL_PID" $L/qk-gate-*.lock` is at least 1 before; after: `test -z "$(pgrep -f "$MARK_OLD")" && ! kill -0 $SCRUBBED_PID && ! kill -0 $PERL_PID`, verdict `pass`; harness: probe-lock-takeover |
 | INV-PT-14 | A lock naming a live unrelated pid with a wrong `lstart` is taken over and the unrelated process is still alive | `kill -0 $UNRELATED` succeeds and verdict `pass`; harness: probe-lock-pid-reuse |
 | INV-PT-15 | A memory refusal (macOS, via `QK_MEM_MAX_PRESSURE_LEVEL=1` or `QK_MEM_MIN_LEVEL_PCT=101`) exits 2, reason contains `memory pressure`, and leaves `$T` and `$L` empty; with `QK_MEM_GUARD=off` the same run proceeds | `test -z "$(ls -A $T)" && test -z "$(ls -A $L)"`; harness: probe-memory-guard |
 | INV-PT-16 | With every probe unreadable the guard passes and a warning is produced (unit test of an exported pure function; no env seam) | `node --test` on the exported function; harness: unit |
@@ -209,12 +208,14 @@ Probe notation: `$MARK` unique marker in the grandchild argv; `$T` the run's scr
 | 14 | No full-output tee to a log file | none |
 | 15 | No overall wall-clock cap; budgets are per command | PT-B5 |
 | 20 | Descendant tracking by periodic process-table snapshots (interval <= 500 ms; pid, ppid chain, start time); at command end, timeout or abnormal exit every tracked descendant still alive with matching start time is killed, never a reused pid; the env-marker sweep stays as a second layer. Added after BREAKER_FAIL on PT-A6/INV-PT-3 (macOS `ps eww` hides the environment of Apple platform binaries) | PT-A15, PT-A16, PT-A17, INV-PT-1, INV-PT-3 |
+| 21 | Tracked descendants are persisted into the lock as `descendants: [{pid, start}]`, replaced atomically (temp + rename) whenever the tracked set changes (at most once per snapshot interval); takeover has three mechanisms: recorded pgids, recorded descendants (alive AND start time matches), env-marker sweep. The 5 s grace applies to the command's process group only; descendants that left the group are SIGKILLed at reap time without grace. Added after the second BREAKER_FAIL (vector V-K: referee SIGKILLed with a tracked perl setpgrp escapee) | PT-A2, PT-A18, PT-C4, INV-PT-7, INV-PT-13 |
+| 22 | Resolves OPEN-Q19: on the timeout path a tracked descendant that left the process group may be SIGKILLed at any time from the start of the timeout up to the group's SIGKILL (no SIGTERM, no grace); the implementation does so at reap time | PT-A2, INV-PT-7 |
 | 16 | Linux uses the same override variables: `QK_MEM_MIN_LEVEL_PCT` applies to MemAvailable/MemTotal percent (Linux default 15; macOS default 20), and PSI `some avg10` > 25 refuses (fixed, no override) | PT-C8, PT-C10 |
 | 17 | A non-numeric or out-of-range `QK_MEM_MAX_PRESSURE_LEVEL` / `QK_MEM_MIN_LEVEL_PCT`, or a `QK_MEM_GUARD` other than unset, `on` or `off`, yields INDETERMINATE naming the variable (fail closed, never silently defaulted). Valid: level = integer >= 1; percentage = number >= 0 | PT-C8, PT-C10, PT-C11 |
 | 18 | Process groups are persisted into the lock at each command spawn, via an atomic write (temp file plus rename), so a SIGKILL mid-command is recoverable | PT-C4 |
 | 19 | Cucumber.js is not added (the plugin stays zero-dependency); the `node:test` acceptance harness with verbatim scenario titles plus a trace test is the accepted Gherkin binding | none |
 
-Unit-test-only criteria (no Gherkin scenario by design): PT-A10, PT-A17, PT-A14, PT-B1 (default 300), PT-C9,
+Unit-test-only criteria (no Gherkin scenario by design): PT-A10, PT-A17, PT-A18 (atomicity), PT-A14, PT-B1 (default 300), PT-C9,
 and the boundary arithmetic of PT-C8.
 
 ## Open questions
