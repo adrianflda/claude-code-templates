@@ -22,8 +22,7 @@ leaves open is under "Open questions" and is NOT specified here.
 
 ## Residual risk (read first)
 
-1. A process that both leaves its process group AND scrubs its environment escapes every
-   mechanism below. Not covered; no criterion claims otherwise.
+1. A process that leaves its process group, hides or scrubs its environment (macOS: Apple platform binaries such as `/usr/bin/perl` and `/usr/bin/python3` do not expose their environment to `ps`, so the marker layer cannot see them), AND is created and detached from the tracked tree within one snapshot interval (500 ms) may escape every mechanism below. Not covered; no criterion claims otherwise.
 2. SIGKILL of the referee (or of the whole machine) cannot be intercepted. Orphans from that
    event are only reaped by the NEXT run's stale-lock takeover (PT-C4/PT-C5). Until that next run,
    they live.
@@ -38,6 +37,8 @@ leaves open is under "Open questions" and is NOT specified here.
   carrying the run's marker.
 - **marker**: environment variable `QK_RUN_ID=<16 lowercase hex chars>` placed in every command's
   environment.
+- **snapshot interval**: at most 500 ms between two process-table snapshots taken while a command runs.
+- **tracked descendant**: a process observed in a snapshot whose parent chain leads to the command's shell or to another tracked descendant, recorded with its pid, ppid and start time. A process stays tracked after its parent dies or it leaves the process group.
 - **grace**: 5000 ms between the graceful signal and the forced kill.
 - **survivor**: a process whose command line contains the test's unique marker string, found by
   `pgrep -f`, after the verdict has been emitted.
@@ -55,7 +56,7 @@ leaves open is under "Open questions" and is NOT specified here.
 - PT-A3 WHEN a command times out THE SYSTEM SHALL emit INDETERMINATE (exit 2) whose reason contains `timed out after <N>s` and `process tree killed`, even if the command exits 0 during the grace period.
 - PT-A4 WHEN a command ends, with any exit status including 0, THE SYSTEM SHALL kill every remaining member of its process group before the next command starts and before the verdict is emitted.
 - PT-A5 WHEN a command ends while a background descendant still holds the command's output streams open THE SYSTEM SHALL NOT delay the command's result until that descendant releases them.
-- PT-A6 WHEN a command ends THE SYSTEM SHALL also kill every process that carries the run's marker, including processes that left the command's process group.
+- PT-A6 WHEN a command ends THE SYSTEM SHALL also kill every process that carries the run's marker, including processes that left the command's process group (second layer; it cannot see processes that hide their environment).
 - PT-A7 THE SYSTEM SHALL give every command of one referee run the same `QK_RUN_ID`, and different referee runs different values.
 - PT-A8 WHEN a command writes more than 1 MiB (1048576 bytes) to stdout, to stderr, or to both THE SYSTEM SHALL classify the command by its exit status only, never as INDETERMINATE because of output volume.
 - PT-A9 WHEN the referee receives SIGINT, SIGTERM or SIGHUP THE SYSTEM SHALL kill every live tree, release the repository lock, emit no PASS verdict, and exit with status 128 plus the signal number: 130 for SIGINT, 143 for SIGTERM, 129 for SIGHUP.
@@ -63,6 +64,9 @@ leaves open is under "Open questions" and is NOT specified here.
 - PT-A11 WHEN the referee exits by any path it controls (PASS, FAIL, INDETERMINATE, signal) THE SYSTEM SHALL leave no process of its commands running.
 - PT-A12 WHEN `qk-gate.mjs` receives SIGINT, SIGTERM or SIGHUP THE SYSTEM SHALL terminate its referee child and every tree under it, then exit non-zero.
 - PT-A13 WHEN the process that launched the referee dies (including by SIGKILL) THE SYSTEM SHALL make the referee, which checks for parent death every 1 second, kill every live tree, release the repository lock and exit within 5 seconds of the parent's death.
+- PT-A15 WHILE a command runs THE SYSTEM SHALL take process-table snapshots at an interval of at most 500 ms and track every descendant of the command, recording pid, ppid and start time, whether or not the descendant later leaves the command's process group (setpgrp, setsid) or is reparented, and whether or not its environment is visible.
+- PT-A16 WHEN a command ends, times out, or the referee exits abnormally (PT-A9, PT-A10, PT-A13) THE SYSTEM SHALL kill every tracked descendant that is still alive and whose current start time equals the recorded start time.
+- PT-A17 IF a tracked pid is alive but its start time differs from the recorded one (pid reuse) THEN THE SYSTEM SHALL NOT signal it. (Verified by a unit test of an exported pure function.)
 - PT-A14 IF the platform is `win32` THEN THE SYSTEM SHALL emit INDETERMINATE whose reason names the unsupported platform, before creating any temp tree or running any command. (Verified by a unit test of an exported pure function; no environment seam.)
 
 ### B. Configurable timeout
@@ -134,8 +138,8 @@ Fixture: `git init`, commit `.quality-kernel/tools.json` (`verify` per scenario,
 3. Stragglers after success (PT-A4, A5). `verify` starts a background grandchild that holds stdout
    open (`sleep 60 &` with `$MARK`) and exits 0. Expect `gate` `pass`, exit 0, elapsed under 15
    seconds (not 60), and no survivor.
-4. Escapee (PT-A6). `verify` starts a grandchild in its own session (`node -e` spawning a detached
-   child with `$MARK` in argv, then exiting) and exits 0. Expect no survivor after the gate returns.
+4. Escapee (PT-A6, A15, A16). `verify` starts a grandchild in its own session (`node -e` spawning a detached child with `$MARK` in argv, then exiting) and exits 0. Expect no survivor after the gate returns.
+4b. Platform-binary escapee (PT-A15, A16). `verify` starts `/usr/bin/perl -e` (argv carries `$MARK`) that stays attached for 1 second (longer than one snapshot interval), then calls `setpgrp(0,0)` (variant: `POSIX::setsid()`) and sleeps 60 seconds, and `verify` exits 0. Expect no survivor after the gate returns. Repeat with a `verify` that never exits and `timeoutSeconds` 3: expect INDETERMINATE (timeout) and no survivor. Cleanup with `pkill -f "$MARK"` regardless.
 5. Large output (PT-A8, D4). `verify` writes 3 MiB to stdout, then exits 0: expect exit 0 and
    `referee.pass` true. Repeat with 3 MiB to stderr, with exit 3 (expect gate exit 1, `referee.pass`
    false, not indeterminate), and with 3 MiB to stdout then `exit 127` (expect FAIL, not
@@ -164,9 +168,9 @@ Probe notation: `$MARK` unique marker in the grandchild argv; `$T` the run's scr
 
 | id | predicate (external state) | probe |
 |---|---|---|
-| INV-PT-1 | After a timed-out run returns, zero processes carry the marker, within 2 s of the verdict | `test -z "$(pgrep -f "$MARK")"` after `sleep 2`; harness: probe-timeout-tree |
+| INV-PT-1 | After a timed-out run returns, zero processes carry the marker, within 2 s of the verdict, including a platform-binary (perl) descendant that called `setpgrp` after 1 s attached | `test -z "$(pgrep -f "$MARK")"` after `sleep 2`; harness: probe-timeout-tree |
 | INV-PT-2 | After a run whose command exited 0 leaving a background child, zero processes carry the marker at verdict time | `test -z "$(pgrep -f "$MARK")"` immediately after gate exit; harness: probe-straggler |
-| INV-PT-3 | After a run whose command left a detached (new-session) child, zero processes carry the marker | `test -z "$(pgrep -f "$MARK")"`; harness: probe-escapee |
+| INV-PT-3 | After a run whose command left a detached child (new session, `setpgrp`, or `POSIX::setsid`, including Apple platform binaries whose environment is not visible to `ps`), zero processes carry the marker, on both the exit-0 path and the timeout path | `test -z "$(pgrep -f "$MARK")"`; harness: probe-escapee |
 | INV-PT-4 | After SIGINT, SIGTERM or SIGHUP to the referee, zero marker processes, no live referee, and exit code 130, 143, 129 respectively | `test -z "$(pgrep -f "$MARK")" && ! kill -0 $REF` and exit status check; harness: probe-signal |
 | INV-PT-5 | After SIGTERM to the gate, within 15 s, and after SIGKILL to the gate, within 5 s of the kill, zero marker processes, no referee, no lock file | `test -z "$(pgrep -f "$MARK")" && ! kill -0 $REF && test -z "$(ls -A $L)"`; harness: probe-gate-killed |
 | INV-PT-6 | A timed-out run's stdout last line is INDETERMINATE JSON, exit 2, reason matches `timed out after [0-9]+s.*process tree killed` | `node scripts/qk-gate.mjs ... ; echo $?` then assert regex on `referee.reason`; harness: probe-verdict |
@@ -204,12 +208,13 @@ Probe notation: `$MARK` unique marker in the grandchild argv; `$T` the run's scr
 | 13 | Uncaught exception is verified by a code-level fault-injection unit test | PT-A10 |
 | 14 | No full-output tee to a log file | none |
 | 15 | No overall wall-clock cap; budgets are per command | PT-B5 |
+| 20 | Descendant tracking by periodic process-table snapshots (interval <= 500 ms; pid, ppid chain, start time); at command end, timeout or abnormal exit every tracked descendant still alive with matching start time is killed, never a reused pid; the env-marker sweep stays as a second layer. Added after BREAKER_FAIL on PT-A6/INV-PT-3 (macOS `ps eww` hides the environment of Apple platform binaries) | PT-A15, PT-A16, PT-A17, INV-PT-1, INV-PT-3 |
 | 16 | Linux uses the same override variables: `QK_MEM_MIN_LEVEL_PCT` applies to MemAvailable/MemTotal percent (Linux default 15; macOS default 20), and PSI `some avg10` > 25 refuses (fixed, no override) | PT-C8, PT-C10 |
 | 17 | A non-numeric or out-of-range `QK_MEM_MAX_PRESSURE_LEVEL` / `QK_MEM_MIN_LEVEL_PCT`, or a `QK_MEM_GUARD` other than unset, `on` or `off`, yields INDETERMINATE naming the variable (fail closed, never silently defaulted). Valid: level = integer >= 1; percentage = number >= 0 | PT-C8, PT-C10, PT-C11 |
 | 18 | Process groups are persisted into the lock at each command spawn, via an atomic write (temp file plus rename), so a SIGKILL mid-command is recoverable | PT-C4 |
 | 19 | Cucumber.js is not added (the plugin stays zero-dependency); the `node:test` acceptance harness with verbatim scenario titles plus a trace test is the accepted Gherkin binding | none |
 
-Unit-test-only criteria (no Gherkin scenario by design): PT-A10, PT-A14, PT-B1 (default 300), PT-C9,
+Unit-test-only criteria (no Gherkin scenario by design): PT-A10, PT-A17, PT-A14, PT-B1 (default 300), PT-C9,
 and the boundary arithmetic of PT-C8.
 
 ## Open questions

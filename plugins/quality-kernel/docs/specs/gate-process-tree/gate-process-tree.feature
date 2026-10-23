@@ -68,13 +68,24 @@ Feature: Gate commands never outlive the gate run
     When the referee runs
     Then the exit code is 0
 
-  @PT-A6
-  Scenario: a descendant that left the process group is swept by the run marker
-    Given "verify" starts a grandchild carrying MARK in a new session that sleeps 60 seconds
-    And "verify" exits 0
+  @PT-A6 @PT-A15 @PT-A16
+  Scenario Outline: a descendant that left the process group is killed whether or not its environment is visible
+    Given "verify" starts <escapee> carrying MARK in argv that stays attached for 1 second, then <escape> and sleeps 60 seconds
+    And "verify" <ending>
     When the referee runs
-    Then the exit code is 0
-    And no process carries MARK
+    Then the exit code is <referee exit>
+    And no process carries MARK at the moment the referee exits
+
+    Examples:
+      | escapee                      | escape                  | ending                        | referee exit |
+      | a node process               | starts a detached child | exits 0                       | 0            |
+      | /usr/bin/perl -e             | calls setpgrp(0,0)      | exits 0                       | 0            |
+      | /usr/bin/perl -e             | calls POSIX::setsid()   | exits 0                       | 0            |
+      | /usr/bin/perl -e             | calls setpgrp(0,0)      | sleeps past a 3 second timeout | 2           |
+      | /usr/bin/perl -e             | calls POSIX::setsid()   | sleeps past a 3 second timeout | 2           |
+
+  # Escapes that happen and finish inside one snapshot interval are the documented residual risk
+  # (contract.md, residual risk 1) and are deliberately not asserted here.
 
   @PT-A7 @PT-D6
   Scenario: every command sees one run marker per run and no NODE_TEST_CONTEXT
