@@ -5,7 +5,7 @@
 // parseLock is the only reader; it normalises `descendants` to [] for locks written before PT-A18.
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { readFileSync, linkSync, unlinkSync, realpathSync, renameSync, openSync, writeSync, closeSync, mkdirSync, lstatSync } from 'node:fs';
+import { constants as fsc, readFileSync, fstatSync, linkSync, unlinkSync, realpathSync, renameSync, openSync, writeSync, closeSync, mkdirSync, lstatSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -45,15 +45,27 @@ export function parseLock(raw) {
   const j = parseJson(raw);
   return isLock(j) ? { ...j, descendants: Array.isArray(j.descendants) ? j.descendants : [] } : null;
 }
-// undefined = no file, null = unreadable/malformed, else the parsed lock.
-export function readLock(path) {
-  let raw;
-  try { raw = readFileSync(path, 'utf8'); } catch (e) { return e.code === 'ENOENT' ? undefined : null; }
-  return parseLock(raw);
+// PT-C13: a lock is never opened until lstat says regular file (opening a FIFO for reading blocks
+// forever); it is then opened O_NONBLOCK|O_NOFOLLOW and the OPENED descriptor is re-verified (regular,
+// ours), which closes the lstat -> open swap. undefined = no file, null = not a trusted readable file.
+function readRegularFile(path, uid) {
+  let fd;
+  try {
+    if (!lstatSync(path).isFile()) return null;
+    fd = openSync(path, fsc.O_RDONLY | fsc.O_NONBLOCK | fsc.O_NOFOLLOW);
+    const st = fstatSync(fd);
+    return st.isFile() && st.uid === uid ? readFileSync(fd, 'utf8') : null;
+  } catch (e) { return e.code === 'ENOENT' ? undefined : null; }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
+// undefined = no file, null = unreadable/malformed/untrusted, else the parsed lock.
+export function readLock(path, uid = process.getuid()) {
+  const raw = readRegularFile(path, uid);
+  return typeof raw === 'string' ? parseLock(raw) : raw;
 }
 // PT-C12: a fresh temp file, created exclusively (never through a link), mode 0600, unpredictable name.
-function writeTemp(path, payload) {
-  const tmp = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+export function writeTemp(path, payload, random = randomBytes) {
+  const tmp = `${path}.${process.pid}.${random(6).toString('hex')}.tmp`;
   const fd = openSync(tmp, 'wx', 0o600);
   try { writeSync(fd, JSON.stringify(payload)); } finally { closeSync(fd); }
   return tmp;

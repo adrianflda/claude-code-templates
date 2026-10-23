@@ -7,10 +7,10 @@ import { dirname, join } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, statSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { lockPathFor, processStart, classifyLock, acquireLock, defaultLockDir } from './process-safety/gate-lock.mjs';
-import { parseLock } from './process-safety/lock-store.mjs';
+import { parseLock, readLock, writeTemp } from './process-safety/lock-store.mjs';
 import { newRunId } from './process-safety/proc-tree.mjs';
 import { snapshotTable } from './process-safety/proc-descendants.mjs';
-import { takeOverStale } from './process-safety/lock-takeover.mjs';
+import { takeOverStale, sweepStale } from './process-safety/lock-takeover.mjs';
 import { newMarker, pgrepMarker, pkillMarker, isAlive, waitFor, markedSleep } from './proc-test-kit.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -193,22 +193,23 @@ test('fail closed — a path that is not a git repository refuses with a reason 
   assert.ok(got.reason.includes(notRepo), got.reason);
 });
 
-test('fail closed — a lock path that cannot be read (a directory) is refused as unreadable, not retried', () => {
+test('fail closed — a trusted-looking lock that cannot be read (mode 000) is refused as unreadable, not retried', () => {
   // harm: an EISDIR/EACCES lock treated as "no lock" -> a misleading retry loop instead of the real reason
   const { repo } = mkRepo(); const dir = scratch();
-  mkdirSync(lockPathFor(repo, dir));
+  writeFileSync(lockPathFor(repo, dir), '{}', { mode: 0o600 }); chmodSync(lockPathFor(repo, dir), 0o000);
   const got = acquireLock({ repo, runId: newRunId(), dir });
   assert.strictEqual(got.ok, false);
   assert.match(got.reason, /unreadable or corrupt/);
+  assert.match(got.reason, new RegExp(lockPathFor(repo, dir).replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')));
 });
 
-test('PT-C6 — a lock that keeps changing hands ends in a bounded refusal (dangling lock link)', () => {
+test('PT-C6/C13 — a dangling link at the lock path ends in an immediate untrusted refusal, not a retry loop', () => {
   // harm: an unbounded retry loop hangs the gate forever
   const { repo } = mkRepo(); const dir = scratch(); const path = lockPathFor(repo, dir);
   symlinkSync(join(dir, 'nowhere'), path);
   const got = acquireLock({ repo, runId: newRunId(), dir });
   assert.strictEqual(got.ok, false);
-  assert.match(got.reason, /^another gate run is active for this repository \(lock .* changed hands repeatedly\)$/);
+  assert.match(got.reason, /^repository lock .* is untrusted \(is not a real file/);
   assert.deepStrictEqual(readdirSync(dir), [path.split('/').pop()], 'no temp residue');
 });
 
@@ -463,4 +464,112 @@ test('lock schema — parseLock normalises a legacy lock without descendants; a 
   assert.strictEqual(got.ok, true);
   assert.ok(await waitFor(() => !isAlive(g)), 'a legacy plain-number pgid is still killed');
   got.lock.release();
+});
+
+// ---- gate repair round 1 (breaker round 4): PT-C13 non-regular file, PT-C15 stranded record, PT-C12/C14 gaps ----
+
+test('PT-C13 — a FIFO at the lock path is refused promptly, never opened for reading, and kills nothing', () => {
+  // harm: opening a FIFO for reading blocks forever (no verdict); runs in a child so a hang fails by timeout
+  const { repo } = mkRepo(); const dir = scratch(); const bystander = longSleep(true);
+  const path = lockPathFor(repo, dir);
+  assert.strictEqual(spawnSync('mkfifo', [path]).status, 0);
+  chmodSync(path, 0o600);
+  const script = join(scratch(), 'fifo.mjs');
+  writeFileSync(script, `
+import { acquireLock } from ${JSON.stringify(pathToFileURL(join(here, 'process-safety', 'gate-lock.mjs')).href)};
+const got = acquireLock({ repo: ${JSON.stringify(repo)}, runId: 'fedcba9876543210', dir: ${JSON.stringify(dir)} });
+console.log(JSON.stringify(got));`);
+  const r = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 10000, killSignal: 'SIGKILL' });
+  assert.strictEqual(r.signal, null, 'the referee must not block on the FIFO');
+  const got = JSON.parse(r.stdout);
+  assert.strictEqual(got.ok, false);
+  assert.match(got.reason, /unreadable or corrupt|untrusted/);
+  assert.ok(isAlive(bystander));
+  assert.ok(statSync(path).isFIFO(), 'the planted node is left in place');
+});
+
+test('PT-C13 — readLock opens with the owner check on the descriptor: a file of another uid is not read', () => {
+  const dir = scratch(); const path = join(dir, 'qk-gate-x.lock');
+  const rec = { pid: 5, lstart: 'x', runId: newRunId(), repo: '/r', pgids: [], descendants: [] };
+  writeFileSync(path, JSON.stringify(rec), { mode: 0o600 });
+  assert.deepStrictEqual(readLock(path, process.getuid()), rec);
+  assert.strictEqual(readLock(path, process.getuid() + 1), null);
+  assert.strictEqual(readLock(join(dir, 'absent')), undefined);
+});
+
+const strandedPath = (path, claimer) => `${path}.${claimer}.stale`;
+
+test('PT-C15 — a record stranded by a referee killed during takeover is swept (group, descendant, marker) and then removed', async () => {
+  const { repo } = mkRepo(); const dir = scratch(); const hit = longSleep(true);
+  const path = lockPathFor(repo, dir);
+  const file = strandedPath(path, deadPid());
+  writeFileSync(file, JSON.stringify({ pid: deadPid(), lstart: 'x', runId: newRunId(), repo, pgids: [{ pgid: hit, start: startNorm(hit) }], descendants: [] }), { mode: 0o600 });
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  assert.ok(await waitFor(() => !isAlive(hit)), 'the stranded run\'s group is killed');
+  assert.deepStrictEqual(readdirSync(dir), lockFiles(dir), 'the stranded record is removed after the sweep');
+  got.lock.release();
+});
+
+test('PT-C15 — a stranded record is left alone while its claimer is alive, and when its holder is live', () => {
+  const { repo } = mkRepo(); const dir = scratch(); const bystander = longSleep(true);
+  const path = lockPathFor(repo, dir);
+  const rec = (over) => JSON.stringify({ pid: deadPid(), lstart: 'x', runId: newRunId(), repo, pgids: [{ pgid: bystander, start: startNorm(bystander) }], descendants: [], ...over });
+  const midTakeover = strandedPath(path, process.pid);           // claimer (this process) is alive: a takeover is in progress
+  writeFileSync(midTakeover, rec(), { mode: 0o600 });
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, true);
+  assert.ok(isAlive(bystander), 'an in-progress takeover is not interfered with');
+  assert.ok(existsSync(midTakeover));
+  got.lock.release(); unlinkSync(midTakeover);
+  const live = { pid: process.pid, lstart: processStart(process.pid) };
+  const liveFile = strandedPath(path, deadPid());
+  writeFileSync(liveFile, rec(live), { mode: 0o600 });
+  const second = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(second.ok, false, 'a live run displaced by a dead claimer is put back and respected');
+  assert.match(second.reason, /another gate run is active/);
+  assert.ok(isAlive(bystander));
+  assert.ok(!existsSync(liveFile));
+});
+
+test('PT-C13/C15 — an untrusted stranded record (world-writable, symlink, FIFO) is refused, kills nothing', () => {
+  const { repo } = mkRepo(); const path = lockPathFor(repo, scratch());
+  for (const how of ['world-writable', 'symlink', 'fifo']) {
+    const dir = scratch(); const bystander = longSleep(true);
+    const p = lockPathFor(repo, dir); const file = strandedPath(p, deadPid());
+    const body = JSON.stringify({ pid: deadPid(), lstart: 'x', runId: newRunId(), repo, pgids: [{ pgid: bystander, start: startNorm(bystander) }], descendants: [] });
+    if (how === 'fifo') { spawnSync('mkfifo', [file]); }
+    else if (how === 'symlink') { const real = join(scratch(), 'r'); writeFileSync(real, body, { mode: 0o600 }); symlinkSync(real, file); }
+    else { writeFileSync(file, body); chmodSync(file, 0o666); }
+    const got = acquireLock({ repo, runId: newRunId(), dir });
+    assert.strictEqual(got.ok, false, how);
+    assert.match(got.reason, /untrusted/, how);
+    assert.ok(isAlive(bystander), how);
+  }
+  void path;
+});
+
+test('PT-C14 — forged pgids (0, 1, negative, non-integer, own group) in a record are never signalled', () => {
+  const signalled = [];
+  const own = Number(spawnSync('ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).stdout.trim());
+  const forged = [0, 1, -1, -own, 1.5, NaN, Infinity, '7', null, undefined, own, { pgid: 0, start: null }, { pgid: 1, start: null }, { pgid: -5, start: 'x' }, { pgid: 2.5, start: null }, { pgid: own, start: null }, { pgid: own, start: startNorm(process.pid) }];
+  sweepStale({ runId: newRunId(), pgids: forged, descendants: [] }, { kill: (g) => signalled.push(g) });
+  assert.deepStrictEqual(signalled, []);
+  const marked = 987654;                                          // positive control: a plausible legacy group is signalled
+  sweepStale({ runId: newRunId(), pgids: [marked], descendants: [] }, { kill: (g) => signalled.push(g) });
+  assert.deepStrictEqual(signalled, [marked]);
+});
+
+test('PT-C12 — temp file names are random per write, created exclusively with mode 0600', () => {
+  const dir = scratch(); const path = join(dir, 'qk-gate-x.lock');
+  const a = writeTemp(path, { a: 1 }), b = writeTemp(path, { a: 2 });
+  assert.notStrictEqual(a, b);
+  for (const t of [a, b]) {
+    assert.match(t.slice(path.length), /^\.\d+\.[0-9a-f]{12}\.tmp$/);
+    assert.strictEqual(statSync(t).mode & 0o777, 0o600);
+  }
+  assert.deepStrictEqual(JSON.parse(readFileSync(b, 'utf8')), { a: 2 });
+  const fixed = () => Buffer.from('aabbccddeeff', 'hex');
+  writeTemp(path, {}, fixed);
+  assert.throws(() => writeTemp(path, { x: 1 }, fixed), { code: 'EEXIST' }, 'an existing name is never overwritten or followed');
 });

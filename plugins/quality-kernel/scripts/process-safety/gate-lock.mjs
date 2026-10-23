@@ -6,13 +6,13 @@ import { unlinkSync } from 'node:fs';
 import { lockPathFor, readLock, replaceLock, createExclusive, ensureLockDir, defaultLockDir } from './lock-store.mjs';
 import { startTimeOf } from './proc-tree.mjs';
 import { processStart, classifyLock } from './lock-liveness.mjs';
-import { takeOverStale } from './lock-takeover.mjs';
+import { takeOverStale, reapStranded, lockDistrust } from './lock-takeover.mjs';
 
 export { lockPathFor, processStart, classifyLock, defaultLockDir };
 
 // null = the holder may be taken over (stale), else the refusal reason.
-function holderRefusal(held, path) {
-  if (held === null) return `repository lock ${path} is unreadable or corrupt; refusing to guess (remove it if no gate run is active)`;
+function holderRefusal(held, path, uid) {
+  if (held === null) return lockDistrust(path, uid) || `repository lock ${path} is unreadable or corrupt; refusing to guess (remove it if no gate run is active)`;
   if (classifyLock(held) !== 'live') return null;
   return `another gate run is active for this repository (pid ${held.pid}, started ${held.lstart || 'unknown'}, lock ${path})`;
 }
@@ -21,12 +21,14 @@ export function acquireLock({ repo, runId, dir, uid = process.getuid() }) {
   let path;
   try { ensureLockDir(dir, uid); path = lockPathFor(repo, dir); }
   catch (e) { return { ok: false, reason: `cannot create the repository lock: ${e.message}` }; }
+  const stranded = reapStranded(path, { uid });
+  if (stranded) return { ok: false, reason: stranded };
   const payload = { pid: process.pid, lstart: processStart(process.pid), runId, repo, pgids: [], descendants: [] };
   for (let attempt = 0; attempt < 3; attempt++) {
     if (createExclusive(path, payload)) return { ok: true, lock: ownedLock(path, payload) };
     const held = readLock(path);
     if (held === undefined) continue;
-    const reason = holderRefusal(held, path);
+    const reason = holderRefusal(held, path, uid);
     if (reason) return { ok: false, reason };
     const refusal = takeOverStale(path, held);
     if (refusal) return { ok: false, reason: refusal };
