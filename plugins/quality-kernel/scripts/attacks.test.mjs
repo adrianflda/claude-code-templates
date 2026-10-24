@@ -507,3 +507,18 @@ test('DOC (declared test root) — a spec.md under test/ or spec/ inside product
     finally { rmSync(tmp, { recursive: true, force: true }); }
   }
 });
+
+test('DOC (data files) — a *.test.txt / *.spec.rst under productionGlobs stays ambiguous (only Markdown is exempt)', () => {
+  for (const p of ['src/expected.test.txt', 'src/cases.spec.rst']) {
+    const { tmp, base, head } = mk({ verify: 'node --test', productionGlobs: ['src/**'] }, { ...BASE, [p]: 'a' }, { [p]: 'b' });
+    try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2, p); assert.match(json(r).reason, /ambiguous/, p); }
+    finally { rmSync(tmp, { recursive: true, force: true }); }
+  }
+});
+
+test('DOC (manifest) — requirements.txt under productionGlobs stays ambiguous', () => {
+  const { tmp, base, head } = mk({ verify: 'node --test', productionGlobs: ['src/**'] },
+    { ...BASE, 'src/requirements.txt': 'a' }, { 'src/requirements.txt': 'b' });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /ambiguous/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});

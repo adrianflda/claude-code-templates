@@ -43,7 +43,7 @@ import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, readdirSy
 import { join, dirname, isAbsolute, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
-import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
+import { globToRegExp, TEST_GLOBS, TEST_NAME_GLOBS, TEST_ROOT_GLOBS, isLedger } from './route.mjs';
 import { resolveTimeoutSeconds, unsupportedPlatformReason, commandFailure, openSession } from './process-safety/gate-session.mjs';
 
 // CONVERGENCE FIX (panel v2.6 root cause): there is NO silent "inert" / "harness-by-name" allow-list
@@ -180,14 +180,14 @@ const isDeclaredTest = match(tools.testGlobs);   // NARROW: which change is allo
 const isManifest = match(MANIFEST_GLOBS);
 const isOutput = match(tools.outputGlobs);
 // BROAD: what must never be overlaid from head (S2/S3). Wider than the declared test roots on purpose.
-// Prose documents (a contract named spec.md, notes.test.md) are never test-like by NAME: the name
-// globs ('**/*.spec.*', '**/*Spec.*', ...) exist to catch executable oracles. A document is still
-// never-overlay when it lives under a test ROOT ('**/test/**', '**/spec/**', ...) or a harness path,
-// because tests can read it (fixtures, snapshots). Manifests (requirements*.txt) are unaffected.
-const DOC_RE = /\.(?:md|mdx|markdown|txt|rst|adoc)$/i;
-const isTestRootGlob = (g) => g.endsWith('/**');
-const isTestRoot = match(TEST_GLOBS.filter(isTestRootGlob));
-const isTestByName = match(TEST_GLOBS.filter((g) => !isTestRootGlob(g)));
+// Markdown documents (a contract named spec.md) are never test-like by NAME: the name globs
+// ('**/*.spec.*', '**/*Spec.*', ...) exist to catch executable oracles. Only Markdown is exempt:
+// .txt/.rst/.adoc are commonly consumed as test input/expected data, so they stay never-overlay.
+// A Markdown file is still never-overlay under a test ROOT or a harness path (fixtures, snapshots),
+// and manifests (requirements*.txt) are unaffected.
+const DOC_RE = /\.(?:md|mdx|markdown)$/i;
+const isTestRoot = match(TEST_ROOT_GLOBS);
+const isTestByName = match(TEST_NAME_GLOBS);
 const isHarnessOrManifest = match([...HARNESS_DENYLIST, ...MANIFEST_GLOBS]);
 const isNeverOverlay = (p) => isTestRoot(p) || (!DOC_RE.test(p) && isTestByName(p)) || isHarnessOrManifest(p);
 // A file is overlaid from head iff it is production AND not in the broad never-overlay set.
