@@ -180,7 +180,16 @@ const isDeclaredTest = match(tools.testGlobs);   // NARROW: which change is allo
 const isManifest = match(MANIFEST_GLOBS);
 const isOutput = match(tools.outputGlobs);
 // BROAD: what must never be overlaid from head (S2/S3). Wider than the declared test roots on purpose.
-const isNeverOverlay = match([...TEST_GLOBS, ...HARNESS_DENYLIST, ...MANIFEST_GLOBS]);
+// Prose documents (a contract named spec.md, notes.test.md) are never test-like by NAME: the name
+// globs ('**/*.spec.*', '**/*Spec.*', ...) exist to catch executable oracles. A document is still
+// never-overlay when it lives under a test ROOT ('**/test/**', '**/spec/**', ...) or a harness path,
+// because tests can read it (fixtures, snapshots). Manifests (requirements*.txt) are unaffected.
+const DOC_RE = /\.(?:md|mdx|markdown|txt|rst|adoc)$/i;
+const isTestRootGlob = (g) => g.endsWith('/**');
+const isTestRoot = match(TEST_GLOBS.filter(isTestRootGlob));
+const isTestByName = match(TEST_GLOBS.filter((g) => !isTestRootGlob(g)));
+const isHarnessOrManifest = match([...HARNESS_DENYLIST, ...MANIFEST_GLOBS]);
+const isNeverOverlay = (p) => isTestRoot(p) || (!DOC_RE.test(p) && isTestByName(p)) || isHarnessOrManifest(p);
 // A file is overlaid from head iff it is production AND not in the broad never-overlay set.
 const isProd = (p) => rawProd(p) && !isNeverOverlay(p);
 
