@@ -522,3 +522,24 @@ test('DOC (manifest) — requirements.txt under productionGlobs stays ambiguous'
   try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /ambiguous/); }
   finally { rmSync(tmp, { recursive: true, force: true }); }
 });
+
+test('DOC (content checks) — a production plan.md citing test paths and showing a framework import is verified', () => {
+  const plan = "# Plan\nConformance: `app/test/x.test.ts`, see \"tests/guard.test.mjs\".\n```js\nimport { test } from 'node:test';\n```\n";
+  const { tmp, base, head } = mk({ verify: 'node --test', productionGlobs: ['src/**', 'specs/**'] },
+    { ...BASE, 'specs/024/plan.md': '# old\n' }, { 'specs/024/plan.md': plan });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 0, r.stdout); assert.strictEqual(json(r).pass, true); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('DOC (content checks) — a production .mjs importing from tests/ stays indeterminate', () => {
+  const { tmp, base, head } = mk(TOOLS, BASE, { 'src/code.mjs': "import x from '../tests/guard.test.mjs';\nexport const f = () => 1;" });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /declared-test root/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('DOC (content checks) — a production .txt citing a test root stays indeterminate (Markdown only)', () => {
+  const { tmp, base, head } = mk({ verify: 'node --test', productionGlobs: ['src/**'] },
+    { ...BASE, 'src/notes.txt': 'a' }, { 'src/notes.txt': "see 'tests/guard.test.mjs'" });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /declared-test root/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});

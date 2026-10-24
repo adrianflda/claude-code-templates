@@ -259,7 +259,7 @@ for (const p of diff.deleted) dispose(p, true);
 // Content checks over overlaid production files: an oracle component named like production (T-class),
 // or production reading from a test root (S4). Both make the run unverifiable -> indeterminate.
 for (const p of diff.changed) {
-  if (!isProd(p)) continue;
+  if (!isProd(p) || DOC_RE.test(p)) continue; // Markdown is prose: it may cite test paths / show framework imports
   const b = show(base, p); if (b.status === 0 && ORACLE_IMPORT_RE.test(b.stdout)) indeterminate(`"${p}" is under productionGlobs but its base content imports a test/assertion framework — it is an oracle component, not code under test; move it out of productionGlobs or declare it in testGlobs`);
   const h = show(head, p); if (h.status === 0 && TEST_ROOT_REF_RE.test(h.stdout)) indeterminate(`"${p}" (production) references a declared-test root (tests/ or __tests__/) — production must not read from the test harness; move the file it needs out of the test root`);
 }
