@@ -50,9 +50,15 @@ Communication model:
 
 ## Gates (enforce; do not skip)
 
-1. **Intention gate (human)** — after the specifier produces the contract (EARS +
-   Gherkin + External Observable Invariants), pause for human validation that the
-   contract matches intent, before any code is written (T1+).
+1. **Blind contract review, then the intention gate (human)** — after the specifier
+   produces the contract (EARS + Gherkin + External Observable Invariants), run
+   `node <plugin>/scripts/contract-review.mjs --contract <spec.md> --out <spec>.review.md`
+   (T1+). Two isolated, tool-less reviewers that see only the contract text report
+   gaps as `blocker` / `major` / `nit`. Send each blocker back to the specifier; then
+   pause for human validation that the contract matches intent, with the review report
+   beside it, before any code is written. A blocker left in the contract must be waived
+   by the human explicitly, never by an agent. Exit 2 (a reviewer could not run or
+   answered off-format) means not reviewed: re-run, do not proceed as if it passed.
    *(Optional, per-project:)* if GitHub Project integration is enabled, create one issue
    per task on the dashboard here.
 2. **Genuine RED** — the coder's tests must fail for the right reason, anchored to the
