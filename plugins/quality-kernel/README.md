@@ -122,7 +122,7 @@ Then:
 - Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
 
 **Process safety (referee).** Each command (`verifySetup`, `verify`, `acceptance`) runs in its own
-process group with a timeout: `timeoutSeconds` in `tools.json` (integer 1–3600, default 300, read from
+process group with a timeout: `timeoutSeconds` in `tools.json` (integer 1–14400, default 300, read from
 the base ref; anything else is indeterminate). On timeout the whole group gets SIGTERM, then SIGKILL
 after 5 s; after every command the group and every process carrying the run's `QK_RUN_ID` marker are
 killed, so nothing outlives a gate run. Before any temp tree exists the referee checks, in order:

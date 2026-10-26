@@ -14,13 +14,13 @@ import { parseLock } from './process-safety/lock-store.mjs';
 import { parsePsPids } from './process-safety/proc-group.mjs';
 import { lastJsonLine } from './process-safety/proc-forward.mjs';
 
-const anyValue = gen.oneOf(gen.int(-10, 4000), gen.float(-1, 4000), gen.string(), gen.constant(null), gen.bool(), gen.map(gen.int(1, 3600), String));
+const anyValue = gen.oneOf(gen.int(-10, 16000), gen.float(-1, 16000), gen.string(), gen.constant(null), gen.bool(), gen.map(gen.int(1, 14400), String));
 
-test('resolveTimeoutSeconds accepts exactly the integers 1..3600, unchanged, and defaults only when absent', () => {
+test('resolveTimeoutSeconds accepts exactly the integers 1..14400, unchanged, and defaults only when absent', () => {
   assert.deepStrictEqual(resolveTimeoutSeconds({}), { seconds: DEFAULT_TIMEOUT_SECONDS });
   forAll(anyValue, (v) => {
     const r = resolveTimeoutSeconds({ timeoutSeconds: v });
-    const valid = Number.isInteger(v) && v >= 1 && v <= 3600;
+    const valid = Number.isInteger(v) && v >= 1 && v <= 14400;
     return valid ? r.seconds === v && !('error' in r) : r.error.includes('timeoutSeconds') && !('seconds' in r);
   });
 });

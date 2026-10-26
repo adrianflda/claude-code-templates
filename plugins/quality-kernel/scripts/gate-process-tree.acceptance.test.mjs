@@ -285,7 +285,7 @@ scenario('SIGKILL of the gate is detected by the referee through parent death', 
 
 // ---------- B. Configurable timeout ----------
 
-for (const value of ['0', '-1', '1.5', '"5"', 'true', 'null', '3601', '99999']) {
+for (const value of ['0', '-1', '1.5', '"5"', 'true', 'null', '14401', '99999']) {
   scenario(`an invalid timeoutSeconds is INDETERMINATE and runs nothing [${value}]`, async () => {
     const witness = join(sideDir(), 'witness');
     const raw = `{"verify":"touch ${witness}","productionGlobs":["src/**"],"timeoutSeconds":${value}}`;
@@ -299,7 +299,7 @@ for (const value of ['0', '-1', '1.5', '"5"', 'true', 'null', '3601', '99999']) 
   });
 }
 
-for (const value of [1, 3600]) {
+for (const value of [1, 14400]) {
   scenario(`boundary values are accepted unchanged [${value}]`, async () => {
     const fx = fixture({ tools: { verify: 'exit 0', timeoutSeconds: value } });
     assert.strictEqual((await run(REFEREE, fx)).code, 0);
@@ -308,7 +308,7 @@ for (const value of [1, 3600]) {
 
 scenario('the working tree and head cannot change the timeout', async () => {
   const fx = fixture({ tools: { verify: 'sleep 10', timeoutSeconds: 2 } });
-  writeFileSync(join(fx.repo, '.quality-kernel', 'tools.json'), JSON.stringify({ verify: 'sleep 10', productionGlobs: ['src/**'], timeoutSeconds: 3600 }));
+  writeFileSync(join(fx.repo, '.quality-kernel', 'tools.json'), JSON.stringify({ verify: 'sleep 10', productionGlobs: ['src/**'], timeoutSeconds: 14400 }));
   const r = await run(REFEREE, fx);
   assert.match(r.verdict.reason, /timed out after 2s/);
 });

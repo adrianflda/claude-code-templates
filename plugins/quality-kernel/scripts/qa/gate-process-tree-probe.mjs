@@ -391,8 +391,8 @@ S['lock-live-worktree'] = { inv: ['INV-PT-11', 'INV-PT-12'], step: 10, async run
 } };
 
 S['timeout-validation'] = { inv: ['INV-PT-8', 'INV-PT-9', 'INV-PT-12'], step: 11, async run(ctx) {
-  const invalid = ['0', '-1', '1.5', '"5"', 'true', 'null', '3601', '99999'];
-  for (const [i, raw] of [...invalid, '1', '3600'].entries()) {
+  const invalid = ['0', '-1', '1.5', '"5"', 'true', 'null', '14401', '99999'];
+  for (const [i, raw] of [...invalid, '1', '14400'].entries()) {
     const sub = new Ctx(`${ctx.name}-sub`, []); sub.root = ctx.dir(`v${i}`);
     const m = ctx.mark(); const w = join(sub.dir('side'), 'witness'); const T = sub.dir('tmp'), L = sub.dir('locks');
     const ok = !invalid.includes(raw);
@@ -412,7 +412,7 @@ S['timeout-source'] = { inv: ['INV-PT-10'], step: 12, async run(ctx) {
   const m = ctx.mark(); const T = ctx.dir('tmp'), L = ctx.dir('locks');
   const verify = `${marked(m, 10)}`;
   const fx = fixture(ctx, pair({ verify, timeoutRaw: 2 }));
-  fx.write('.quality-kernel/tools.json', tools({ verify, timeoutRaw: 3600 })); // uncommitted working-tree edit
+  fx.write('.quality-kernel/tools.json', tools({ verify, timeoutRaw: 14400 })); // uncommitted working-tree edit
   ctx.instrument(fx.git('status', '--porcelain').stdout.includes('tools.json'), 'working-tree edit not visible to git');
   const r = await launch(ctx, 'gate', { repo: fx.repo, base: fx.shas[0], head: fx.shas[1], tmp: T, locks: L }).done;
   ctx.check('base timeout applies: exit 2, "timed out after 2s"', r.code === 2 && /timed out after 2s/.test(reasonOf(r)), [r.code, reasonOf(r)]);

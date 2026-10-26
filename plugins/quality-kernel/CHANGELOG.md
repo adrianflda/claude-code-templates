@@ -11,6 +11,12 @@ Merges the `main` line into the workspace line. Both lines had released a "0.6.0
 diverged on 2026-10-08; this entry carries `main`'s 0.6.0 (2026-10-26) notes. The workspace line's
 0.6.0-0.10.0 entries below are unchanged.
 
+### Changed — timeout ceiling
+- `timeoutSeconds` accepts integers 1-14400 (was 1-3600); contract PT-B2/PT-B3, INV-PT-9 and the
+  QA probe amended. A Django suite of about 70 minutes, run twice per gate (trusted + head), did not
+  fit in one hour, so long suites could not be gated at all. Invalid values are still indeterminate,
+  never clamped.
+
 ### Changed — merge reconciliation
 - The referee keeps the workspace line's committed-bytes materialization (raw blobs, re-hashed) and
   org-mode contract loading, and adopts `main`'s process-tree session: temp trees come from
