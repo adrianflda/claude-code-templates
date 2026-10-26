@@ -12,6 +12,26 @@ import sys
 import tempfile
 import unittest
 
+
+def _hermetic_git_env(base):
+    """Ignore the developer's git config, as scripts/hermetic-git.mjs does for the Node suite.
+
+    A global or XDG excludes file listing `.quality-kernel/` makes a fixture repo look gitignored,
+    so the evidence-gate writes a ledger the test expects it to skip. excludesFile and
+    attributesFile are pinned at command scope because, with no global config, git falls back to
+    $XDG_CONFIG_HOME/git/{ignore,attributes}.
+    """
+    env = {**base, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    n = int(env.get("GIT_CONFIG_COUNT", "0") or 0)
+    for key in ("core.excludesFile", "core.attributesFile"):
+        env[f"GIT_CONFIG_KEY_{n}"], env[f"GIT_CONFIG_VALUE_{n}"] = key, os.devnull
+        n += 1
+    env["GIT_CONFIG_COUNT"] = str(n)
+    return env
+
+
+os.environ.update(_hermetic_git_env(os.environ))
+
 HERE = pathlib.Path(__file__).resolve().parent
 GUARD = HERE / "epistemic-guard.py"
 GATE = HERE / "evidence-gate.py"
@@ -294,6 +314,19 @@ class EvidenceGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self._git_repo(d, ignore=False)
             code, _ = self._fail(d, "Exit code 1")
+            self.assertEqual(code, 0)
+            self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
+
+    def test_developer_git_ignores_do_not_leak_into_the_test(self):
+        # A global/XDG excludes file listing the ledger (a common personal setup) must not make a
+        # non-gitignored fixture repo look ignored: the suite pins git's config (hermetic env).
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as xdg:
+            pathlib.Path(xdg, "git").mkdir()
+            pathlib.Path(xdg, "git", "ignore").write_text("**/.quality-kernel/*.jsonl\n")
+            self._git_repo(d, ignore=False)
+            payload = {"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                       "tool_input": {"command": "pytest -q"}, "error": "Exit code 1", "cwd": d}
+            code, _ = run(GATE, payload, env={"XDG_CONFIG_HOME": xdg}, cwd=d)
             self.assertEqual(code, 0)
             self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
 

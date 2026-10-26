@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
-  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
-  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
-  Git-spawning tests now import `scripts/hermetic-git.mjs`.
-
 ### Added
+- `.githooks/pre-push` (source repository): local pre-push gate. When a push touches
+  `plugins/quality-kernel/`, it runs the Node and hook suites on the pushed commit in a temporary
+  worktree and blocks the push on any failure; there is deliberately no CI job for these suites.
+  Enable once per clone with `git config core.hooksPath .githooks`. The suites run without
+  `NODE_TEST_CONTEXT`: inherited from a parent `node --test`, it makes the child runner exit 0 on
+  failing tests.
 - `scripts/breaker-claude.mjs`: isolated launcher for the blind breaker, the production `--breaker`
   command for `breaker-invoke.mjs`. Runs the bundled `breaker/pipeline-breaker.md` (copied from the
   catalog agent; a test keeps the bodies equal) under `claude -p --safe-mode --restricted` in a fresh
@@ -30,6 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declares its expected model alias (never a literal ID).
 - `scripts/hermetic-git.test.mjs`: proves the hermetic env defeats a hostile global excludesfile
   and XDG ignore (with a control that shows the hostile config does ignore the file).
+
+### Fixed
+- `hooks/test_hooks.py` no longer depends on the developer's git config. A global or XDG excludes
+  file listing `.quality-kernel/` made a fixture repo look gitignored, failing 2 evidence-gate tests;
+  the suite now pins git's config as `scripts/hermetic-git.mjs` does for the Node suite.
+- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
+  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
+  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
+  Git-spawning tests now import `scripts/hermetic-git.mjs`.
 
 ## [0.5.0] - 2026-09-25
 
