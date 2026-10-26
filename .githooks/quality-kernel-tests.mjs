@@ -10,11 +10,12 @@
 // an uncommitted fix cannot green a red commit. Enable once per clone: git config core.hooksPath .githooks
 // Bypass (not recommended): git push --no-verify.
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createRunner } from "../plugins/quality-kernel/scripts/process-safety/proc-runner.mjs";
 
 export const ZERO = "0".repeat(40);
 const KERNEL = "plugins/quality-kernel/";
@@ -52,6 +53,14 @@ function changedPaths({ localSha, remoteSha }, remote) {
   }
 }
 
+// A hung test must not hold `git push` forever. 15 min per suite (the Node suite takes ~2 min);
+// QK_PREPUSH_SUITE_TIMEOUT_MS overrides it (the hook's own tests use a short one).
+const DEFAULT_SUITE_TIMEOUT_MS = 15 * 60 * 1000;
+function suiteTimeoutMs() {
+  const v = Number(process.env.QK_PREPUSH_SUITE_TIMEOUT_MS);
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_SUITE_TIMEOUT_MS;
+}
+
 function suiteEnv() {
   const env = { ...process.env };
   for (const k of GIT_LOCATION_VARS) delete env[k];
@@ -61,17 +70,30 @@ function suiteEnv() {
   return env;
 }
 
-function runSuites(sha) {
+// Each suite runs through the kernel's own process-safety runner: its own process group, SIGTERM
+// then SIGKILL to the whole group on timeout, and a sweep of every process carrying the run marker,
+// so a hung test cannot outlive the push (a plain spawnSync timeout orphaned the test-file child).
+async function runSuites(sha) {
   const dir = mkdtempSync(join(tmpdir(), "qk-prepush-wt-"));
   const tree = join(dir, "tree");
+  const runId = `prepush-${process.pid}-${Date.now()}`;
+  const runner = createRunner({ runId, env: { ...suiteEnv(), QK_RUN_ID: runId }, timeoutMs: suiteTimeoutMs(), graceMs: 2000 });
   git("worktree", "add", "--quiet", "--detach", tree, sha);
   try {
     const failures = [];
-    for (const suite of SUITES) {
-      const r = spawnSync(suite.cmd, { shell: true, cwd: join(tree, KERNEL), env: suiteEnv(), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-      const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
-      if (r.status === 0) process.stderr.write(`[quality-kernel] ${suite.name}: pass\n`);
-      else failures.push({ suite, tail: out.trim().split("\n").slice(-25).join("\n") });
+    for (const [i, suite] of SUITES.entries()) {
+      const log = join(dir, `suite-${i}.log`);
+      const r = await runner.run(`${suite.cmd} > '${log}' 2>&1`, join(tree, KERNEL));
+      let out = "";
+      try {
+        out = readFileSync(log, "utf8");
+      } catch {
+        /* the suite never started */
+      }
+      const tail = (n) => out.trim().split("\n").slice(-n).join("\n");
+      if (r.code === 0 && !r.timedOut) process.stderr.write(`[quality-kernel] ${suite.name}: pass\n`);
+      else if (r.timedOut) failures.push({ suite, tail: `timed out after ${suiteTimeoutMs()} ms\n${tail(10)}` });
+      else failures.push({ suite, tail: r.error ? String(r.error.message) : tail(25) });
     }
     return failures;
   } finally {
@@ -80,7 +102,7 @@ function runSuites(sha) {
   }
 }
 
-function main() {
+async function main() {
   const remote = process.argv[2] || "origin";
   const updates = parsePushLines(readFileSync(0, "utf8"));
   const shas = [...new Set(updates.filter((u) => {
@@ -92,7 +114,7 @@ function main() {
   let blocked = false;
   for (const sha of shas) {
     process.stderr.write(`[quality-kernel] push touches ${KERNEL}: running its suites on ${sha.slice(0, 12)}\n`);
-    for (const { suite, tail } of runSuites(sha)) {
+    for (const { suite, tail } of await runSuites(sha)) {
       blocked = true;
       process.stderr.write(`[quality-kernel] ${suite.name} FAILED (${suite.cmd}):\n${tail}\n`);
     }
@@ -104,5 +126,8 @@ function main() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  main();
+  main().catch((err) => {
+    process.stderr.write(`[quality-kernel] pre-push gate crashed, push blocked: ${err && err.message ? err.message : err}\n`);
+    process.exit(1);
+  });
 }

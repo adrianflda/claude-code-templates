@@ -2,7 +2,7 @@ import "../plugins/quality-kernel/scripts/hermetic-git.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +26,7 @@ test("touchesKernel: only paths under plugins/quality-kernel/ count", () => {
 });
 
 // A throwaway repo with a fake kernel whose suites pass or fail on demand, pushed to a bare remote.
-function fixture(kernelPasses) {
+function fixture(kernelPasses, { hookSuitePasses = true, nodeTest = null } = {}) {
   const root = mkdtempSync(join(tmpdir(), "qk-prepush-"));
   const repo = join(root, "repo");
   const remote = join(root, "remote.git");
@@ -43,8 +43,8 @@ function fixture(kernelPasses) {
   const kernel = join(repo, "plugins", "quality-kernel");
   mkdirSync(join(kernel, "scripts"), { recursive: true });
   mkdirSync(join(kernel, "hooks"), { recursive: true });
-  writeFileSync(join(kernel, "scripts", "a.test.mjs"), `import { test } from "node:test"; test("k", () => { if (${!kernelPasses}) throw new Error("red"); });\n`);
-  writeFileSync(join(kernel, "hooks", "test_hooks.py"), "print('ok')\n");
+  writeFileSync(join(kernel, "scripts", "a.test.mjs"), nodeTest ?? `import { test } from "node:test"; test("k", () => { if (${!kernelPasses}) throw new Error("red"); });\n`);
+  writeFileSync(join(kernel, "hooks", "test_hooks.py"), hookSuitePasses ? "print('ok')\n" : "import sys\nsys.exit(1)\n");
   mkdirSync(join(repo, ".githooks"));
   writeFileSync(join(repo, ".githooks", "pre-push"), `#!/bin/sh\nexec node ${JSON.stringify(SCRIPT)} "$@"\n`, { mode: 0o755 });
   git(repo, "config", "core.hooksPath", ".githooks");
@@ -52,6 +52,7 @@ function fixture(kernelPasses) {
 }
 
 const push = (repo, ...args) => spawnSync("git", ["-C", repo, "push", ...args], { encoding: "utf8" });
+const pushWith = (env, repo, ...args) => spawnSync("git", ["-C", repo, "push", ...args], { encoding: "utf8", env: { ...process.env, ...env } });
 
 test("hook: a push that touches the kernel runs its suites and is blocked when they fail", () => {
   const { root, repo, git } = fixture(false);
@@ -100,6 +101,62 @@ test("hook: a push that does not touch the kernel skips the suites", () => {
     git(repo, "commit", "-qam", "docs only");
     const r = push(repo, "origin", "main");
     assert.equal(r.status, 0, r.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("hook: a red hook suite blocks the push too", () => {
+  const { root, repo, git } = fixture(true, { hookSuitePasses: false });
+  try {
+    git(repo, "add", ".");
+    git(repo, "commit", "-qm", "kernel change");
+    const r = push(repo, "origin", "main");
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /hook suite FAILED/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("hook: a suite that hangs is killed with its whole process tree and blocks the push", () => {
+  const root0 = mkdtempSync(join(tmpdir(), "qk-prepush-pid-"));
+  const pidFile = join(root0, "pid");
+  // The test-file process (a child of `node --test`) records its pid, then hangs.
+  const hang = `import { test } from "node:test"; import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+test("hang", () => new Promise((r) => setTimeout(r, 120000)));\n`;
+  const { root, repo, git } = fixture(true, { nodeTest: hang });
+  try {
+    git(repo, "add", ".");
+    git(repo, "commit", "-qm", "kernel change");
+    const started = Date.now();
+    const r = pushWith({ QK_PREPUSH_SUITE_TIMEOUT_MS: "1500" }, repo, "origin", "main");
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /timed out/);
+    assert.ok(Date.now() - started < 30000, "the push must not wait for the hung test");
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    assert.ok(pid > 0);
+    assert.throws(() => process.kill(pid, 0), "the hung test process must be dead, not orphaned");
+    assert.doesNotMatch(git(repo, "worktree", "list"), /qk-prepush-wt/); // cleaned up
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(root0, { recursive: true, force: true });
+  }
+});
+
+test("hook: a new branch with no kernel change skips, even when the remote already holds a red kernel", () => {
+  const { root, repo, git } = fixture(false);
+  try {
+    git(repo, "add", ".");
+    git(repo, "commit", "-qm", "red kernel");
+    assert.equal(push(repo, "--no-verify", "origin", "main").status, 0); // red kernel reaches the remote
+    git(repo, "switch", "-qc", "docs");
+    writeFileSync(join(repo, "README.md"), "docs\n");
+    git(repo, "commit", "-qam", "docs only");
+    const r = push(repo, "origin", "docs");
+    assert.equal(r.status, 0, r.stderr); // only the new commit is judged, and it does not touch the kernel
+    assert.doesNotMatch(r.stderr, /running its suites/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
