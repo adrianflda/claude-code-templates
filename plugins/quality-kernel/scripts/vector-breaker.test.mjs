@@ -71,6 +71,16 @@ test("validateVectors: an HTTP vector must assert something when there is no con
   assert.deepEqual(validateVectors([silent], blind({ probeCmd: "true" })), []);
 });
 
+test("runVectors: HTTP vectors get the configured local pattern", async () => {
+  const calls = [];
+  const httpRunner = async (args) => (calls.push(args), { result: "HOLDS" });
+  const config = { browserEngine: { testUrlPattern: "^staging\\.test$" } };
+  await runVectors({ vectors: [httpVector("INV-1", 1), httpVector("INV-2", 1), httpVector("INV-1", 1)], blind: blind(), httpRunner, config });
+  assert.equal(calls[0].localPattern, "^staging\\.test$");
+  await runVectors({ vectors: [httpVector("INV-1", 1), httpVector("INV-2", 1), httpVector("INV-1", 1)], blind: blind(), httpRunner: async (a) => (calls.push(a), { result: "HOLDS" }) });
+  assert.equal(calls.at(-1).localPattern, undefined); // no config: the instrument's default applies
+});
+
 test("runContractProbe: exit 0 holds, other exits violate, missing command or timeout is broken", () => {
   assert.equal(runContractProbe("true").result, "HOLDS");
   assert.equal(runContractProbe("exit 1").result, "VIOLATED");

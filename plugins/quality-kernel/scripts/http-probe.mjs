@@ -34,7 +34,13 @@ function validateRequest(req, i, origin, systemUrl) {
   if (!HTTP_METHODS.has(req.method)) return `${at}.method must be one of ${[...HTTP_METHODS].join(", ")}`;
   if (typeof req.path !== "string" || !req.path.startsWith("/")) return `${at}.path must be an absolute path (starts with "/")`;
   // The resolved origin is the guard: "//host" and "/\host" both start with "/" yet leave the system.
-  if (new URL(req.path, systemUrl).origin !== origin) return `${at}.path leaves the system's origin`;
+  let resolved;
+  try {
+    resolved = new URL(req.path, systemUrl);
+  } catch {
+    return `${at}.path is not a valid URL path`;
+  }
+  if (resolved.origin !== origin) return `${at}.path leaves the system's origin`;
   if (req.headers !== undefined) {
     if (!isObject(req.headers)) return `${at}.headers must be an object`;
     for (const [k, v] of Object.entries(req.headers)) {
@@ -50,6 +56,7 @@ function validateExpect(expect) {
   if (!isObject(expect)) return "expect must be an object";
   const extra = extraKeys(expect, EXPECT_KEYS);
   if (extra.length) return `expect has unknown key(s): ${extra.join(", ")}`;
+  if (expect.status === undefined && expect.json === undefined) return "expect must check status or json (an empty expect holds for any response)";
   if (expect.status !== undefined && !Number.isInteger(expect.status)) return "expect.status must be an integer";
   if (expect.json !== undefined) {
     if (!Array.isArray(expect.json) || expect.json.length === 0) return "expect.json must be a non-empty array";

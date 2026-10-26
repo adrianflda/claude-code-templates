@@ -174,6 +174,15 @@ test("CLI: forbidden blind input never reaches claude; bad stdin and a failed cl
   await withStub(fenced([vector(1, 1)]), async ({ stub }) => assert.equal((await runAdapter(stub, blind())).status, 2), { isError: true });
 });
 
+test("CLI: a vector whose path cannot be parsed is INSTRUMENT-BROKEN, not a crash", async () => {
+  const bad = { invariant: "INV-1", http: { requests: [{ method: "GET", path: "//[" }], expect: { status: 200 } } };
+  await withStub(fenced([bad, vector(1, 1), vector(1, 1)]), async ({ stub }) => {
+    const r = await runAdapter(stub, blind());
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(lastJson(r).verdict, "INSTRUMENT-BROKEN");
+  });
+});
+
 test("end to end: breaker-invoke → breaker-claude → stub author → live HTTP system → gate exit code", async () => {
   const dir = mkdtempSync(join(tmpdir(), "breaker-e2e-"));
   try {

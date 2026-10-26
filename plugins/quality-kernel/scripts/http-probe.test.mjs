@@ -66,6 +66,9 @@ test("validateHttpSpec: refuses anything off the system's origin or outside the 
     spec([{ method: "GET", path: "/" }], { status: "200" }),
     spec([{ method: "GET", path: "/" }], { json: [{ pointer: "/a" }] }),
     spec([{ method: "GET", path: "/" }], { body: "x" }),
+    spec([{ method: "GET", path: "/" }], {}), // an expect that checks nothing
+    spec([{ method: "GET", path: "//[" }]), // new URL() throws on this
+    spec([{ method: "GET", path: "//a b" }]),
   ];
   for (const s of bad) assert.notEqual(validateHttpSpec(s, base), null, JSON.stringify(s));
 });
@@ -113,6 +116,11 @@ test("runHttpVector: sends method, headers and a JSON body", async () => {
 test("runHttpVector: never follows a redirect off the system", async () => {
   const r = await runHttpVector({ systemUrl: base, spec: spec([{ method: "GET", path: "/redirect" }], { status: 302 }) });
   assert.equal(r.result, "HOLDS"); // the 302 itself is observed; example.com is never requested
+});
+
+test("runHttpVector: honours a configured local pattern", async () => {
+  const ok = spec([{ method: "GET", path: "/cart" }], { status: 200 });
+  assert.equal((await runHttpVector({ systemUrl: base, spec: ok, localPattern: "^nothing-matches$" })).result, "INSTRUMENT-BROKEN");
 });
 
 test("runHttpVector: INSTRUMENT-BROKEN for a non-local system, an invalid spec, a dead port or a timeout", async () => {

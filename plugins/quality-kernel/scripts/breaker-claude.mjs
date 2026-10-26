@@ -172,5 +172,6 @@ async function main() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  main();
+  // Any throw (unreadable prompt, an instrument crash) is could-not-run (exit 2), never a verdict.
+  main().catch((err) => fail(`breaker crashed: ${err && err.message ? err.message : err}`));
 }

@@ -97,7 +97,7 @@ export function runContractProbe(probeCmd, { cwd = process.cwd(), timeoutMs = PR
 
 async function runOne(v, { blind, config, cwd, uiRunner, httpRunner }) {
   const action = "http" in v
-    ? await httpRunner({ systemUrl: blind.systemUrl, spec: v.http, invariant: v.invariant })
+    ? await httpRunner({ systemUrl: blind.systemUrl, spec: v.http, invariant: v.invariant, localPattern: config?.browserEngine?.testUrlPattern })
     : uiRunner({ url: blind.systemUrl, spec: v.ui, config, cwd, invariant: v.invariant });
   if (action.result !== "HOLDS" || !blind.probeCmd) return { invariant: v.invariant, ...action };
   const probe = runContractProbe(blind.probeCmd, { cwd });
