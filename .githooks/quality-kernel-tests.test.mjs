@@ -1,8 +1,8 @@
 import "../plugins/quality-kernel/scripts/hermetic-git.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -171,5 +171,40 @@ test("hook: a new branch is compared against what the remote already has", () =>
     assert.notEqual(push(repo, "origin", "feature").status, 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("gate: a crash blocks the push (fail-closed)", () => {
+  const bogus = "f".repeat(40); // git worktree add cannot check this commit out
+  const r = spawnSync("node", [SCRIPT, "origin"], { input: `refs/heads/x ${bogus} refs/heads/x ${ZERO}\n`, encoding: "utf8", cwd: fileURLToPath(new URL("..", import.meta.url)) });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /blocked/);
+});
+
+test("gate: Ctrl-C during a suite kills the suite's process tree and removes the worktree", async () => {
+  const root0 = mkdtempSync(join(tmpdir(), "qk-prepush-pid-"));
+  const pidFile = join(root0, "pid");
+  const hang = `import { test } from "node:test"; import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+test("hang", () => new Promise((r) => setTimeout(r, 120000)));\n`;
+  const { root, repo, git } = fixture(true, { nodeTest: hang });
+  try {
+    git(repo, "add", ".");
+    git(repo, "commit", "-qm", "kernel change");
+    const sha = git(repo, "rev-parse", "HEAD").trim();
+    const remoteSha = git(repo, "rev-parse", "origin/main").trim();
+    const child = spawn("node", [SCRIPT, "origin"], { cwd: repo, stdio: ["pipe", "ignore", "pipe"] });
+    child.stdin.end(`refs/heads/main ${sha} refs/heads/main ${remoteSha}\n`);
+    for (let i = 0; i < 100 && !existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 100));
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    child.kill("SIGINT");
+    const code = await new Promise((r) => child.on("close", r));
+    assert.notEqual(code, 0);
+    await new Promise((r) => setTimeout(r, 500));
+    assert.throws(() => process.kill(pid, 0), "the suite must die with the interrupted gate");
+    assert.doesNotMatch(git(repo, "worktree", "list"), /qk-prepush-wt/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(root0, { recursive: true, force: true });
   }
 });

@@ -9,6 +9,9 @@
 // Any failure blocks the push. The suites run on the pushed commit, never on the working tree, so
 // an uncommitted fix cannot green a red commit. Enable once per clone: git config core.hooksPath .githooks
 // Bypass (not recommended): git push --no-verify.
+// Trust note: this gate (and the process runner it imports) runs from the working tree, like any git
+// hook; only the suites run on the pushed commit. A change to the gate itself takes effect locally
+// before it is pushed. A client-side hook is a workflow aid, not enforcement.
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -79,6 +82,24 @@ async function runSuites(sha) {
   const runId = `prepush-${process.pid}-${Date.now()}`;
   const runner = createRunner({ runId, env: { ...suiteEnv(), QK_RUN_ID: runId }, timeoutMs: suiteTimeoutMs(), graceMs: 2000 });
   git("worktree", "add", "--quiet", "--detach", tree, sha);
+  // The suites run in their own process group, so Ctrl-C on `git push` does not reach them: on an
+  // interrupt, kill them, remove the worktree, and exit with the shell's 128+signal code.
+  const cleanup = () => {
+    try {
+      git("worktree", "remove", "--force", tree);
+    } catch {
+      /* already gone */
+    }
+    rmSync(dir, { recursive: true, force: true });
+  };
+  const onSignal = (sig, code) => () => {
+    runner.killAll("SIGKILL");
+    cleanup();
+    process.stderr.write(`[quality-kernel] interrupted (${sig}): suites killed, push blocked\n`);
+    process.exit(code);
+  };
+  const handlers = { SIGINT: onSignal("SIGINT", 130), SIGTERM: onSignal("SIGTERM", 143), SIGHUP: onSignal("SIGHUP", 129) };
+  for (const [sig, h] of Object.entries(handlers)) process.on(sig, h);
   try {
     const failures = [];
     for (const [i, suite] of SUITES.entries()) {
@@ -97,8 +118,8 @@ async function runSuites(sha) {
     }
     return failures;
   } finally {
-    git("worktree", "remove", "--force", tree);
-    rmSync(dir, { recursive: true, force: true });
+    for (const [sig, h] of Object.entries(handlers)) process.off(sig, h);
+    cleanup();
   }
 }
 
