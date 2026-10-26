@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has no tool to do it.
 
 ### Added
+- `scripts/contract-review.mjs` + `reviewers/comprehension.md`, `reviewers/critic.md`: blind review
+  of a specifier contract before the intention gate (Elephant-Goldfish Model's zero-context
+  reviewers). Each reviewer is a separate isolated, tool-less session that sees only the contract;
+  replies must be strict JSON findings (`blocker`/`major`/`nit`), and an off-format reply is
+  indeterminate (exit 2), never "no findings". `/forge` runs it before the intention gate (T1+).
+  Live-checked on sonnet: on a contract with four planted flaws (a vague criterion, an invariant
+  without a probe, no payment-failure `IF … THEN`, no re-run invariant for a charge) all four came
+  back as blockers; on `docs/specs/gate-process-tree/contract.md` its single blocker was a real
+  contradiction, fixed below.
 - `scripts/http-probe.mjs`: declarative HTTP instrument for breaker vectors — allowlisted methods,
   paths resolved and required to stay on the system's origin (`//host` and `/\host` are refused),
   redirects never followed, per-request timeout, `expect` on the last response (`status`, RFC 6901
@@ -68,6 +77,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and XDG ignore (with a control that shows the hostile config does ignore the file).
 
 ### Fixed
+- Every gate script run through a symlinked path (a symlinked plugin install, macOS `/tmp` ->
+  `/private/tmp`) skipped its main() and exited 0: a silent PASS. The entrypoint guard compared the
+  realpath-resolved `import.meta.url` with the as-typed `argv[1]`. All 14 scripts and the pre-push gate
+  now use `scripts/is-main.mjs`, which compares real paths. Observed: `contract-review.mjs` and
+  `crap.mjs` via a symlink exited 0 on a missing input; they now exit 2.
+- `docs/specs/gate-process-tree/contract.md` said the Linux MemAvailable threshold was "fixed, no
+  override", contradicting Decision 16 and `mem-config.mjs`, which apply `QK_MEM_MIN_LEVEL_PCT`
+  (default 15). Found by the new contract review.
 - The default local-target pattern is anchored. `isLocalTarget` accepted `localhost.attacker.com`,
   `my-localhost-proxy.example.com` and `127.0.0.1.nip.io`, bypassing the consent gate that limits
   the autonomous breaker to local systems.

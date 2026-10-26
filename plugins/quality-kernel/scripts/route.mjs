@@ -19,7 +19,7 @@
 // Exit:  0 = classified (incl. critical) · 2 = operational error (fail-closed critical)
 
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { isMain } from './is-main.mjs';
 
 const TIERS = { trivial: 0, standard: 1, critical: 2 };
 const NAME = ['trivial', 'standard', 'critical'];
@@ -162,7 +162,7 @@ export function parseDiffZ(buf) {
 }
 
 // --- CLI ---
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   let repo = null, base = null, head = 'HEAD', changedArg = null, deletedArg = null, proposed = null;
   for (let i = 0; i < args.length; i++) {

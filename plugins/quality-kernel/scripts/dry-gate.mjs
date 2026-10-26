@@ -23,7 +23,7 @@
  * Exit code: 0 no violation, 1 violation(s), 2 invalid input or arguments.
  */
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { isMain } from "./is-main.mjs";
 
 export function parseArgs(argv) {
   const args = { input: null, files: null, maxPercent: null, json: false };
@@ -141,6 +141,6 @@ function main() {
 }
 
 // Run as CLI only when invoked directly, so the module can be imported for tests.
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isMain(import.meta.url)) {
   main();
 }
