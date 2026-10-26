@@ -1,38 +1,35 @@
 #!/usr/bin/env node
 // Isolated breaker launcher — the production `--breaker` command for breaker-invoke.mjs.
 //
-// breaker-invoke.mjs already builds the breaker's INPUT from the contract only. This closes the
-// other channel: what the breaker session loads on its own. It runs `claude -p` so that the
-// session starts with nothing but the bundled breaker prompt and the blind input:
+// Two stages, so that no model ever both sees the system and decides the verdict:
+//   1. AUTHOR — `claude -p` with NO tools writes falsifying vectors (data) from the blind input
+//      alone, using the bundled breaker/vector-author.md prompt.
+//   2. EXECUTE — vector-breaker.mjs validates the vectors, runs them through the deterministic
+//      HTTP / UI instruments against the live local system, runs the contract probe after each,
+//      and computes the verdict in code. Whatever the author claims in prose is ignored.
 //
+// The author session starts with nothing but its prompt and the blind input:
+//   --tools ""      no Bash, no file tools: it cannot read the repo, the diff or the environment
 //   --safe-mode     no CLAUDE.md, skills, plugins, hooks (so no SessionStart memory injection),
 //                   MCP servers, custom agents or output styles
-//   --restricted    user/project/local settings ignored; Read/Glob/Grep confined to the workdir
+//   --restricted    user/project/local settings ignored
 //   --strict-mcp-config + an empty --mcp-config, --no-session-persistence
-//   cwd             a fresh, empty temp dir (removed afterwards), so there is no repo to discover
+//   cwd             a fresh, empty temp dir (removed afterwards)
 //   env             an allowlist (PATH, HOME, ANTHROPIC_*, and cloud credentials only for the
 //                   provider switched on by CLAUDE_CODE_USE_BEDROCK / _VERTEX); nothing else
-//
 // Live-probed on Claude Code 2.1.310: a CLAUDE.md marker a plain `claude -p` returns is not visible
-// under these flags, and Read of a path outside the workdir is refused.
+// under these flags.
 //
-// RESIDUAL (not closed here): Bash is required to execute probes, and Bash is NOT confined —
-// `cat <path>` or `git -C <repo> diff` still reads the disk. The breaker learns no repo path from
-// this launcher, but a probe command that names one gives it away. Bash also sees the credentials
-// the session needs (`env`): an ANTHROPIC_API_KEY or the active cloud provider's keys (OAuth
-// sessions keep theirs in the keychain). Isolation of Bash is future work.
-//
-// Usage: breaker-claude.mjs [--model opus] [--claude-bin claude] [--prompt-file <md>]  < blind-input.json
-// Prints one JSON line: { verdict, protocolViolation }.
-// Exit: 0 = a verdict was read (any value) · 2 = could not run (bad input, claude failed).
+// Usage: breaker-claude.mjs [--model opus] [--claude-bin claude] [--config tools.json]  < blind-input.json
+// Prints one JSON line: { verdict, executed, vectors, reason? }.
+// Exit: 0 = a verdict was computed (any value) · 2 = could not run (bad input, claude failed).
 
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-
-export const BREAKER_TOOLS = ["Bash", "Read", "Glob", "Grep"];
+import { runVectors } from "./vector-breaker.mjs";
 
 // Same text the epistemic-guard hook prepends to every Agent spawn; hooks do not run under
 // --safe-mode, so the launcher adds it (a test keeps the two equal).
@@ -41,26 +38,25 @@ export const PREAMBLE =
   "<15 min; report residual risk first.";
 
 const BLIND_KEYS = new Set(["qaProcedure", "invariants", "probeCmd", "systemUrl"]);
-const VERDICTS = new Set(["BREAKER_PASS", "BREAKER_FAIL", "INSTRUMENT-BROKEN"]);
 const ENV_KEYS = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "TERM", "CLAUDE_CONFIG_DIR"]);
 const ENV_PREFIXES = ["ANTHROPIC_", "CLAUDE_CODE_USE_"];
-// Cloud credentials reach the session (and its unconfined Bash) only for the provider in use.
+// Cloud credentials reach the author session only for the provider in use.
 const PROVIDER_PREFIXES = {
   CLAUDE_CODE_USE_BEDROCK: ["AWS_"],
   CLAUDE_CODE_USE_VERTEX: ["GOOGLE_APPLICATION_CREDENTIALS", "CLOUD_ML_", "VERTEX_REGION_"],
 };
 const isOn = (value) => value !== undefined && !["", "0", "false"].includes(String(value).toLowerCase());
-const DEFAULT_PROMPT = fileURLToPath(new URL("../breaker/pipeline-breaker.md", import.meta.url));
-const CLAUDE_TIMEOUT_MS = 570_000; // under breaker-invoke's 600 s, so the invoker sees our verdict
+const AUTHOR_PROMPT = fileURLToPath(new URL("../breaker/vector-author.md", import.meta.url));
+// The author gets 5 minutes; executing the vectors uses the rest of breaker-invoke's 600 s. If the
+// whole run overruns, breaker-invoke kills it and reports could-not-run (fail-closed).
+const CLAUDE_TIMEOUT_MS = 300_000;
 
 export function buildClaudeArgs({ model, systemPrompt }) {
-  const tools = BREAKER_TOOLS.join(",");
   return [
     "-p",
     "--safe-mode",
     "--restricted",
-    "--tools", tools,
-    "--allowedTools", tools,
+    "--tools", "",
     "--strict-mcp-config",
     "--mcp-config", '{"mcpServers":{}}',
     "--no-session-persistence",
@@ -85,21 +81,17 @@ export function validateBlindInput(input) {
   return extra.length ? `blind input carries forbidden key(s): ${extra.join(", ")}` : null;
 }
 
-export function promptBody(markdown) {
-  return markdown.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
-}
-
-// Exactly one known verdict line and exactly one protocol line, or BREAKER_INDETERMINATE.
-// A PASS from a breaker that saw something it should not have is not trusted.
-export function parseVerdict(text) {
-  const verdicts = [...text.matchAll(/^[*_`\s]*BREAKER VERDICT:[*_`\s]*([A-Z_-]+)/gm)].map((m) => m[1]);
-  const flags = [...text.matchAll(/^[*_`\s]*PROTOCOL_VIOLATION:[*_`\s]*(yes|no)\b/gim)].map((m) => m[1].toLowerCase());
-  const protocolViolation = flags.length === 1 ? flags[0] === "yes" : null;
-  if (verdicts.length !== 1 || !VERDICTS.has(verdicts[0]) || protocolViolation === null) {
-    return { verdict: "BREAKER_INDETERMINATE", protocolViolation };
+// The author's reply is data: exactly one ```json block holding an array (or a bare JSON array).
+export function parseVectors(text) {
+  const blocks = [...String(text).matchAll(/```json\s*\n([\s\S]*?)\n```/g)].map((m) => m[1]);
+  if (blocks.length > 1) return { error: `expected one json block, got ${blocks.length}` };
+  let value;
+  try {
+    value = JSON.parse(blocks.length === 1 ? blocks[0] : String(text).trim());
+  } catch {
+    return { error: "the author's reply holds no parseable JSON vectors" };
   }
-  if (verdicts[0] === "BREAKER_PASS" && protocolViolation) return { verdict: "BREAKER_INDETERMINATE", protocolViolation };
-  return { verdict: verdicts[0], protocolViolation };
+  return Array.isArray(value) ? { vectors: value } : { error: "the author's vectors must be a JSON array" };
 }
 
 // Runs one isolated `claude -p` turn. `seedWorkdir` lets the live leak test plant files in the
@@ -133,11 +125,11 @@ export function runIsolated({ prompt, systemPrompt, model = "opus", claudeBin = 
 }
 
 function parseArgs(argv) {
-  const args = { model: "opus", claudeBin: "claude", promptFile: DEFAULT_PROMPT };
+  const args = { model: "opus", claudeBin: "claude", config: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--model") args.model = argv[++i];
     else if (argv[i] === "--claude-bin") args.claudeBin = argv[++i];
-    else if (argv[i] === "--prompt-file") args.promptFile = argv[++i];
+    else if (argv[i] === "--config") args.config = argv[++i];
   }
   return args;
 }
@@ -147,7 +139,7 @@ function fail(reason) {
   process.exit(2);
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   let input;
   try {
@@ -158,19 +150,28 @@ function main() {
   const invalid = validateBlindInput(input);
   if (invalid) fail(invalid);
 
-  let body;
-  try {
-    body = promptBody(readFileSync(args.promptFile, "utf8"));
-  } catch (err) {
-    fail(`cannot read breaker prompt ${args.promptFile}: ${err.message}`);
+  let config = null;
+  if (args.config) {
+    try {
+      config = JSON.parse(readFileSync(args.config, "utf8"));
+    } catch (err) {
+      fail(`cannot read --config ${args.config}: ${err.message}`);
+    }
   }
+  const authorPrompt = readFileSync(AUTHOR_PROMPT, "utf8").trim();
   const prompt = `Blind input (JSON keys: qaProcedure, invariants, probeCmd, systemUrl):\n${JSON.stringify(input)}`;
-  const reply = runIsolated({ prompt, systemPrompt: `${PREAMBLE}\n\n${body}`, model: args.model, claudeBin: args.claudeBin });
-  if (reply.status !== 0) fail(`breaker session failed: ${reply.stderr}`);
-  process.stdout.write(JSON.stringify(parseVerdict(reply.text)) + "\n");
+  const reply = runIsolated({ prompt, systemPrompt: `${PREAMBLE}\n\n${authorPrompt}`, model: args.model, claudeBin: args.claudeBin });
+  if (reply.status !== 0) fail(`breaker author session failed: ${reply.stderr}`);
+
+  const parsed = parseVectors(reply.text);
+  const out = parsed.error
+    ? { verdict: "INSTRUMENT-BROKEN", reason: parsed.error, executed: 0, vectors: [] }
+    : await runVectors({ vectors: parsed.vectors, blind: input, config });
+  process.stdout.write(JSON.stringify(out) + "\n");
   process.exit(0);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  main();
+  // Any throw (unreadable prompt, an instrument crash) is could-not-run (exit 2), never a verdict.
+  main().catch((err) => fail(`breaker crashed: ${err && err.message ? err.message : err}`));
 }
