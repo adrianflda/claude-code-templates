@@ -205,6 +205,14 @@ test("CLI: an exit 0 behind a pipe is Unverified — alone it exits 1, next to a
   });
 });
 
+test("CLI: an unreadable ledger line fails closed — it could be the failing run", () => {
+  withLedger([row("npm test", 105, 0), '{"ts": 106, "command": "npm test", "exit_co'], (ledger) => {
+    const { code, out } = runCli(["--ledger", ledger, "--since-ts", "100"]);
+    assert.equal(code, 1);
+    assert.match(out, /1 unreadable ledger line/);
+  });
+});
+
 test("CLI: no evidence after the reference point exits 1", () => {
   withLedger([row("npm test", 50, 0)], (ledger) => {
     assert.equal(runCli(["--ledger", ledger, "--since-ts", "100"]).code, 1);

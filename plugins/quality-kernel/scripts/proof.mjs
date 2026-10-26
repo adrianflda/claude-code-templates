@@ -207,14 +207,15 @@ function main() {
 
   const { rows, malformed } = parseLedger(text);
   const entries = summarize(rows, sinceTs);
-  const code = verdict(entries);
+  // An unreadable line (a torn hook write) may be the failing run, so it fails closed.
+  const code = malformed > 0 ? 1 : verdict(entries);
 
   if (args.json) {
     console.log(JSON.stringify({ sinceTs, malformed, entries, pass: code === 0 }, null, 2));
   } else {
     for (const e of entries) console.log(trailer(e));
     if (entries.length === 0) console.error("[proof] no verification event recorded since the reference point");
-    if (malformed > 0) console.error(`[proof] skipped ${malformed} malformed ledger line(s)`);
+    if (malformed > 0) console.error(`[proof] ${malformed} unreadable ledger line(s): not proved (one may be the failing run)`);
   }
   process.exit(code);
 }
