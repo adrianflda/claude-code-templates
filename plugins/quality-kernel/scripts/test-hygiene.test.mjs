@@ -14,13 +14,16 @@ const pluginRoot = join(scriptsDir, '..');
 const hooksDir = join(pluginRoot, 'hooks');
 const read = (dir, f) => readFileSync(join(dir, f), 'utf8');
 const self = 'test-hygiene.test.mjs'; // names git scripts as data, never runs them
+const DATA_ONLY = new Set([self, 'import-graph.test.mjs']); // read script sources as text, never run them
 const all = readdirSync(scriptsDir).filter((f) => f.endsWith('.mjs'));
-const tests = all.filter((f) => f.endsWith('.test.mjs') && f !== self);
+const tests = all.filter((f) => f.endsWith('.test.mjs') && !DATA_ONLY.has(f));
 const scripts = all.filter((f) => !f.endsWith('.test.mjs') && f !== 'hermetic-git.mjs');
 // git as an argv token ('git', "git", `git`) or at the start of a shell string ('git init', `git -C`).
 const JS_SPAWNS_GIT = /['"`]git(?:['"`]|\s)/;
 const SHELL_RUNS_GIT = /(?:^|[\s;&|(`$])git\s/m;
-const FIRST_IMPORT_IS_HERMETIC = /^(?:\/\/[^\n]*\n|\s*\n)*import (?:\{[^}]*\} from )?'\.\/hermetic-git\.mjs';/;
+const FIRST_IMPORT_IS_HERMETIC = /^(?:\/\/[^\n]*\n|\s*\n)*import (?:\{[^}]*\} from )?(['"])\.\/hermetic-git\.mjs\1;/;
+// An actual import or require of the module; a comment that merely names it is not one.
+const IMPORTS_HERMETIC = /(?:\bimport\b[^'"\n]*|\brequire\s*\(\s*)['"][^'"]*hermetic-git(?:\.mjs)?['"]/;
 
 // Everything that runs git: scripts that spawn it, hooks that call it, closed over scripts that
 // reference (import or spawn) one of them.
@@ -60,7 +63,7 @@ test('no file outside the tests imports hermetic-git.mjs', () => {
       const p = join(dir, ent.name);
       if (ent.isDirectory()) { walk(p); continue; }
       if (!/\.(mjs|cjs|js|ts|sh|py|sample)$/.test(ent.name) || ent.name.endsWith('.test.mjs') || ent.name === 'hermetic-git.mjs') continue;
-      if (readFileSync(p, 'utf8').includes('hermetic-git')) offenders.push(relative(pluginRoot, p));
+      if (IMPORTS_HERMETIC.test(readFileSync(p, 'utf8'))) offenders.push(relative(pluginRoot, p));
     }
   };
   walk(pluginRoot);

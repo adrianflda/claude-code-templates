@@ -16,10 +16,10 @@
 // `notes` and via exit 3 rather than pretending to satisfy it. For an enforced critical merge,
 // call `breaker-gate.mjs --breaker ...` instead of this script.
 
-import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { orgPin } from './org.mjs';
+import { createForwarder } from './process-safety/proc-forward.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -47,19 +47,17 @@ if (orgFlagGiven) {
   passthrough = [...passthrough, '--org-pin', pin];
 }
 
-function runJson(script) {
-  const r = spawnSync('node', [join(here, script), ...passthrough], { encoding: 'utf8' });
-  let json = null;
-  try { json = JSON.parse((r.stdout || '').trim().split('\n').filter(Boolean).pop()); } catch { /* leave null */ }
-  return { code: r.status, json };
-}
+// PT-A12: children run async and SIGINT/SIGTERM/SIGHUP are forwarded to them (see proc-forward.mjs).
+const forwarder = createForwarder();
+// the referee's stderr (e.g. the memory-guard warning) stays visible; route's is discarded as before
+const runJson = (script) => forwarder.runJson(join(here, script), passthrough, { stderr: script === 'referee.mjs' ? 'inherit' : 'ignore' });
 
 if (repoIdx === -1 || baseIdx === -1) {
   process.stdout.write(JSON.stringify({ pass: false, error: 'need --repo <dir> --base <ref> [--head <ref>]' }) + '\n');
   process.exit(2);
 }
 
-const route = runJson('route.mjs');
+const route = await runJson('route.mjs');
 
 // Risk classification failing closed is NOT "a breaker is required". route's operational error path
 // (opError) still emits a JSON body with requiresBreaker:true, so reading only route.json would
@@ -79,7 +77,7 @@ if (route.code !== 0) {
   process.exit(2);
 }
 
-const ref = runJson('referee.mjs');
+const ref = await runJson('referee.mjs');
 
 const verdict = ref.json || { pass: false, indeterminate: true, reason: 'referee produced no verdict' };
 const refPass = ref.code === 0;

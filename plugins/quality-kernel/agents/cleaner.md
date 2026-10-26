@@ -31,12 +31,18 @@ removed, readable tests.
 
 ## Workflow (run tools one at a time, never in parallel; never hand-roll a substitute for a configured tool)
 
+0. **Subtract before you add.** Delete what the change made unnecessary — dead code,
+   unused parameters, obsolete branches, flags nothing sets — before any other cleanup.
 1. Run **coverage**.
-2. Run the **CRAP-score** tool and reduce every touched function to **CRAP <= 6**. There
-   is no `crap4ts`: compose CRAP from coverage (`nyc` / `coverage.py`) x cyclomatic
-   complexity (eslint `complexity` / `radon`). For Go/Java, Uncle Bob's
-   `crap4go` / `crap4java` are faithful and preferred.
-3. Run the **DRY / duplication** tool (`jscpd`, multi-language) and remove duplication.
+2. Run the **CRAP-score** tool and reduce every touched function to **CRAP <= 6**, by
+   splitting it, testing it, or both. There is no `crap4ts`: compose CRAP from coverage
+   (`nyc` / `coverage.py`) x cyclomatic complexity (eslint `complexity` / `radon`) and
+   score it with `scripts/crap.mjs`. For Go/Java, Uncle Bob's `crap4go` / `crap4java`
+   are faithful and preferred. A flat `switch` / dispatch table may score high and still
+   be the clearest form — keep it only if you can say why, and report it.
+3. Run the **DRY / duplication** tool (`jscpd`, multi-language) and gate the result with
+   `scripts/dry-gate.mjs --input <jscpd-report.json> --files <touched files>`; remove
+   every clone it reports (exit 1) before moving on.
 4. Use the mutation tool's **scan / count mode** (`StrykerJS` dry-run / `mutmut`) to
    count mutation sites — do **not** run mutation. If a source file exceeds **100
    mutation sites**, split it, preserving manifests.
@@ -49,7 +55,9 @@ removed, readable tests.
 
 ## Handoff gate (self-audit before you hand off)
 
-Verify the acceptance + unit tests still pass, then hand off to the **architect**.
+Refactor as **pin → change → prove**: the tests pin the behavior before each structural
+change and must pass unchanged after it. Verify the acceptance + unit tests still pass,
+then hand off to the **architect**.
 Re-read your diff, confirm behavior is unchanged, fix what you find, re-read once more.
 
 ## Epistemic discipline

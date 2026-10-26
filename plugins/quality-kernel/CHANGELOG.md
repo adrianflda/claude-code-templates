@@ -5,6 +5,91 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-10-26
+
+Merges the `main` line into the workspace line. Both lines had released a "0.6.0" since they
+diverged on 2026-10-08; this entry carries `main`'s 0.6.0 (2026-10-26) notes. The workspace line's
+0.6.0-0.10.0 entries below are unchanged.
+
+### Changed — merge reconciliation
+- The referee keeps the workspace line's committed-bytes materialization (raw blobs, re-hashed) and
+  org-mode contract loading, and adopts `main`'s process-tree session: temp trees come from
+  `session.tempTree()` and every command runs through `session.run` (own process group, per-command
+  `timeoutSeconds` from `tools.json`, streamed output with no buffer cap). The 300 s hard-coded
+  verify timeout and the 1 MB `spawnSync` output cap of the workspace line are gone.
+- `--canary` now awaits the asynchronous runner (the merge would otherwise have compared a Promise
+  with 0 and reported every canary as proven).
+- `scripts/entrypoint.mjs` is removed: `route.mjs` and `qk-org-gate.mjs` use `main`'s
+  `scripts/is-main.mjs`, which fixed the same symlinked-entrypoint bug and has its own tests.
+
+
+### Changed
+- **The blind breaker no longer has a shell.** `scripts/breaker-claude.mjs` now runs in two stages:
+  a tool-less, context-free `claude -p --tools ""` session writes falsifying vectors (bundled prompt
+  `breaker/vector-author.md`, which replaces the bundled `breaker/pipeline-breaker.md`), and the new
+  `scripts/vector-breaker.mjs` executes them through deterministic instruments and computes the
+  verdict in code; the model's prose verdict is ignored. Closes the residual of the previous launcher,
+  whose Bash could read the disk and the environment. Live-checked: asked to `cat` a file, the author
+  has no tool to do it.
+
+### Added
+- `scripts/contract-review.mjs` + `reviewers/comprehension.md`, `reviewers/critic.md`: blind review
+  of a specifier contract before the intention gate (Elephant-Goldfish Model's zero-context
+  reviewers). Each reviewer is a separate isolated, tool-less session that sees only the contract;
+  replies must be strict JSON findings (`blocker`/`major`/`nit`), and an off-format reply is
+  indeterminate (exit 2), never "no findings". `/forge` runs it before the intention gate (T1+).
+  Live-checked on sonnet: on a contract with four planted flaws (a vague criterion, an invariant
+  without a probe, no payment-failure `IF … THEN`, no re-run invariant for a charge) all four came
+  back as blockers; on `docs/specs/gate-process-tree/contract.md` its single blocker was a real
+  contradiction, fixed below.
+- `scripts/http-probe.mjs`: declarative HTTP instrument for breaker vectors — allowlisted methods,
+  paths resolved and required to stay on the system's origin (`//host` and `/\host` are refused),
+  redirects never followed, per-request timeout, `expect` on the last response (`status`, RFC 6901
+  JSON-pointer `equals`). Non-local systems are refused.
+- `scripts/vector-breaker.mjs`: validates a vector set (anchored to contract invariants, no unknown
+  keys, at most 30; UI steps limited to same-origin `goto` and `click`, asserts to `text`/`is`/`attrs`),
+  runs HTTP vectors through `http-probe.mjs` and UI vectors through the gstack probe, then the
+  contract's `probeCmd` (exit 0 holds, 126/127/timeout/signal is instrument-broken), and applies
+  `decideVerdict`.
+- `scripts/dry-gate.mjs`: pass/fail gate over a jscpd JSON report — differential (`--files`) or
+  whole-report, optional `--max-percent`; an unrecognized report is exit 2, never a pass. The
+  cleaner, hardener and qa now gate duplication with it.
+- `scripts/proof.mjs`: turns the evidence-ledger events since a ref (default `HEAD`) into
+  `Proof:` / `Unverified:` / `Unproven:` commit trailers; exit 1 when nothing was proved or any
+  command's latest run failed or has no exit code. Only an allowlisted command (plain words, quoted
+  strings, simple redirects, `&&` chains) can be `Proof`; any other exit 0 — behind `|`, `;`, `||`
+  or `&`, with `$`, backticks, subshells or heredocs, or truncated by the hook — is `Unverified`.
+  Commands print escaped on one line so ledger text cannot forge a trailer, and a test pins
+  `LEDGER_COMMAND_MAX` to the hook's `_MAX_COMMAND`. qa and `/forge` put its trailers in every commit.
+- Principles adopted from Uncle Bob's `ub-mode` (2026-10-25), each placed in the stage that owns it:
+  coder — *attack the premise* after two failed fixes on one premise, plus design rules (smallest
+  edit, data shape first, redesign instead of bolt-on, parse at the boundary, never silence the
+  compiler, fix the cause); architect — a domain-model phase (illegal states unrepresentable,
+  boundary discipline, idempotency, single writer for shared state, glossary); cleaner —
+  *subtract before you add* and pin → change → prove; hardener — idempotency tests and delete
+  unreachable survivors instead of testing them; specifier — re-run invariants and a glossary;
+  `/forge` — a Practice section (action log, context-window guard, verifiable units, small
+  commits with proof, worktree cleanup).
+- `.githooks/pre-push` (source repository): local pre-push gate. When a push touches
+  `plugins/quality-kernel/` or `.githooks/`, it runs the Node and hook suites and the gate's own tests
+  (`.githooks/quality-kernel-tests.test.mjs`) on the pushed commit in a temporary
+  worktree and blocks the push on any failure; there is deliberately no CI job for these suites.
+  Enable once per clone with `git config core.hooksPath .githooks`. The suites run without
+  `NODE_TEST_CONTEXT`: inherited from a parent `node --test`, it makes the child runner exit 0 on
+  failing tests.
+- `scripts/breaker-claude.mjs`: isolated launcher for the blind breaker, the production `--breaker`
+  command for `breaker-invoke.mjs`: `claude -p --safe-mode --restricted` in a fresh empty temp dir
+  with an allowlisted env (cloud credentials only for the active provider), no MCP and no session
+  persistence; prepends the epistemic-guard preamble (hooks do not run in safe mode; a test keeps
+  the text equal); refuses blind input with extra keys. Opt-in live probe (`QK_CLAUDE_LIVE=1`) with a
+  positive control: a CLAUDE.md marker that a plain `claude -p` returns is not visible to it. Idea from
+  Google's Elephant-Goldfish Model (tool-restricted, context-free reviewers with a marker leak probe).
+- `scripts/manifest-consistency.test.mjs`: static check that plugin.json, marketplace.json, the
+  README status lines and the newest CHANGELOG entry share one version, and that each agent
+  declares its expected model alias (never a literal ID).
+- `scripts/hermetic-git.test.mjs`: proves the hermetic env defeats a hostile global excludesfile
+  and XDG ignore (with a control that shows the hostile config does ignore the file).
+
 ## [0.10.0] - 2026-10-01
 
 ### Removed — `/init-workspace` moved out
@@ -293,6 +378,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/manifest-consistency.test.mjs`: plugin.json, marketplace.json, the README status lines
   and the newest CHANGELOG entry share one version; every agent file declares a model alias and
   each stage its expected one.
+
+### Fixed
+- Every gate script run through a symlinked path (a symlinked plugin install, macOS `/tmp` ->
+  `/private/tmp`) skipped its main() and exited 0: a silent PASS. The entrypoint guard compared the
+  realpath-resolved `import.meta.url` with the as-typed `argv[1]`. All 14 scripts and the pre-push gate
+  now use `scripts/is-main.mjs`, which compares real paths. Observed: `contract-review.mjs` and
+  `crap.mjs` via a symlink exited 0 on a missing input; they now exit 2.
+- `docs/specs/gate-process-tree/contract.md` said the Linux MemAvailable threshold was "fixed, no
+  override", contradicting Decision 16 and `mem-config.mjs`, which apply `QK_MEM_MIN_LEVEL_PCT`
+  (default 15). Found by the new contract review.
+- The default local-target pattern is anchored. `isLocalTarget` accepted `localhost.attacker.com`,
+  `my-localhost-proxy.example.com` and `127.0.0.1.nip.io`, bypassing the consent gate that limits
+  the autonomous breaker to local systems.
+- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
+  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
+  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
+  Git-spawning tests now import `scripts/hermetic-git.mjs`.
+- `hooks/test_hooks.py` no longer depends on the developer's git config. A global or XDG excludes
+  file listing `.quality-kernel/` made a fixture repo look gitignored, failing 2 evidence-gate tests;
+  the suite now pins git's config as `scripts/hermetic-git.mjs` does for the Node suite.
 
 ## [0.5.0] - 2026-09-25
 

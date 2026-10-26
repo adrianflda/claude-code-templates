@@ -1,0 +1,4 @@
+#!/bin/sh
+# Local pre-push gate: runs the quality-kernel suites when the push touches plugins/quality-kernel/.
+# Enable once per clone: git config core.hooksPath .githooks
+exec node "$(git rev-parse --show-toplevel)/.githooks/quality-kernel-tests.mjs" "$@"

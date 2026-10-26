@@ -42,6 +42,20 @@ test('isLocalTarget — local hosts pass, remote fails, and both catch branches 
   assert.strictEqual(isLocalTarget('http://localhost/', '('), false); // invalid regex → false
 });
 
+test('isLocalTarget — the default pattern is anchored: lookalike remote hosts are not local', () => {
+  for (const url of ['http://[::1]:8080/', 'http://app.test/', 'http://api.localhost/']) {
+    assert.strictEqual(isLocalTarget(url), true, url);
+  }
+  for (const url of [
+    'http://localhost.attacker.com/',
+    'http://my-localhost-proxy.example.com/',
+    'http://127.0.0.1.nip.io/',
+    'http://app.test.evil.com/',
+  ]) {
+    assert.strictEqual(isLocalTarget(url), false, url);
+  }
+});
+
 // ── A deterministic stub $B modelling the REAL binary: truth is the EXIT CODE ─
 // STUB_VALUE = value the read prints. STUB_TRUTH = ok (default) | fail (read exits 1).
 // STUB_FAILCMD = a step cmd that should exit 1 (to model a failing setup action).

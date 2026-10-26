@@ -4,6 +4,7 @@
 // Deterministic (pure). Usage: coverage-report.mjs --coverage <assemble-output.json>  (or stdin)
 
 import { readFileSync } from 'node:fs';
+import { isMain } from './is-main.mjs';
 
 const ICON = { cumple: '✅', parcial: '🟡', falta: '❌' };
 const prio = (c) => ({ high: 3, normal: 2, low: 1 }[c.priority] || 2);
@@ -26,7 +27,7 @@ export function report({ summary, coverage }) {
   return L.join('\n') + '\n';
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const opt = (n) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : null; };
   const data = JSON.parse(readFileSync(opt('--coverage') || 0, 'utf8'));
   process.stdout.write(report(data));

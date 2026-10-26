@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.10.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.11.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -17,7 +17,9 @@ issue to a large feature.
 > oracle to probe with. Neither sits on the default path: `hooks/pre-push.sample` invokes
 > `qk-gate.mjs`, which *reports* the unmet breaker requirement as **exit 3** rather than enforcing
 > it, and `breaker-gate.mjs` itself returns 3 unless the caller supplies `--breaker`. Enforcing it
-> is a deliberate opt-in, not a missing milestone. Design chain: [`docs/agentic-harness/`][chain]
+> is a deliberate opt-in, not a missing milestone. Since 0.6.0 the breaker has no shell: a tool-less,
+> context-free model only writes falsifying vectors, deterministic HTTP/UI instruments execute them,
+> and the verdict is computed in code (`scripts/breaker-claude.mjs`). Design chain: [`docs/agentic-harness/`][chain]
 > in the source repository — it is not bundled with the installed plugin.
 
 [panel]: https://github.com/adrianflda/claude-code-templates/blob/main/docs/agentic-harness/validation-panel.v2.md
@@ -119,7 +121,25 @@ Then:
 - CLI: `node scripts/qk-gate.mjs --repo . --base <base-sha> --head <head-sha>`
 - Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
 
+**Process safety (referee).** Each command (`verifySetup`, `verify`, `acceptance`) runs in its own
+process group with a timeout: `timeoutSeconds` in `tools.json` (integer 1–3600, default 300, read from
+the base ref; anything else is indeterminate). On timeout the whole group gets SIGTERM, then SIGKILL
+after 5 s; after every command the group and every process carrying the run's `QK_RUN_ID` marker are
+killed, so nothing outlives a gate run. Before any temp tree exists the referee checks, in order:
+`tools.json` validation, a **memory-pressure guard**, and a **per-repository lock** (shared by every
+worktree; a lock left by a SIGKILLed run is taken over and its recorded process groups are killed).
+POSIX only (win32 is refused). Environment: `QK_LOCK_DIR` (lock directory, default the OS temp dir);
+`QK_MEM_GUARD=off` skips the guard; `QK_MEM_MAX_PRESSURE_LEVEL` (macOS, default 2) and
+`QK_MEM_MIN_LEVEL_PCT` (macOS level percent, default 20; on Linux MemAvailable/MemTotal percent,
+default 15) tune it; Linux also refuses when PSI `some avg10` > 25 (fixed). A non-numeric value is
+indeterminate, never silently defaulted. A process that leaves its group AND scrubs its environment
+escapes the sweep; a SIGKILLed referee leaves orphans until the next run's takeover. The code lives in
+`scripts/process-safety/`; the referee enters it only through `gate-session.mjs` and the composed gate
+through `proc-forward.mjs` (enforced, with no import cycles, by `scripts/import-graph.test.mjs`).
+
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
+Property tests are a separate command: `node --test scripts/*.prop.mjs` (dependency-free kit in
+`scripts/prop-kit.mjs`; seeded, a failure prints its seed — replay it with `QK_PROP_SEED=<seed>`).
 Tests that reach git import `scripts/hermetic-git.mjs` first, so your git setup (global/system
 config and attributes, XDG ignore, hooksPath, an outer `git -c`, or any inherited `GIT_*` variable
 such as `GIT_DIR`) cannot change their result; repo-local config is left alone.
@@ -140,8 +160,24 @@ most leverage and the least prior mechanism: a **plan that produces a machine-ch
   via `tools.json "acceptance"` (immutable-from-base).
 - **The blind breaker** (qa-paradigms **P5**; constitution P3) — `scripts/breaker-invoke.mjs` builds the
   breaker's input from the **Contract only** (QA procedure + invariants + a live probe + the system URL)
-  and **never** the diff, the coder's tests, or any reasoning; it shells to a breaker command (in
-  production the host `pipeline-breaker` agent; a stub for tests) and reads a typed verdict.
+  and **never** the diff, the coder's tests, or any reasoning; it shells to a breaker command (a stub
+  for tests) and reads a typed verdict.
+- **The isolated breaker launcher** — `scripts/breaker-claude.mjs` is the production breaker command:
+  `--breaker "node <plugin>/scripts/breaker-claude.mjs" [--config .quality-kernel/tools.json]`. Two
+  stages, so no model both sees the system and decides the verdict:
+  1. **Author** — `claude -p --safe-mode --restricted --tools ""` in a fresh empty temp dir (no MCP,
+     no session persistence, allowlisted env) writes falsifying vectors from the blind input with the
+     bundled `breaker/vector-author.md` prompt. It has no tools and loads no CLAUDE.md, memory, hooks
+     or plugins. Live-probed (opt-in `QK_CLAUDE_LIVE=1`, with a positive control): a CLAUDE.md marker
+     a plain `claude -p` returns is not visible to it, and asked to `cat` a file it has no way to.
+  2. **Execute** — `scripts/vector-breaker.mjs` validates the whole vector set (anchored to contract
+     invariants, no unknown keys, at most 30), runs each through a deterministic instrument —
+     `scripts/http-probe.mjs` (methods GET/HEAD/POST/PUT/PATCH/DELETE, same-origin paths only,
+     redirects never followed, per-request timeout) or the gstack UI probe (steps `goto` same-origin and
+     `click` only; asserts `text`/`is`/`attrs`) — then the contract's own probe, and computes the
+     verdict in code. Whatever the author writes in prose is ignored.
+  The blind input with any key beyond the four above is refused. **Residual:** the contract probe is
+  a shell command from the human-approved contract and runs with the gate's privileges.
   `scripts/breaker-gate.mjs` = the composed gate + the enforced breaker: on the critical surface a green
   referee is not enough — the breaker must **PASS**.
 - **Cost** — `scripts/run-ledger.mjs` records tokens/$/wall-clock/human-interventions per dogfood run,
@@ -229,7 +265,7 @@ Automatic, always on (no invocation needed):
   `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
   model as context. Recording only; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.10.0)
+## Gate status — teeth vs. prose (v0.11.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
@@ -239,10 +275,13 @@ installing the plugin does not imply the full guarantee.
 | Epistemic guard (G1) | **wired (teeth)**, advisory | hook; injects the preamble by default, `block` via env |
 | Evidence-gate (G2) | **wired, record-only** | hook writes a ledger; hard-block is v1 |
 | CRAP gate | **wired (teeth)** | deterministic script, non-zero exit over threshold |
+| DRY gate | **script (teeth when run)** | `scripts/dry-gate.mjs` over a jscpd report; the cleaner/hardener/qa run it, no hook forces it |
+| Commit proof | **script (teeth when run)** | `scripts/proof.mjs` turns ledger events since the last commit into `Proof:` trailers; a piped exit 0 is `Unverified`, never proof; exit 1 on any unproven command |
 | Pre-push panel | **wired (teeth)** | the existing `pre-push-review` plugin |
 | Re-executing referee | **wired (teeth)** | `scripts/referee.mjs`; commit-anchored, two-run, fail-closed; red-team suite in `scripts/attacks.test.mjs` |
-| Blind breaker (live oracle) | **by-reference** | invokes the host's `pipeline-breaker`, not bundled; **the only thing that closes the in-process limit (M2)** |
+| Blind breaker (live oracle) | **bundled, tool-less author + deterministic instruments** | `scripts/breaker-claude.mjs`: a no-tools, no-context model writes vectors; `vector-breaker.mjs` executes them (HTTP/UI) and computes the verdict; **the only thing that closes the in-process limit (M2)** |
 | Adversarial critic (Opus) | **by-reference** | invokes the host's `adversarial-critic` |
+| Blind contract review | **script (teeth when run)** | `scripts/contract-review.mjs`: two isolated, tool-less reviewers (comprehension, critic) see only the contract; strict JSON findings; exit 1 on any blocker, 2 when a reviewer cannot be read |
 | Intention gate (G0) | **prose** | instruction to the orchestrator in `/forge`; forcing function is v1 |
 | Tier router | **wired (teeth)** | `scripts/route.mjs`, deterministic classifier; LLM may raise, never lower the floor |
 | Mutation as CI gate | **script only** | `crap.mjs` / mutation ship; wiring into CI is v1 (F3) |
@@ -315,15 +354,52 @@ config outside every product repo:
   a JSON array of `{ name, file, complexity, coverage }` (from your coverage +
   complexity tools); exits non-zero if any function exceeds the threshold
   (default 6).
+- **`scripts/dry-gate.mjs`** — DRY gate over a jscpd JSON report
+  (`jscpd --reporters json --output <dir>`): `--files a,b` fails on any clone
+  touching those files (differential), no `--files` fails on any clone,
+  `--max-percent N` also fails above N% duplicated lines. Exit `0` pass · `1`
+  clones · `2` unrecognized report (fail-closed). jscpd finds token clones; it
+  does not score structural near-duplicates by similarity.
+- **`scripts/proof.mjs`** — commit proof: reads `.quality-kernel/evidence-ledger.jsonl`
+  since a ref (default `HEAD`) and prints one trailer per command, latest run only —
+  `Proof:` (exit 0 of an allowlisted command: plain words, quoted strings, simple
+  redirects, `&&` chains), `Unverified:` (any other exit 0 — `|`, `;`, `||` or `&` report
+  only the last command's code; `$`, backticks, subshells and heredocs are not modeled;
+  or truncated by the hook — listed, never counted), `Unproven:` (non-zero, unknown or
+  interrupted). Commands print escaped on one line, so ledger text cannot forge a trailer. Exit `0`
+  only when at least one command was proved and none is unproven. Run proof commands
+  without pipes: `node --test x.test.mjs > out.log 2>&1`, not `node --test | tail`.
+
+- **`scripts/contract-review.mjs`** — blind review of a specifier contract before the intention
+  gate. Two reviewers run as separate isolated sessions (the breaker launcher's `runIsolated`: no
+  tools, no CLAUDE.md, memory, hooks, plugins or MCP): `reviewers/comprehension.md` (a newcomer:
+  undefined terms, ambiguity, assumed knowledge) and `reviewers/critic.md` (unfalsifiable criteria,
+  missing `IF … THEN` behavior, invariants without probes, missing re-run invariants,
+  contradictions). Each must reply `{ findings: [{ severity, where, finding, suggestion? }] }`;
+  `--out` writes a markdown report. Exit `0` no blocker · `1` blocker(s) · `2` a reviewer could not
+  run or answered off-format. Idea from Google's Elephant-Goldfish Model (zero-context reviewers).
 
 ## Tests
 
 - `scripts/crap.test.mjs` — `node --test plugins/quality-kernel/scripts/crap.test.mjs`
+- `scripts/dry-gate.test.mjs`, `scripts/proof.test.mjs` — `node --test` likewise
 - `hooks/test_hooks.py` — `python3 plugins/quality-kernel/hooks/test_hooks.py`
 
 They cover the deterministic gate (CRAP formula + CLI exit codes) and the hook
 behavior (marker/exempt detection, log-vs-block mode, fail-open, and the ledger
 recording including the `unknown-schema` sentinel).
+
+**These suites run locally, before every push — there is no CI job for them.** In the source
+repository, `.githooks/pre-push` runs both suites, plus the gate's own tests, whenever a push touches
+`plugins/quality-kernel/` or `.githooks/`,
+on the **pushed commit** in a temporary worktree (an uncommitted fix cannot green a red commit),
+and blocks the push on any failure. Enable it once per clone:
+
+    git config core.hooksPath .githooks
+
+The suites ignore the developer's own git config (`scripts/hermetic-git.mjs`, and the same pinning
+in `hooks/test_hooks.py`), so a personal excludes file that lists `.quality-kernel/` cannot turn
+them red or green.
 
 ## Design docs
 

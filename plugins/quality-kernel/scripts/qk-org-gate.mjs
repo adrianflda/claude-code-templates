@@ -30,7 +30,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { git } from './safe-git.mjs';
 import { readOrgManifest, orgPin, orgRepoDir, isRepoName } from './org.mjs';
-import { isEntrypoint } from './entrypoint.mjs';
+import { isMain } from './is-main.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const GATE_NAME = { 0: 'pass', 1: 'fail', 2: 'indeterminate', 3: 'blocked-needs-breaker' };
@@ -175,4 +175,4 @@ function main(argv) {
   finish(out, code);
 }
 
-if (isEntrypoint(import.meta.url)) main(process.argv.slice(2));
+if (isMain(import.meta.url)) main(process.argv.slice(2));

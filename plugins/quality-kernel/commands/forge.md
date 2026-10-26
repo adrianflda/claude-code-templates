@@ -57,9 +57,15 @@ Communication model:
 
 ## Gates (enforce; do not skip)
 
-1. **Intention gate (human)** — after the specifier produces the contract (EARS +
-   Gherkin + External Observable Invariants), pause for human validation that the
-   contract matches intent, before any code is written (T1+).
+1. **Blind contract review, then the intention gate (human)** — after the specifier
+   produces the contract (EARS + Gherkin + External Observable Invariants), run
+   `node <plugin>/scripts/contract-review.mjs --contract <spec.md> --out <spec>.review.md`
+   (T1+). Two isolated, tool-less reviewers that see only the contract text report
+   gaps as `blocker` / `major` / `nit`. Send each blocker back to the specifier; then
+   pause for human validation that the contract matches intent, with the review report
+   beside it, before any code is written. A blocker left in the contract must be waived
+   by the human explicitly, never by an agent. Exit 2 (a reviewer could not run or
+   answered off-format) means not reviewed: re-run, do not proceed as if it passed.
    *(Optional, per-project:)* if GitHub Project integration is enabled, create one issue
    per task on the dashboard here.
 2. **Genuine RED** — the coder's tests must fail for the right reason, anchored to the
@@ -67,8 +73,10 @@ Communication model:
 3. **Mutation (async)** — for T1+, run mutation in CI / async on core modules
    (hardener). Do not block the implementation loop on it.
 4. **Blind breaker (live oracle)** — for any change touching the critical surface, run
-   the `pipeline-breaker` on ONLY the contract + the probe (the QA script). Require
-   `BREAKER_PASS` (>=3 executed falsifying vectors, all HOLDS) before merge; no probe =
+   the breaker on ONLY the contract + the probe (the QA script), launched isolated:
+   `scripts/breaker-invoke.mjs ... --breaker "node <plugin>/scripts/breaker-claude.mjs"`. Do not
+   spawn it as an in-session subagent — that inherits this session's CLAUDE.md, memory and hooks.
+   Require `BREAKER_PASS` (>=3 executed falsifying vectors, all HOLDS) before merge; no probe =
    `INSTRUMENT-BROKEN` = default-deny.
 5. **Evidence-gate** — nothing is "done" without a verification event (exit 0) after the
    last edit.
@@ -77,10 +85,27 @@ Communication model:
 ## Loop discipline
 
 Every repair loop is bounded (cap 3) and **escalates to the human on cap** — never retry
-blindly, never weaken a test to pass. Cap the number of agents and messages; no free
-lateral chat between agents.
+blindly, never weaken a test to pass. When two fixes resting on the same premise fail the
+same gate, require the agent to **attack the premise** (state it in one sentence, remove
+the wrong assignment) before any further fix. Cap the number of agents and messages; no
+free lateral chat between agents.
+
+## Practice
+
+- **Action log.** Keep a log of every dispatch, gate run and decision, each with the
+  reason it was taken; it goes in the final report.
+- **Guard the context window.** Keep this thread small: agents return a structured
+  summary and reference their bulk output by file path; do not paste it here.
+- **Sequence into verifiable units.** Finish and verify one task before starting the
+  next; a planned intermediate break is allowed only if it can be undone.
+- **Commit small, ordered commits.** Each commit message states why, what changed, and
+  how it was proved — the `Proof:` trailers from `scripts/proof.mjs`, never hand-written.
+- **Worktree cleanup.** At the end, list the worktrees and branches this run created.
+  Remove only those that are merged and clean, after confirming nothing still uses
+  them; any with uncommitted or unmerged work waits for the human's decision.
 
 ## Output
 
-Report: the chosen tier and why, the agents run, each gate's result, the
-mutation / coverage / CRAP figures where run, and the **residual risk, stated first**.
+Report: the **residual risk, stated first**, then the chosen tier and why, the agents
+run, each gate's result, the mutation / coverage / CRAP / DRY figures where run, the
+`Proof:` trailers, and the action log.

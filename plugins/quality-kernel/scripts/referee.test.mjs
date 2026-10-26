@@ -269,7 +269,10 @@ for (const [name, tools, change, expected] of [
       const { code, verdict } = runOn(tmp, base, head, { ...process.env, TMPDIR: privTmp });
       assert.strictEqual(code, expected, verdict && verdict.reason);
       if (expected === 2) assert.strictEqual(verdict.indeterminate, true);
-      assert.deepStrictEqual(readdirSync(privTmp), []);
+      // <tmp>/qk-gate-<uid> is the persistent private lock directory (PT-C12): it may remain, empty.
+      const lockDir = `qk-gate-${process.getuid()}`;
+      assert.deepStrictEqual(readdirSync(privTmp).filter((n) => n !== lockDir), []);
+      if (readdirSync(privTmp).includes(lockDir)) assert.deepStrictEqual(readdirSync(join(privTmp, lockDir)), []);
     } finally { rmSync(tmp, { recursive: true, force: true }); rmSync(privTmp, { recursive: true, force: true }); }
   });
 }

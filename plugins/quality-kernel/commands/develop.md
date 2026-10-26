@@ -52,8 +52,9 @@ NOT write any implementation code before approval.** This is the one required ch
 - For every change, run the gate: `node "${CLAUDE_PLUGIN_ROOT}/scripts/qk-gate.mjs" --repo <dir>
   --base <sha> --head <sha>` (or `/gate`). Green = referee re-executed clean. A test change routes to
   human review (exit 3) — surface it. Across several repos of an org folder, gate the feature as a
-  whole: `node "${CLAUDE_PLUGIN_ROOT}/scripts/qk-org-gate.mjs" --org <org> --branch <branch>`. On the critical surface, run the blind breaker
-  (`scripts/breaker-gate.mjs` → the host `pipeline-breaker`) before calling it done.
+  whole: `node "${CLAUDE_PLUGIN_ROOT}/scripts/qk-org-gate.mjs" --org <org> --branch <branch>`. On the
+  critical surface, run the blind breaker (`scripts/breaker-gate.mjs` with
+  `--breaker "node <plugin>/scripts/breaker-claude.mjs"`, the isolated launcher) before calling it done.
 - Run the acceptance suite (the Contract) via the referee's `acceptance`.
 - **Prove it runs**: build the app and start it locally; exercise the must-have flows from the
   Contract's QA procedure (a smoke run), and confirm they work. Record cost with

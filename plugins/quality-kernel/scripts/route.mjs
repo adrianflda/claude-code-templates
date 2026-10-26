@@ -21,7 +21,7 @@
 
 import { git, readVerifiedBlob } from './safe-git.mjs';
 import { findOrg, showOrgFile, orgSource, repoSource } from './org.mjs';
-import { isEntrypoint } from './entrypoint.mjs';
+import { isMain } from './is-main.mjs';
 
 const TIERS = { trivial: 0, standard: 1, critical: 2 };
 const NAME = ['trivial', 'standard', 'critical'];
@@ -29,11 +29,12 @@ const ALWAYS_CRITICAL_GLOBS = ['**/.quality-kernel/**'];
 // Shared test-file recognition (route + referee). Broad on purpose: any common convention counts as
 // a test so it is (a) forced non-trivial when edited, (b) critical when deleted, (c) never overlaid
 // from head. Missing a convention is a hole (panel finding C), so this errs toward inclusion.
-export const TEST_GLOBS = [
-  '**/*.test.*', '**/*.spec.*', '**/*.tests.*', '**/__tests__/**',
+export const TEST_NAME_GLOBS = [
+  '**/*.test.*', '**/*.spec.*', '**/*.tests.*',
   '**/*_test.*', '**/test_*.*', '**/*-test.*', '**/test-*.*', '**/*_spec.*', '**/*Spec.*',
-  '**/test/**', '**/tests/**', '**/spec/**',
 ];
+export const TEST_ROOT_GLOBS = ['**/__tests__/**', '**/test/**', '**/tests/**', '**/spec/**'];
+export const TEST_GLOBS = [...TEST_NAME_GLOBS, ...TEST_ROOT_GLOBS];
 
 function emit(v) { process.stdout.write(JSON.stringify(v) + '\n'); }
 function opError(reason) { emit({ tier: 'critical', tierFloor: 'critical', requiresBreaker: true, error: reason }); process.exit(2); }
@@ -163,7 +164,7 @@ export function parseDiffZ(buf) {
 }
 
 // --- CLI ---
-if (isEntrypoint(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   let repo = null, base = null, head = 'HEAD', changedArg = null, deletedArg = null, proposed = null, orgDir, orgPinArg;
   for (let i = 0; i < args.length; i++) {
