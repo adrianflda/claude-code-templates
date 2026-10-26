@@ -138,8 +138,24 @@ most leverage and the least prior mechanism: a **plan that produces a machine-ch
   via `tools.json "acceptance"` (immutable-from-base).
 - **The blind breaker** (qa-paradigms **P5**; constitution P3) — `scripts/breaker-invoke.mjs` builds the
   breaker's input from the **Contract only** (QA procedure + invariants + a live probe + the system URL)
-  and **never** the diff, the coder's tests, or any reasoning; it shells to a breaker command (in
-  production the host `pipeline-breaker` agent; a stub for tests) and reads a typed verdict.
+  and **never** the diff, the coder's tests, or any reasoning; it shells to a breaker command (a stub
+  for tests) and reads a typed verdict.
+- **The isolated breaker launcher** — `scripts/breaker-claude.mjs` is the production breaker command:
+  `--breaker "node <plugin>/scripts/breaker-claude.mjs" [--config .quality-kernel/tools.json]`. Two
+  stages, so no model both sees the system and decides the verdict:
+  1. **Author** — `claude -p --safe-mode --restricted --tools ""` in a fresh empty temp dir (no MCP,
+     no session persistence, allowlisted env) writes falsifying vectors from the blind input with the
+     bundled `breaker/vector-author.md` prompt. It has no tools and loads no CLAUDE.md, memory, hooks
+     or plugins. Live-probed (opt-in `QK_CLAUDE_LIVE=1`, with a positive control): a CLAUDE.md marker
+     a plain `claude -p` returns is not visible to it, and asked to `cat` a file it has no way to.
+  2. **Execute** — `scripts/vector-breaker.mjs` validates the whole vector set (anchored to contract
+     invariants, no unknown keys, at most 30), runs each through a deterministic instrument —
+     `scripts/http-probe.mjs` (methods GET/HEAD/POST/PUT/PATCH/DELETE, same-origin paths only,
+     redirects never followed, per-request timeout) or the gstack UI probe (steps `goto` same-origin and
+     `click` only; asserts `text`/`is`/`attrs`) — then the contract's own probe, and computes the
+     verdict in code. Whatever the author writes in prose is ignored.
+  The blind input with any key beyond the four above is refused. **Residual:** the contract probe is
+  a shell command from the human-approved contract and runs with the gate's privileges.
   `scripts/breaker-gate.mjs` = the composed gate + the enforced breaker: on the critical surface a green
   referee is not enough — the breaker must **PASS**.
 - **Cost** — `scripts/run-ledger.mjs` records tokens/$/wall-clock/human-interventions per dogfood run,
@@ -241,7 +257,7 @@ installing the plugin does not imply the full guarantee.
 | Commit proof | **script (teeth when run)** | `scripts/proof.mjs` turns ledger events since the last commit into `Proof:` trailers; a piped exit 0 is `Unverified`, never proof; exit 1 on any unproven command |
 | Pre-push panel | **wired (teeth)** | the existing `pre-push-review` plugin |
 | Re-executing referee | **wired (teeth)** | `scripts/referee.mjs`; commit-anchored, two-run, fail-closed; red-team suite in `scripts/attacks.test.mjs` |
-| Blind breaker (live oracle) | **by-reference** | invokes the host's `pipeline-breaker`, not bundled; **the only thing that closes the in-process limit (M2)** |
+| Blind breaker (live oracle) | **bundled, tool-less author + deterministic instruments** | `scripts/breaker-claude.mjs`: a no-tools, no-context model writes vectors; `vector-breaker.mjs` executes them (HTTP/UI) and computes the verdict; **the only thing that closes the in-process limit (M2)** |
 | Adversarial critic (Opus) | **by-reference** | invokes the host's `adversarial-critic` |
 | Intention gate (G0) | **prose** | instruction to the orchestrator in `/forge`; forcing function is v1 |
 | Tier router | **wired (teeth)** | `scripts/route.mjs`, deterministic classifier; LLM may raise, never lower the floor |

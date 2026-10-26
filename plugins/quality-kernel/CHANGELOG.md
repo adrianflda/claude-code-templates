@@ -7,13 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
-  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
-  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
-  Git-spawning tests now import `scripts/hermetic-git.mjs`.
+### Changed
+- **The blind breaker no longer has a shell.** `scripts/breaker-claude.mjs` now runs in two stages:
+  a tool-less, context-free `claude -p --tools ""` session writes falsifying vectors (bundled prompt
+  `breaker/vector-author.md`, which replaces the bundled `breaker/pipeline-breaker.md`), and the new
+  `scripts/vector-breaker.mjs` executes them through deterministic instruments and computes the
+  verdict in code; the model's prose verdict is ignored. Closes the residual of the previous launcher,
+  whose Bash could read the disk and the environment. Live-checked: asked to `cat` a file, the author
+  has no tool to do it.
 
 ### Added
+- `scripts/http-probe.mjs`: declarative HTTP instrument for breaker vectors — allowlisted methods,
+  paths resolved and required to stay on the system's origin (`//host` and `/\host` are refused),
+  redirects never followed, per-request timeout, `expect` on the last response (`status`, RFC 6901
+  JSON-pointer `equals`). Non-local systems are refused.
+- `scripts/vector-breaker.mjs`: validates a vector set (anchored to contract invariants, no unknown
+  keys, at most 30; UI steps limited to same-origin `goto` and `click`, asserts to `text`/`is`/`attrs`),
+  runs HTTP vectors through `http-probe.mjs` and UI vectors through the gstack probe, then the
+  contract's `probeCmd` (exit 0 holds, 126/127/timeout/signal is instrument-broken), and applies
+  `decideVerdict`.
 - `scripts/dry-gate.mjs`: pass/fail gate over a jscpd JSON report — differential (`--files`) or
   whole-report, optional `--max-percent`; an unrecognized report is exit 2, never a pass. The
   cleaner, hardener and qa now gate duplication with it.
@@ -33,11 +45,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unreachable survivors instead of testing them; specifier — re-run invariants and a glossary;
   `/forge` — a Practice section (action log, context-window guard, verifiable units, small
   commits with proof, worktree cleanup).
+- `scripts/breaker-claude.mjs`: isolated launcher for the blind breaker, the production `--breaker`
+  command for `breaker-invoke.mjs`: `claude -p --safe-mode --restricted` in a fresh empty temp dir
+  with an allowlisted env (cloud credentials only for the active provider), no MCP and no session
+  persistence; prepends the epistemic-guard preamble (hooks do not run in safe mode; a test keeps
+  the text equal); refuses blind input with extra keys. Opt-in live probe (`QK_CLAUDE_LIVE=1`) with a
+  positive control: a CLAUDE.md marker that a plain `claude -p` returns is not visible to it. Idea from
+  Google's Elephant-Goldfish Model (tool-restricted, context-free reviewers with a marker leak probe).
 - `scripts/manifest-consistency.test.mjs`: static check that plugin.json, marketplace.json, the
   README status lines and the newest CHANGELOG entry share one version, and that each agent
   declares its expected model alias (never a literal ID).
 - `scripts/hermetic-git.test.mjs`: proves the hermetic env defeats a hostile global excludesfile
   and XDG ignore (with a control that shows the hostile config does ignore the file).
+
+### Fixed
+- The default local-target pattern is anchored. `isLocalTarget` accepted `localhost.attacker.com`,
+  `my-localhost-proxy.example.com` and `127.0.0.1.nip.io`, bypassing the consent gate that limits
+  the autonomous breaker to local systems.
+- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
+  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
+  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
+  Git-spawning tests now import `scripts/hermetic-git.mjs`.
 
 ## [0.5.0] - 2026-09-25
 
