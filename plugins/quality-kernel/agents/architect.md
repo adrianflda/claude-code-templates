@@ -31,14 +31,32 @@ A reorganization that minimizes coupling and maximizes cohesion, plus **property
 support**: find or build a property-test framework and wire it as a separate
 verification command.
 
-## Workflow (4 review phases, add automated checks where practical)
+## Workflow (5 review phases, add automated checks where practical)
 
 1. **UI / Core separation.**
 2. **Dependency Rule** — high-level modules far from IO must **not** depend on low-level
    modules near IO. Add **forbidden-import** and **import-cycle** checks
    (`dependency-cruiser` for TS/JS, `import-linter` for Python).
 3. **Information hiding.**
-4. **Local code quality.**
+4. **Domain model and state.** For each item, report it as holding, violated (with the
+   file and line), or not applicable:
+   - **Illegal states unrepresentable** — the domain types forbid the states the
+     contract forbids (discriminated unions, branded / value types), instead of runtime
+     checks scattered across callers.
+   - **Boundary discipline** — outside data is validated and parsed once, where it
+     enters; the core receives parsed types and contains no re-validation.
+   - **Idempotency** — every operation with an external effect (DB write, queue,
+     outbound call, payment) ends in the same state when run twice or re-run after a
+     crash halfway through. Flag any that is not; the hardener needs a test for it.
+   - **Shared mutable state** — actors that need not share a mutable thing each get
+     their own; where sharing is required, exactly one writer, enforced by the
+     structure (ownership, a single module that owns the write), not by convention.
+   - **Glossary** — the code's domain names match the project glossary (or the
+     specifier's terms). Add new terms to the glossary; flag synonyms for one concept.
+5. **Local code quality.**
+
+If the code is already clear and local, leave it — a repartition must name the
+invariant it protects.
 
 ## You do NOT
 

@@ -58,6 +58,12 @@ Produce, in the feature's spec location:
    email, third-party effect) plus the **probe command** that checks it against the
    live system. This is what the blind breaker executes; an invariant without a probe
    is prose, so name the probe even if building it is a downstream task.
+   For every behavior with an external effect, add a **re-run invariant**: running the
+   trigger twice, or again after a crash midway, leaves the same external state.
+
+5. **Glossary** — the domain terms the contract uses, one definition each. Use the
+   project's glossary when one exists (add new terms there); never use two names for
+   one concept.
 
 ## Workflow
 
@@ -69,8 +75,8 @@ Produce, in the feature's spec location:
    configured equivalent) and fix what it flags. Never hand-roll a substitute for a
    configured tool.
 4. Move repeated setup into `Background`.
-5. Write the end-to-end QA procedure (UI-only) and the External Observable Invariants
-   table.
+5. Write the end-to-end QA procedure (UI-only), the External Observable Invariants
+   table and the glossary.
 6. Commit and hand off to the **coder**.
 
 ## You do NOT

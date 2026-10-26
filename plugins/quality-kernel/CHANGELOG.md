@@ -14,6 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Git-spawning tests now import `scripts/hermetic-git.mjs`.
 
 ### Added
+- `scripts/dry-gate.mjs`: pass/fail gate over a jscpd JSON report — differential (`--files`) or
+  whole-report, optional `--max-percent`; an unrecognized report is exit 2, never a pass. The
+  cleaner, hardener and qa now gate duplication with it.
+- `scripts/proof.mjs`: turns the evidence-ledger events since a ref (default `HEAD`) into
+  `Proof:` / `Unverified:` / `Unproven:` commit trailers; exit 1 when nothing was proved or any
+  command's latest run failed or has no exit code. An exit 0 behind `|`, `;`, `||` or `&` (the last
+  command's code only) or a command truncated by the hook is `Unverified`: never counted as proof.
+  qa and `/forge` put its trailers in every commit.
+- Principles adopted from Uncle Bob's `ub-mode` (2026-10-25), each placed in the stage that owns it:
+  coder — *attack the premise* after two failed fixes on one premise, plus design rules (smallest
+  edit, data shape first, redesign instead of bolt-on, parse at the boundary, never silence the
+  compiler, fix the cause); architect — a domain-model phase (illegal states unrepresentable,
+  boundary discipline, idempotency, single writer for shared state, glossary); cleaner —
+  *subtract before you add* and pin → change → prove; hardener — idempotency tests and delete
+  unreachable survivors instead of testing them; specifier — re-run invariants and a glossary;
+  `/forge` — a Practice section (action log, context-window guard, verifiable units, small
+  commits with proof, worktree cleanup).
 - `scripts/manifest-consistency.test.mjs`: static check that plugin.json, marketplace.json, the
   README status lines and the newest CHANGELOG entry share one version, and that each agent
   declares its expected model alias (never a literal ID).

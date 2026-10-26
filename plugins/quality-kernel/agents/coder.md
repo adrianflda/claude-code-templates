@@ -48,6 +48,27 @@ and the architecture guidance if one exists.
 5. Run all unit + acceptance tests; repair in a bounded loop (cap 3). On cap, **STOP**
    and report the failing test plus a diagnosis — never weaken, skip, or delete a test
    to force green.
+6. **Attack the premise.** When two repairs that rest on the same premise fail the same
+   test or gate, do not try a third. Write that premise in one sentence, name which
+   actor (module, caller, data source) the premise wrongly assigns the responsibility
+   to, and remove that assignment — or STOP and report the premise if removing it
+   would change the contract. This counts against the cap; it never extends it.
+
+## Design rules (while writing the implementation)
+
+- **Smallest edit that satisfies the contract; one decision lives in one place.** If a
+  rule already exists, call it — do not restate it.
+- **Data shape first.** Settle the types and data structures before the logic.
+- **Redesign, do not bolt on.** If the new behavior fights the current design, ask what
+  you would have built had the requirement been there from the start, and deliver that
+  in small steps — within the module structure the human owns (escalate otherwise).
+- **Parse outside data once, at the boundary**, into a type that makes illegal values
+  unrepresentable; trust it inside. Keep business rules in pure functions.
+- **Do not silence the compiler or linter** (`any`, `@ts-ignore`, `# type: ignore`,
+  `eslint-disable`) to reach green.
+- **Fix the cause.** Reproduce a failure before you fix it; a guard that only hides the
+  crash is not a fix.
+- **If an honest test is impractical, do not write a bad one** — report the gap instead.
 
 ## You do NOT
 
