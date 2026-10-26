@@ -26,17 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs HTTP vectors through `http-probe.mjs` and UI vectors through the gstack probe, then the
   contract's `probeCmd` (exit 0 holds, 126/127/timeout/signal is instrument-broken), and applies
   `decideVerdict`.
-
-### Fixed
-- The default local-target pattern is anchored. `isLocalTarget` accepted `localhost.attacker.com`,
-  `my-localhost-proxy.example.com` and `127.0.0.1.nip.io`, bypassing the consent gate that limits
-  the autonomous breaker to local systems.
-- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
-  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
-  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
-  Git-spawning tests now import `scripts/hermetic-git.mjs`.
-
-### Added
+- `.githooks/pre-push` (source repository): local pre-push gate. When a push touches
+  `plugins/quality-kernel/` or `.githooks/`, it runs the Node and hook suites and the gate's own tests
+  (`.githooks/quality-kernel-tests.test.mjs`) on the pushed commit in a temporary
+  worktree and blocks the push on any failure; there is deliberately no CI job for these suites.
+  Enable once per clone with `git config core.hooksPath .githooks`. The suites run without
+  `NODE_TEST_CONTEXT`: inherited from a parent `node --test`, it makes the child runner exit 0 on
+  failing tests.
 - `scripts/breaker-claude.mjs`: isolated launcher for the blind breaker, the production `--breaker`
   command for `breaker-invoke.mjs`: `claude -p --safe-mode --restricted` in a fresh empty temp dir
   with an allowlisted env (cloud credentials only for the active provider), no MCP and no session
@@ -49,6 +45,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declares its expected model alias (never a literal ID).
 - `scripts/hermetic-git.test.mjs`: proves the hermetic env defeats a hostile global excludesfile
   and XDG ignore (with a control that shows the hostile config does ignore the file).
+
+### Fixed
+- The default local-target pattern is anchored. `isLocalTarget` accepted `localhost.attacker.com`,
+  `my-localhost-proxy.example.com` and `127.0.0.1.nip.io`, bypassing the consent gate that limits
+  the autonomous breaker to local systems.
+- The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
+  (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
+  commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
+  Git-spawning tests now import `scripts/hermetic-git.mjs`.
+- `hooks/test_hooks.py` no longer depends on the developer's git config. A global or XDG excludes
+  file listing `.quality-kernel/` made a fixture repo look gitignored, failing 2 evidence-gate tests;
+  the suite now pins git's config as `scripts/hermetic-git.mjs` does for the Node suite.
 
 ## [0.5.0] - 2026-09-25
 
