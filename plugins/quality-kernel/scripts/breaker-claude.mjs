@@ -28,8 +28,9 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { runVectors } from "./vector-breaker.mjs";
+import { isMain } from "./is-main.mjs";
 
 // Same text the epistemic-guard hook prepends to every Agent spawn; hooks do not run under
 // --safe-mode, so the launcher adds it (a test keeps the two equal).
@@ -171,7 +172,7 @@ async function main() {
   process.exit(0);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isMain(import.meta.url)) {
   // Any throw (unreadable prompt, an instrument crash) is could-not-run (exit 2), never a verdict.
   main().catch((err) => fail(`breaker crashed: ${err && err.message ? err.message : err}`));
 }

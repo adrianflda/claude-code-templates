@@ -18,8 +18,9 @@
 // Exit: 0 PASS (no blocker) · 1 BLOCKED (a blocker for the human to resolve or waive) · 2 indeterminate.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { PREAMBLE, runIsolated } from "./breaker-claude.mjs";
+import { isMain } from "./is-main.mjs";
 
 export const REVIEWERS = ["comprehension", "critic"];
 export const SEVERITIES = ["blocker", "major", "nit"];
@@ -125,6 +126,6 @@ async function main() {
   process.exit(verdict === "PASS" ? 0 : verdict === "BLOCKED" ? 1 : 2);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isMain(import.meta.url)) {
   main().catch((err) => fail(`review crashed: ${err && err.message ? err.message : err}`));
 }

@@ -27,7 +27,7 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { isMain } from "./is-main.mjs";
 
 export function parseArgs(argv) {
   const args = { repo: ".", ledger: null, since: "HEAD", sinceTs: null, json: false };
@@ -221,6 +221,6 @@ function main() {
 }
 
 // Run as CLI only when invoked directly, so the module can be imported for tests.
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isMain(import.meta.url)) {
   main();
 }

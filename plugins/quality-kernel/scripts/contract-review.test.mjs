@@ -48,6 +48,8 @@ test("decide: any blocker blocks; any reviewer error is indeterminate", () => {
   assert.equal(decide([ok([finding("major"), finding("nit")])]).verdict, "PASS");
   assert.equal(decide([ok([finding("blocker")])]).verdict, "BLOCKED");
   assert.equal(decide([ok([]), { reviewer: "comprehension", error: "no JSON" }]).verdict, "INDETERMINATE");
+  // a half-read review is not a verdict: an error outranks a blocker found by the other reviewer
+  assert.equal(decide([ok([finding("blocker")]), { reviewer: "comprehension", error: "no JSON" }]).verdict, "INDETERMINATE");
   assert.deepEqual(decide([ok([finding("blocker"), finding("major"), finding("major")])]).counts, { blocker: 1, major: 2, nit: 0 });
 });
 
@@ -57,7 +59,7 @@ test("renderReport: groups findings by severity and names each reviewer", () => 
     { reviewer: "critic", findings: [finding("blocker", { where: "INV-2", finding: "no probe" })] },
   ]);
   assert.match(md, /BLOCKED/);
-  assert.ok(md.indexOf("blocker") < md.indexOf("nit"));
+  assert.ok(md.indexOf("## blocker") !== -1 && md.indexOf("## blocker") < md.indexOf("## nit"), "blocker section before nit section");
   assert.match(md, /critic.*INV-2.*no probe/s);
   assert.match(md, /comprehension.*Definitions.*term Y undefined/s);
 });

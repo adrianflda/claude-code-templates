@@ -13,6 +13,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
+import { isMain } from './is-main.mjs';
 
 function section(md, name) {
   const lines = md.split('\n'); const out = []; let inSec = false;
@@ -37,7 +38,7 @@ export function buildBlindInput(md, { probeCmd = null, systemUrl = null } = {}) 
   return { qaProcedure: section(md, 'QA procedure'), invariants: invariants(md), probeCmd, systemUrl };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   let contract = null, probe = null, url = null, breaker = null;
   for (let i = 0; i < args.length; i++) {

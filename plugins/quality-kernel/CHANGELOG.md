@@ -75,6 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and XDG ignore (with a control that shows the hostile config does ignore the file).
 
 ### Fixed
+- Every gate script run through a symlinked path (a symlinked plugin install, macOS `/tmp` ->
+  `/private/tmp`) skipped its main() and exited 0: a silent PASS. The entrypoint guard compared the
+  realpath-resolved `import.meta.url` with the as-typed `argv[1]`. All 14 scripts and the pre-push gate
+  now use `scripts/is-main.mjs`, which compares real paths. Observed: `contract-review.mjs` and
+  `crap.mjs` via a symlink exited 0 on a missing input; they now exit 2.
 - `docs/specs/gate-process-tree/contract.md` said the Linux MemAvailable threshold was "fixed, no
   override", contradicting Decision 16 and `mem-config.mjs`, which apply `QK_MEM_MIN_LEVEL_PCT`
   (default 15). Found by the new contract review.

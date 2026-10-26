@@ -18,8 +18,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { createRunner } from "../plugins/quality-kernel/scripts/process-safety/proc-runner.mjs";
+import { isMain } from "../plugins/quality-kernel/scripts/is-main.mjs";
 
 export const ZERO = "0".repeat(40);
 const KERNEL = "plugins/quality-kernel/";
@@ -151,7 +151,7 @@ async function main() {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isMain(import.meta.url)) {
   main().catch((err) => {
     process.stderr.write(`[quality-kernel] pre-push gate crashed, push blocked: ${err && err.message ? err.message : err}\n`);
     process.exit(1);
