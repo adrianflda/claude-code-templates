@@ -19,9 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cleaner, hardener and qa now gate duplication with it.
 - `scripts/proof.mjs`: turns the evidence-ledger events since a ref (default `HEAD`) into
   `Proof:` / `Unverified:` / `Unproven:` commit trailers; exit 1 when nothing was proved or any
-  command's latest run failed or has no exit code. An exit 0 behind `|`, `;`, `||` or `&` (the last
-  command's code only) or a command truncated by the hook is `Unverified`: never counted as proof.
-  qa and `/forge` put its trailers in every commit.
+  command's latest run failed or has no exit code. Only an allowlisted command (plain words, quoted
+  strings, simple redirects, `&&` chains) can be `Proof`; any other exit 0 — behind `|`, `;`, `||`
+  or `&`, with `$`, backticks, subshells or heredocs, or truncated by the hook — is `Unverified`.
+  Commands print escaped on one line so ledger text cannot forge a trailer, and a test pins
+  `LEDGER_COMMAND_MAX` to the hook's `_MAX_COMMAND`. qa and `/forge` put its trailers in every commit.
 - Principles adopted from Uncle Bob's `ub-mode` (2026-10-25), each placed in the stage that owns it:
   coder — *attack the premise* after two failed fixes on one premise, plus design rules (smallest
   edit, data shape first, redesign instead of bolt-on, parse at the boundary, never silence the

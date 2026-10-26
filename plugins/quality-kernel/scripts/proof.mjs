@@ -13,10 +13,12 @@
  *
  * Only the latest run of each command counts. A command whose latest run failed, or whose
  * exit code is unknown (rows written before the ledger recorded exit codes), is Unproven.
- * An exit 0 that only speaks for the last command of a pipe, `;`, `||` or `&`
- * (`node --test | grep pass` is grep's exit code), or a command truncated by the hook, is
- * Unverified: listed, but it neither proves nor blocks. Record proof runs as a single
- * command or an `&&` chain.
+ * An exit 0 is Proof only for an allowlisted command: plain words, quoted strings, simple
+ * redirects and `&&` chains. Anything else is Unverified — listed, but it neither proves nor
+ * blocks: a pipe, `;`, `||` or `&` (`node --test | grep pass` is grep's exit code), `$`,
+ * backticks, subshells, heredocs, or a command truncated by the hook. Record proof runs as
+ * a single command or an `&&` chain, redirecting output to a file instead of piping it.
+ * Commands are printed escaped on one line, so ledger text cannot forge a trailer.
  *
  * Usage:
  *   node proof.mjs [--repo .] [--ledger <path>] [--since <git-ref> | --since-ts <epoch-seconds>] [--json]
@@ -57,33 +59,64 @@ export function parseLedger(text) {
   return { rows, malformed };
 }
 
-// The hook stores at most this many characters of a command (hooks/evidence-gate.py).
+// The hook stores at most this many characters of a command: `_MAX_COMMAND` in
+// hooks/evidence-gate.py (proof.test.mjs fails if the two drift apart).
 export const LEDGER_COMMAND_MAX = 300;
 
-// Why a recorded exit code does not speak for every command in the line, or null when it
-// does. The shell reports only the last command of a pipeline (`a | grep`), a sequence
-// (`a; b`), a fallback (`a || true`) or a background job (`a & b`), so a red test can sit
-// behind exit 0. Only a single command or an `&&` chain is trusted. A command at the
-// hook's length cap may have lost its tail, so it is not trusted either.
+// Characters a trusted command may contain outside quotes: words, paths, globs, `=`.
+const PLAIN = /[A-Za-z0-9_\-./:=@%+,~*?[\]\s]/;
+const LAST_ONLY = (op) => `exit code of the last command only (${op})`;
+
+// Returns the index just past a quoted string starting at `i`, or a reason string when the
+// string is unterminated or (double quotes) expands `$` or a backtick.
+function skipQuoted(command, i) {
+  const quote = command[i];
+  for (let j = i + 1; j < command.length; j++) {
+    const ch = command[j];
+    if (ch === quote) return j + 1;
+    if (quote === '"' && ch === "\\") j += 1;
+    else if (quote === '"' && (ch === "$" || ch === "`")) return `expansion inside double quotes (${ch})`;
+  }
+  return "unterminated quote";
+}
+
+// Length of the redirect operator starting at `i` (`>`, `>&N`, `&>`, `<`), or 0 when there
+// is none. `>>` and `&>>` are two consecutive operators here, which accepts the same text.
+function redirectLength(command, i) {
+  const rest = command.slice(i, i + 3);
+  const match = rest.match(/^(?:&>|>&\d|>|<(?![<(]))/);
+  return match ? match[0].length : 0;
+}
+
+// Why a recorded exit code may not speak for the command it was recorded for, or null when
+// it does. This is an ALLOWLIST: a trusted command is plain words, quoted strings, simple
+// redirects and `&&` chains. Pipes, `;`, `||`, `&` report only the last command's code;
+// `$`, backticks, subshells, braces, heredocs, `!` and comments are syntax this check does
+// not model — all of it is Unverified. A command at the hook's length cap may have lost
+// its tail, so it is not trusted either.
 export function exitMasked(command) {
   if (command.length >= LEDGER_COMMAND_MAX) return "truncated in the ledger";
-  let quote = null;
-  for (let i = 0; i < command.length; i++) {
+  for (let i = 0; i < command.length; ) {
     const ch = command[i];
-    if (quote) {
-      if (ch === "\\" && quote === '"') i += 1;
-      else if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === "\\") i += 1;
-    else if (ch === "'" || ch === '"') quote = ch;
-    else if (ch === "|") return "exit code of the last command only (| or ||)";
-    else if (ch === ";" || ch === "\n") return "exit code of the last command only (;)";
-    else if (ch === "&") {
-      if (command[i + 1] === "&") i += 1;
-      else if (command[i - 1] !== ">" && command[i - 1] !== "<" && command[i + 1] !== ">") {
-        return "exit code of the last command only (&)";
-      }
+    if (ch === "\n" || ch === ";") return LAST_ONLY(";");
+    if (ch === "|") return LAST_ONLY("| or ||");
+    if (ch === "'" || ch === '"') {
+      const next = skipQuoted(command, i);
+      if (typeof next === "string") return next;
+      i = next;
+    } else if (ch === "\\") {
+      if (i + 1 >= command.length || command[i + 1] === "\n") return "line continuation";
+      i += 2;
+    } else if (command.startsWith("&&", i)) {
+      i += 2;
+    } else if (redirectLength(command, i) > 0) {
+      i += redirectLength(command, i);
+    } else if (ch === "&") {
+      return LAST_ONLY("&");
+    } else if (PLAIN.test(ch)) {
+      i += 1;
+    } else {
+      return `shell syntax this check does not trust (${ch})`;
     }
   }
   return null;
@@ -118,11 +151,17 @@ export function verdict(entries) {
 
 const LABELS = { proof: "Proof", unverified: "Unverified", unproven: "Unproven" };
 
+// One trailer per entry, always on one line: the command is ledger data, so a newline in it
+// must never start a line git would read as another (forged) `Proof:` trailer.
+export function escapeCommand(command) {
+  return command.replace(/\\/g, "\\\\").replace(/\r/g, "\\r").replace(/\n/g, "\\n").replace(/`/g, "\\`");
+}
+
 export function trailer(entry) {
   const label = LABELS[entry.status];
   const code = entry.exitCode === null ? "unknown" : entry.exitCode;
   const reason = entry.reason ? ` (${entry.reason})` : "";
-  return `${label}: \`${entry.command}\` -> exit ${code}${reason}`;
+  return `${label}: \`${escapeCommand(entry.command)}\` -> exit ${code}${reason}`;
 }
 
 function refTimestamp(repo, ref) {

@@ -271,9 +271,11 @@ Copy the examples into your repo's `.quality-kernel/`:
   does not score structural near-duplicates by similarity.
 - **`scripts/proof.mjs`** — commit proof: reads `.quality-kernel/evidence-ledger.jsonl`
   since a ref (default `HEAD`) and prints one trailer per command, latest run only —
-  `Proof:` (exit 0 of a single command or `&&` chain), `Unverified:` (exit 0 behind a
-  `|`, `;`, `||` or `&`, which is only the last command's code — or truncated by the
-  hook; listed, never counted), `Unproven:` (non-zero, unknown or interrupted). Exit `0`
+  `Proof:` (exit 0 of an allowlisted command: plain words, quoted strings, simple
+  redirects, `&&` chains), `Unverified:` (any other exit 0 — `|`, `;`, `||` or `&` report
+  only the last command's code; `$`, backticks, subshells and heredocs are not modeled;
+  or truncated by the hook — listed, never counted), `Unproven:` (non-zero, unknown or
+  interrupted). Commands print escaped on one line, so ledger text cannot forge a trailer. Exit `0`
   only when at least one command was proved and none is unproven. Run proof commands
   without pipes: `node --test x.test.mjs > out.log 2>&1`, not `node --test | tail`.
 

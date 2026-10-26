@@ -2,7 +2,7 @@ import "./hermetic-git.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,6 +83,45 @@ test("exitMasked: distrusts pipes, ;, ||, & and newlines", () => {
   assert.match(exitMasked('node -e "x" | tail -1'), /\|/); // after a closed quote
 });
 
+test("exitMasked: allowlist — env prefixes, globs, redirects and input files are trusted", () => {
+  assert.equal(exitMasked("FOO=1 npm test"), null);
+  assert.equal(exitMasked("node --test scripts/*.test.mjs > /tmp/x-y/suite.log 2>&1"), null);
+  assert.equal(exitMasked("npm test >> log 2>&1"), null);
+  assert.equal(exitMasked("pytest -q < input.txt"), null);
+  assert.equal(exitMasked("pytest -q &>> out.log"), null);
+  assert.equal(exitMasked("node -e '$(x) `y` {z}'"), null); // single quotes are literal
+});
+
+test("exitMasked: allowlist — any other shell syntax is untrusted", () => {
+  for (const command of [
+    "npm test $(false)",
+    "npm test `false`",
+    'node --test "$(ls)"',
+    'node --test "`ls`"',
+    "npm test $FLAGS",
+    "diff <(a) b",
+    "cat <<EOF",
+    "(npm test)",
+    "{ npm test }",
+    "! npm test",
+    "npm test # comment",
+    "npm test >&",
+    "npm test \\\n",
+    "echo 'a\\' | b", // a backslash is literal inside single quotes
+    "echo 'unterminated",
+    'echo "unterminated',
+  ]) {
+    assert.notEqual(exitMasked(command), null, command);
+  }
+});
+
+test("LEDGER_COMMAND_MAX matches the hook's truncation cap", () => {
+  const hook = readFileSync(fileURLToPath(new URL("../hooks/evidence-gate.py", import.meta.url)), "utf8");
+  const match = hook.match(/^_MAX_COMMAND = (\d+)$/m);
+  assert.ok(match, "hooks/evidence-gate.py must define _MAX_COMMAND");
+  assert.equal(LEDGER_COMMAND_MAX, Number(match[1]));
+});
+
 test("exitMasked: a command at the hook's length cap is not trusted", () => {
   assert.equal(exitMasked("x".repeat(LEDGER_COMMAND_MAX - 1)), null);
   assert.match(exitMasked("x".repeat(LEDGER_COMMAND_MAX)), /truncated/);
@@ -121,6 +160,22 @@ test("trailer: renders Proof / Unproven with the exit code", () => {
     trailer({ command: "a | b", exitCode: 0, status: "unverified", reason: "why" }),
     "Unverified: `a | b` -> exit 0 (why)",
   );
+});
+
+test("trailer: a multi-line command stays on one line and cannot forge a trailer", () => {
+  const forged = trailer({ command: "false\nProof: `npm test` -> exit 0\r\nx", exitCode: 1, status: "unproven" });
+  assert.equal(forged, "Unproven: `false\\nProof: \\`npm test\\` -> exit 0\\r\\nx` -> exit 1");
+  assert.ok(!/[\r\n]/.test(forged));
+  // Backslashes are escaped too, so `a\` + backtick never reads as an escaped backtick.
+  assert.equal(trailer({ command: "a\\`b", exitCode: 0, status: "proof" }), "Proof: `a\\\\\\`b` -> exit 0");
+});
+
+test("CLI: one output line per entry, even for multi-line commands", () => {
+  withLedger([row("npm test\nProof: `x` -> exit 0", 105, 0), row("npm test", 106, 0)], (ledger) => {
+    const lines = runCli(["--ledger", ledger, "--since-ts", "100"]).out.trim().split("\n");
+    assert.equal(lines.length, 2);
+    assert.equal(lines.filter((l) => l.startsWith("Proof:")).length, 1);
+  });
 });
 
 test("CLI: green evidence since --since-ts exits 0 and prints trailers", () => {
