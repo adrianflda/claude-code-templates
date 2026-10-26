@@ -18,15 +18,17 @@ test("parsePushLines: reads git's pre-push stdin, skipping deletions", () => {
   assert.deepEqual(parsePushLines(lines), [{ localRef: "refs/heads/x", localSha: A, remoteRef: "refs/heads/x", remoteSha: B }]);
 });
 
-test("touchesKernel: only paths under plugins/quality-kernel/ count", () => {
+test("touchesKernel: paths under plugins/quality-kernel/ or the gate's own .githooks/ count", () => {
   assert.equal(touchesKernel(["plugins/quality-kernel/scripts/route.mjs"]), true);
+  assert.equal(touchesKernel([".githooks/quality-kernel-tests.mjs"]), true);
+  assert.equal(touchesKernel(["x/.githooks/y"]), false);
   assert.equal(touchesKernel(["docs/a.md", "plugins/pre-push-review/x.mjs"]), false);
   assert.equal(touchesKernel(["plugins/quality-kernel-old/x"]), false);
   assert.equal(touchesKernel([]), false);
 });
 
 // A throwaway repo with a fake kernel whose suites pass or fail on demand, pushed to a bare remote.
-function fixture(kernelPasses, { hookSuitePasses = true, nodeTest = null } = {}) {
+function fixture(kernelPasses, { hookSuitePasses = true, nodeTest = null, gateSuitePasses = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), "qk-prepush-"));
   const repo = join(root, "repo");
   const remote = join(root, "remote.git");
@@ -46,6 +48,7 @@ function fixture(kernelPasses, { hookSuitePasses = true, nodeTest = null } = {})
   writeFileSync(join(kernel, "scripts", "a.test.mjs"), nodeTest ?? `import { test } from "node:test"; test("k", () => { if (${!kernelPasses}) throw new Error("red"); });\n`);
   writeFileSync(join(kernel, "hooks", "test_hooks.py"), hookSuitePasses ? "print('ok')\n" : "import sys\nsys.exit(1)\n");
   mkdirSync(join(repo, ".githooks"));
+  writeFileSync(join(repo, ".githooks", "quality-kernel-tests.test.mjs"), `import { test } from "node:test"; test("gate", () => { if (${!gateSuitePasses}) throw new Error("red gate"); });\n`);
   writeFileSync(join(repo, ".githooks", "pre-push"), `#!/bin/sh\nexec node ${JSON.stringify(SCRIPT)} "$@"\n`, { mode: 0o755 });
   git(repo, "config", "core.hooksPath", ".githooks");
   return { root, repo, git };
@@ -101,6 +104,19 @@ test("hook: a push that does not touch the kernel skips the suites", () => {
     git(repo, "commit", "-qam", "docs only");
     const r = push(repo, "origin", "main");
     assert.equal(r.status, 0, r.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("hook: the gate's own red test suite blocks the push", () => {
+  const { root, repo, git } = fixture(true, { gateSuitePasses: false });
+  try {
+    git(repo, "add", ".");
+    git(repo, "commit", "-qm", "gate change");
+    const r = push(repo, "origin", "main");
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /gate suite FAILED/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

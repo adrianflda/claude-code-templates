@@ -288,7 +288,8 @@ behavior (marker/exempt detection, log-vs-block mode, fail-open, and the ledger
 recording including the `unknown-schema` sentinel).
 
 **These suites run locally, before every push — there is no CI job for them.** In the source
-repository, `.githooks/pre-push` runs both suites whenever a push touches `plugins/quality-kernel/`,
+repository, `.githooks/pre-push` runs both suites, plus the gate's own tests, whenever a push touches
+`plugins/quality-kernel/` or `.githooks/`,
 on the **pushed commit** in a temporary worktree (an uncommitted fix cannot green a red commit),
 and blocks the push on any failure. Enable it once per clone:
 

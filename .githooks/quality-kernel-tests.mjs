@@ -3,9 +3,10 @@
 //
 // Called by .githooks/pre-push with git's pre-push arguments (<remote> <url>) and stdin
 // (<local ref> <local sha> <remote ref> <remote sha> per line). When a pushed commit range
-// touches plugins/quality-kernel/, it checks out the PUSHED commit in a temporary worktree and runs:
+// touches plugins/quality-kernel/ or .githooks/, it checks out the PUSHED commit in a temporary worktree and runs:
 //   node --test scripts/*.test.mjs     (the Node suite)
 //   python3 hooks/test_hooks.py        (the hook suite)
+//   node --test .githooks/quality-kernel-tests.test.mjs   (this gate's own tests, from the tree root)
 // Any failure blocks the push. The suites run on the pushed commit, never on the working tree, so
 // an uncommitted fix cannot green a red commit. Enable once per clone: git config core.hooksPath .githooks
 // Bypass (not recommended): git push --no-verify.
@@ -22,9 +23,13 @@ import { createRunner } from "../plugins/quality-kernel/scripts/process-safety/p
 
 export const ZERO = "0".repeat(40);
 const KERNEL = "plugins/quality-kernel/";
+const GATE = ".githooks/";
+// cwd is relative to the pushed tree. The gate suite is this gate's own tests, so a change that
+// breaks the gate (or the proc-runner it imports) is caught by the gate itself.
 const SUITES = [
-  { name: "Node suite", cmd: "node --test scripts/*.test.mjs" },
-  { name: "hook suite", cmd: "python3 hooks/test_hooks.py" },
+  { name: "Node suite", cmd: "node --test scripts/*.test.mjs", cwd: KERNEL },
+  { name: "hook suite", cmd: "python3 hooks/test_hooks.py", cwd: KERNEL },
+  { name: "gate suite", cmd: "node --test .githooks/quality-kernel-tests.test.mjs", cwd: "." },
 ];
 // A suite that inherits these would run its fixture repos against this repository instead of their
 // own temp dirs. Observed on Apple git: pre-push gets GIT_PREFIX only (plus GIT_EXEC_PATH,
@@ -40,7 +45,7 @@ export function parsePushLines(text) {
 }
 
 export function touchesKernel(paths) {
-  return paths.some((p) => p.startsWith(KERNEL));
+  return paths.some((p) => p.startsWith(KERNEL) || p.startsWith(GATE));
 }
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -104,7 +109,7 @@ async function runSuites(sha) {
     const failures = [];
     for (const [i, suite] of SUITES.entries()) {
       const log = join(dir, `suite-${i}.log`);
-      const r = await runner.run(`${suite.cmd} > '${log}' 2>&1`, join(tree, KERNEL));
+      const r = await runner.run(`${suite.cmd} > '${log}' 2>&1`, join(tree, suite.cwd));
       let out = "";
       try {
         out = readFileSync(log, "utf8");

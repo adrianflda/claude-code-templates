@@ -27,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contract's `probeCmd` (exit 0 holds, 126/127/timeout/signal is instrument-broken), and applies
   `decideVerdict`.
 - `.githooks/pre-push` (source repository): local pre-push gate. When a push touches
-  `plugins/quality-kernel/`, it runs the Node and hook suites on the pushed commit in a temporary
+  `plugins/quality-kernel/` or `.githooks/`, it runs the Node and hook suites and the gate's own tests
+  (`.githooks/quality-kernel-tests.test.mjs`) on the pushed commit in a temporary
   worktree and blocks the push on any failure; there is deliberately no CI job for these suites.
   Enable once per clone with `git config core.hooksPath .githooks`. The suites run without
   `NODE_TEST_CONTEXT`: inherited from a parent `node --test`, it makes the child runner exit 0 on
