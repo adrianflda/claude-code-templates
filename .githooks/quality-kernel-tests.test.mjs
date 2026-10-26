@@ -199,7 +199,7 @@ test("hang", () => new Promise((r) => setTimeout(r, 120000)));\n`;
     const pid = Number(readFileSync(pidFile, "utf8"));
     child.kill("SIGINT");
     const code = await new Promise((r) => child.on("close", r));
-    assert.notEqual(code, 0);
+    assert.equal(code, 130); // the handler's exit, not death by the signal (which reports null)
     await new Promise((r) => setTimeout(r, 500));
     assert.throws(() => process.kill(pid, 0), "the suite must die with the interrupted gate");
     assert.doesNotMatch(git(repo, "worktree", "list"), /qk-prepush-wt/);
