@@ -10,14 +10,17 @@
 //   --restricted    user/project/local settings ignored; Read/Glob/Grep confined to the workdir
 //   --strict-mcp-config + an empty --mcp-config, --no-session-persistence
 //   cwd             a fresh, empty temp dir (removed afterwards), so there is no repo to discover
-//   env             an allowlist (PATH, HOME, auth/provider vars); nothing from the parent run
+//   env             an allowlist (PATH, HOME, ANTHROPIC_*, and cloud credentials only for the
+//                   provider switched on by CLAUDE_CODE_USE_BEDROCK / _VERTEX); nothing else
 //
 // Live-probed on Claude Code 2.1.310: a CLAUDE.md marker a plain `claude -p` returns is not visible
 // under these flags, and Read of a path outside the workdir is refused.
 //
 // RESIDUAL (not closed here): Bash is required to execute probes, and Bash is NOT confined —
 // `cat <path>` or `git -C <repo> diff` still reads the disk. The breaker learns no repo path from
-// this launcher, but a probe command that names one gives it away. Isolation of Bash is future work.
+// this launcher, but a probe command that names one gives it away. Bash also sees the credentials
+// the session needs (`env`): an ANTHROPIC_API_KEY or the active cloud provider's keys (OAuth
+// sessions keep theirs in the keychain). Isolation of Bash is future work.
 //
 // Usage: breaker-claude.mjs [--model opus] [--claude-bin claude] [--prompt-file <md>]  < blind-input.json
 // Prints one JSON line: { verdict, protocolViolation }.
@@ -40,7 +43,13 @@ export const PREAMBLE =
 const BLIND_KEYS = new Set(["qaProcedure", "invariants", "probeCmd", "systemUrl"]);
 const VERDICTS = new Set(["BREAKER_PASS", "BREAKER_FAIL", "INSTRUMENT-BROKEN"]);
 const ENV_KEYS = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "TERM", "CLAUDE_CONFIG_DIR"]);
-const ENV_PREFIXES = ["ANTHROPIC_", "CLAUDE_CODE_USE_", "AWS_", "GOOGLE_APPLICATION_CREDENTIALS", "CLOUD_ML_"];
+const ENV_PREFIXES = ["ANTHROPIC_", "CLAUDE_CODE_USE_"];
+// Cloud credentials reach the session (and its unconfined Bash) only for the provider in use.
+const PROVIDER_PREFIXES = {
+  CLAUDE_CODE_USE_BEDROCK: ["AWS_"],
+  CLAUDE_CODE_USE_VERTEX: ["GOOGLE_APPLICATION_CREDENTIALS", "CLOUD_ML_", "VERTEX_REGION_"],
+};
+const isOn = (value) => value !== undefined && !["", "0", "false"].includes(String(value).toLowerCase());
 const DEFAULT_PROMPT = fileURLToPath(new URL("../breaker/pipeline-breaker.md", import.meta.url));
 const CLAUDE_TIMEOUT_MS = 570_000; // under breaker-invoke's 600 s, so the invoker sees our verdict
 
@@ -63,8 +72,10 @@ export function buildClaudeArgs({ model, systemPrompt }) {
 }
 
 export function isolatedEnv(env) {
+  const prefixes = [...ENV_PREFIXES];
+  for (const [flag, extra] of Object.entries(PROVIDER_PREFIXES)) if (isOn(env[flag])) prefixes.push(...extra);
   return Object.fromEntries(
-    Object.entries(env).filter(([k]) => ENV_KEYS.has(k) || ENV_PREFIXES.some((p) => k.startsWith(p))),
+    Object.entries(env).filter(([k]) => ENV_KEYS.has(k) || prefixes.some((p) => k.startsWith(p))),
   );
 }
 

@@ -71,6 +71,30 @@ test("isolatedEnv: keeps auth and PATH, drops everything else", () => {
   ]);
 });
 
+test("isolatedEnv: cloud credentials pass only for the provider that is switched on", () => {
+  const cloud = {
+    PATH: "/bin",
+    AWS_ACCESS_KEY_ID: "a",
+    AWS_SECRET_ACCESS_KEY: "s",
+    GOOGLE_APPLICATION_CREDENTIALS: "/g.json",
+    CLOUD_ML_REGION: "us-east5",
+  };
+  assert.deepEqual(Object.keys(isolatedEnv(cloud)), ["PATH"]); // no provider on: no cloud secrets
+  assert.deepEqual(Object.keys(isolatedEnv({ ...cloud, CLAUDE_CODE_USE_BEDROCK: "1" })).sort(), [
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "PATH",
+  ]);
+  assert.deepEqual(Object.keys(isolatedEnv({ ...cloud, CLAUDE_CODE_USE_VERTEX: "1" })).sort(), [
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLOUD_ML_REGION",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "PATH",
+  ]);
+  assert.deepEqual(Object.keys(isolatedEnv({ ...cloud, CLAUDE_CODE_USE_BEDROCK: "0" })).sort(), ["CLAUDE_CODE_USE_BEDROCK", "PATH"]);
+});
+
 test("validateBlindInput: only the four blind keys are accepted", () => {
   assert.equal(validateBlindInput(BLIND), null);
   assert.equal(validateBlindInput({ qaProcedure: "x" }), null);
