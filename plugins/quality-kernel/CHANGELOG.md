@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Git-spawning tests now import `scripts/hermetic-git.mjs`.
 
 ### Added
+- `scripts/breaker-claude.mjs`: isolated launcher for the blind breaker, the production `--breaker`
+  command for `breaker-invoke.mjs`. Runs the bundled `breaker/pipeline-breaker.md` (copied from the
+  catalog agent; a test keeps the bodies equal) under `claude -p --safe-mode --restricted` in a fresh
+  empty temp dir with an allowlisted env, tools `Bash,Read,Glob,Grep`, no MCP and no session
+  persistence; prepends the epistemic-guard preamble (hooks do not run in safe mode; a test keeps the
+  text equal). Refuses blind input with extra keys; reads the typed verdict strictly (exactly one
+  verdict and one `PROTOCOL_VIOLATION` line, else indeterminate) and never trusts a PASS that reports a
+  protocol violation. Opt-in live probe (`QK_CLAUDE_LIVE=1`) with a positive control: a CLAUDE.md marker
+  that a plain `claude -p` returns is not visible to the isolated launch. Idea from Google's
+  Elephant-Goldfish Model (tool-restricted, context-free reviewers with a marker leak probe).
+  Residual: Bash is not confined and can still read the disk.
 - `scripts/manifest-consistency.test.mjs`: static check that plugin.json, marketplace.json, the
   README status lines and the newest CHANGELOG entry share one version, and that each agent
   declares its expected model alias (never a literal ID).

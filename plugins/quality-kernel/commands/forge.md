@@ -60,8 +60,10 @@ Communication model:
 3. **Mutation (async)** — for T1+, run mutation in CI / async on core modules
    (hardener). Do not block the implementation loop on it.
 4. **Blind breaker (live oracle)** — for any change touching the critical surface, run
-   the `pipeline-breaker` on ONLY the contract + the probe (the QA script). Require
-   `BREAKER_PASS` (>=3 executed falsifying vectors, all HOLDS) before merge; no probe =
+   the breaker on ONLY the contract + the probe (the QA script), launched isolated:
+   `scripts/breaker-invoke.mjs ... --breaker "node <plugin>/scripts/breaker-claude.mjs"`. Do not
+   spawn it as an in-session subagent — that inherits this session's CLAUDE.md, memory and hooks.
+   Require `BREAKER_PASS` (>=3 executed falsifying vectors, all HOLDS) before merge; no probe =
    `INSTRUMENT-BROKEN` = default-deny.
 5. **Evidence-gate** — nothing is "done" without a verification event (exit 0) after the
    last edit.
