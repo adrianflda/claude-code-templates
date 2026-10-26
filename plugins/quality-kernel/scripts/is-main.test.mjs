@@ -39,6 +39,19 @@ test("isMain: false when the module is imported", () => {
   });
 });
 
+test("isMain: a path realpath cannot resolve still matches itself (no fail-open on a realpath error)", async () => {
+  const { isMain } = await import("./is-main.mjs");
+  const ghost = join(tmpdir(), "qk-is-main-missing", "tool.mjs"); // does not exist: realpath throws
+  const saved = process.argv[1];
+  try {
+    process.argv[1] = ghost;
+    assert.equal(isMain(pathToFileURL(ghost).href), true);
+    assert.equal(isMain(pathToFileURL(join(tmpdir(), "other.mjs")).href), false);
+  } finally {
+    process.argv[1] = saved;
+  }
+});
+
 test("regression: a gate run through a symlink still runs and fails closed (was a silent exit 0)", () => {
   const root = mkdtempSync(join(tmpdir(), "qk-is-main-gate-"));
   try {
