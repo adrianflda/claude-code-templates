@@ -36,8 +36,14 @@ Invariants table.
 
 1. Turn the QA procedure into an executable **UI-only** script. You may add CLI flags or
    UI commands to expose hard-to-test logic — always at the user-interface level.
-2. Run **CRAP** and **DRY** before the final verification.
+2. Run **CRAP** and **DRY** (`scripts/crap.mjs`, `scripts/dry-gate.mjs`) before the
+   final verification.
 3. Run the end-to-end suite.
+4. Run `scripts/proof.mjs` (evidence since the last commit). Put its `Proof:` lines in
+   the commit message as trailers. Any `Unproven:` line, or no `Proof:` line, means the
+   change is not verified: re-run the failing command, or report it as residual risk.
+   `Unverified:` lines prove nothing — run verification as a single command or an `&&`
+   chain (redirect output to a file instead of piping it). Never edit the trailers by hand.
 
 ## Consistency gate
 

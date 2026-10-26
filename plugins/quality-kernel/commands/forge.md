@@ -72,10 +72,27 @@ Communication model:
 ## Loop discipline
 
 Every repair loop is bounded (cap 3) and **escalates to the human on cap** — never retry
-blindly, never weaken a test to pass. Cap the number of agents and messages; no free
-lateral chat between agents.
+blindly, never weaken a test to pass. When two fixes resting on the same premise fail the
+same gate, require the agent to **attack the premise** (state it in one sentence, remove
+the wrong assignment) before any further fix. Cap the number of agents and messages; no
+free lateral chat between agents.
+
+## Practice
+
+- **Action log.** Keep a log of every dispatch, gate run and decision, each with the
+  reason it was taken; it goes in the final report.
+- **Guard the context window.** Keep this thread small: agents return a structured
+  summary and reference their bulk output by file path; do not paste it here.
+- **Sequence into verifiable units.** Finish and verify one task before starting the
+  next; a planned intermediate break is allowed only if it can be undone.
+- **Commit small, ordered commits.** Each commit message states why, what changed, and
+  how it was proved — the `Proof:` trailers from `scripts/proof.mjs`, never hand-written.
+- **Worktree cleanup.** At the end, list the worktrees and branches this run created.
+  Remove only those that are merged and clean, after confirming nothing still uses
+  them; any with uncommitted or unmerged work waits for the human's decision.
 
 ## Output
 
-Report: the chosen tier and why, the agents run, each gate's result, the
-mutation / coverage / CRAP figures where run, and the **residual risk, stated first**.
+Report: the **residual risk, stated first**, then the chosen tier and why, the agents
+run, each gate's result, the mutation / coverage / CRAP / DRY figures where run, the
+`Proof:` trailers, and the action log.

@@ -253,6 +253,8 @@ installing the plugin does not imply the full guarantee.
 | Epistemic guard (G1) | **wired (teeth)**, advisory | hook; injects the preamble by default, `block` via env |
 | Evidence-gate (G2) | **wired, record-only** | hook writes a ledger; hard-block is v1 |
 | CRAP gate | **wired (teeth)** | deterministic script, non-zero exit over threshold |
+| DRY gate | **script (teeth when run)** | `scripts/dry-gate.mjs` over a jscpd report; the cleaner/hardener/qa run it, no hook forces it |
+| Commit proof | **script (teeth when run)** | `scripts/proof.mjs` turns ledger events since the last commit into `Proof:` trailers; a piped exit 0 is `Unverified`, never proof; exit 1 on any unproven command |
 | Pre-push panel | **wired (teeth)** | the existing `pre-push-review` plugin |
 | Re-executing referee | **wired (teeth)** | `scripts/referee.mjs`; commit-anchored, two-run, fail-closed; red-team suite in `scripts/attacks.test.mjs` |
 | Blind breaker (live oracle) | **bundled, tool-less author + deterministic instruments** | `scripts/breaker-claude.mjs`: a no-tools, no-context model writes vectors; `vector-breaker.mjs` executes them (HTTP/UI) and computes the verdict; **the only thing that closes the in-process limit (M2)** |
@@ -277,10 +279,26 @@ Copy the examples into your repo's `.quality-kernel/`:
   a JSON array of `{ name, file, complexity, coverage }` (from your coverage +
   complexity tools); exits non-zero if any function exceeds the threshold
   (default 6).
+- **`scripts/dry-gate.mjs`** — DRY gate over a jscpd JSON report
+  (`jscpd --reporters json --output <dir>`): `--files a,b` fails on any clone
+  touching those files (differential), no `--files` fails on any clone,
+  `--max-percent N` also fails above N% duplicated lines. Exit `0` pass · `1`
+  clones · `2` unrecognized report (fail-closed). jscpd finds token clones; it
+  does not score structural near-duplicates by similarity.
+- **`scripts/proof.mjs`** — commit proof: reads `.quality-kernel/evidence-ledger.jsonl`
+  since a ref (default `HEAD`) and prints one trailer per command, latest run only —
+  `Proof:` (exit 0 of an allowlisted command: plain words, quoted strings, simple
+  redirects, `&&` chains), `Unverified:` (any other exit 0 — `|`, `;`, `||` or `&` report
+  only the last command's code; `$`, backticks, subshells and heredocs are not modeled;
+  or truncated by the hook — listed, never counted), `Unproven:` (non-zero, unknown or
+  interrupted). Commands print escaped on one line, so ledger text cannot forge a trailer. Exit `0`
+  only when at least one command was proved and none is unproven. Run proof commands
+  without pipes: `node --test x.test.mjs > out.log 2>&1`, not `node --test | tail`.
 
 ## Tests
 
 - `scripts/crap.test.mjs` — `node --test plugins/quality-kernel/scripts/crap.test.mjs`
+- `scripts/dry-gate.test.mjs`, `scripts/proof.test.mjs` — `node --test` likewise
 - `hooks/test_hooks.py` — `python3 plugins/quality-kernel/hooks/test_hooks.py`
 
 They cover the deterministic gate (CRAP formula + CLI exit codes) and the hook
