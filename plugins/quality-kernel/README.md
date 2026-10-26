@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.5.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.6.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -17,7 +17,9 @@ issue to a large feature.
 > oracle to probe with. Neither sits on the default path: `hooks/pre-push.sample` invokes
 > `qk-gate.mjs`, which *reports* the unmet breaker requirement as **exit 3** rather than enforcing
 > it, and `breaker-gate.mjs` itself returns 3 unless the caller supplies `--breaker`. Enforcing it
-> is a deliberate opt-in, not a missing milestone. Design chain: [`docs/agentic-harness/`][chain]
+> is a deliberate opt-in, not a missing milestone. Since 0.6.0 the breaker has no shell: a tool-less,
+> context-free model only writes falsifying vectors, deterministic HTTP/UI instruments execute them,
+> and the verdict is computed in code (`scripts/breaker-claude.mjs`). Design chain: [`docs/agentic-harness/`][chain]
 > in the source repository — it is not bundled with the installed plugin.
 
 [panel]: https://github.com/adrianflda/claude-code-templates/blob/main/docs/agentic-harness/validation-panel.v2.md
@@ -243,7 +245,7 @@ Automatic, always on (no invocation needed):
   `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
   model as context. Recording only; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.5.0)
+## Gate status — teeth vs. prose (v0.6.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.

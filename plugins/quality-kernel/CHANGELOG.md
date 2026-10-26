@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-26
+
 ### Changed
 - **The blind breaker no longer has a shell.** `scripts/breaker-claude.mjs` now runs in two stages:
   a tool-less, context-free `claude -p --tools ""` session writes falsifying vectors (bundled prompt
