@@ -22,6 +22,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { runProbe } from './gstack-probe.mjs';
 import { buildBlindInput } from './breaker-invoke.mjs';
+import { isMain } from './is-main.mjs';
 
 export const MIN_VECTORS = 3;
 
@@ -74,7 +75,7 @@ export function runBreaker({ contractPath, url, vectorsFile, bin = null, config 
 
 const EXIT = { BREAKER_PASS: 0, BREAKER_FAIL: 1 };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   let contractPath = null, url = null, vectorsFile = null, bin = null, configPath = null;
   for (let i = 0; i < args.length; i++) {

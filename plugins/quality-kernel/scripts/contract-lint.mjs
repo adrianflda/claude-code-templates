@@ -10,6 +10,7 @@
 // Exit:  0 = in lockstep · 1 = orphan(s) · 2 = operational error
 
 import { readFileSync, existsSync } from 'node:fs';
+import { isMain } from './is-main.mjs';
 
 const ID_RE = /INV-[A-Za-z0-9-]+/g;
 
@@ -60,7 +61,7 @@ export function diff(md, src) {
   return { declared: [...declared], checked: [...checked], missingAssertion, orphanAssertion };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   let contract = null, acceptance = null;
   for (let i = 0; i < args.length; i++) {

@@ -29,6 +29,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolveBrowseBin, runBrowse, ensureDaemon, isLocalTarget, DEFAULT_LOCAL_PATTERN } from './resolvers/gstack-browse.mjs';
+import { isMain } from './is-main.mjs';
 
 // The observed value from a `$B` read command's stdout. Page-content commands wrap the value in an
 // untrusted-content envelope; return exactly what is inside it. Plain reads (e.g. `is` → "true")
@@ -131,7 +132,7 @@ export function runProbe({ url, stepsFile = null, spec = null, bin = null, confi
 
 const EXIT = { HOLDS: 0, VIOLATED: 1, 'INSTRUMENT-BROKEN': 2 };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   let url = null, stepsFile = null, bin = null, invariant = null, configPath = null;
   for (let i = 0; i < args.length; i++) {

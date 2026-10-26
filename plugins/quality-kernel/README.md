@@ -259,6 +259,7 @@ installing the plugin does not imply the full guarantee.
 | Re-executing referee | **wired (teeth)** | `scripts/referee.mjs`; commit-anchored, two-run, fail-closed; red-team suite in `scripts/attacks.test.mjs` |
 | Blind breaker (live oracle) | **bundled, tool-less author + deterministic instruments** | `scripts/breaker-claude.mjs`: a no-tools, no-context model writes vectors; `vector-breaker.mjs` executes them (HTTP/UI) and computes the verdict; **the only thing that closes the in-process limit (M2)** |
 | Adversarial critic (Opus) | **by-reference** | invokes the host's `adversarial-critic` |
+| Blind contract review | **script (teeth when run)** | `scripts/contract-review.mjs`: two isolated, tool-less reviewers (comprehension, critic) see only the contract; strict JSON findings; exit 1 on any blocker, 2 when a reviewer cannot be read |
 | Intention gate (G0) | **prose** | instruction to the orchestrator in `/forge`; forcing function is v1 |
 | Tier router | **wired (teeth)** | `scripts/route.mjs`, deterministic classifier; LLM may raise, never lower the floor |
 | Mutation as CI gate | **script only** | `crap.mjs` / mutation ship; wiring into CI is v1 (F3) |
@@ -294,6 +295,15 @@ Copy the examples into your repo's `.quality-kernel/`:
   interrupted). Commands print escaped on one line, so ledger text cannot forge a trailer. Exit `0`
   only when at least one command was proved and none is unproven. Run proof commands
   without pipes: `node --test x.test.mjs > out.log 2>&1`, not `node --test | tail`.
+
+- **`scripts/contract-review.mjs`** — blind review of a specifier contract before the intention
+  gate. Two reviewers run as separate isolated sessions (the breaker launcher's `runIsolated`: no
+  tools, no CLAUDE.md, memory, hooks, plugins or MCP): `reviewers/comprehension.md` (a newcomer:
+  undefined terms, ambiguity, assumed knowledge) and `reviewers/critic.md` (unfalsifiable criteria,
+  missing `IF … THEN` behavior, invariants without probes, missing re-run invariants,
+  contradictions). Each must reply `{ findings: [{ severity, where, finding, suggestion? }] }`;
+  `--out` writes a markdown report. Exit `0` no blocker · `1` blocker(s) · `2` a reviewer could not
+  run or answered off-format. Idea from Google's Elephant-Goldfish Model (zero-context reviewers).
 
 ## Tests
 
