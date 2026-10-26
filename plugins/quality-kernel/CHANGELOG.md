@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The blind breaker no longer has a shell.** `scripts/breaker-claude.mjs` now runs in two stages:
+  a tool-less, context-free `claude -p --tools ""` session writes falsifying vectors (bundled prompt
+  `breaker/vector-author.md`, which replaces the bundled `breaker/pipeline-breaker.md`), and the new
+  `scripts/vector-breaker.mjs` executes them through deterministic instruments and computes the
+  verdict in code; the model's prose verdict is ignored. Closes the residual of the previous launcher,
+  whose Bash could read the disk and the environment. Live-checked: asked to `cat` a file, the author
+  has no tool to do it.
+
 ### Added
+- `scripts/http-probe.mjs`: declarative HTTP instrument for breaker vectors — allowlisted methods,
+  paths resolved and required to stay on the system's origin (`//host` and `/\host` are refused),
+  redirects never followed, per-request timeout, `expect` on the last response (`status`, RFC 6901
+  JSON-pointer `equals`). Non-local systems are refused.
+- `scripts/vector-breaker.mjs`: validates a vector set (anchored to contract invariants, no unknown
+  keys, at most 30; UI steps limited to same-origin `goto` and `click`, asserts to `text`/`is`/`attrs`),
+  runs HTTP vectors through `http-probe.mjs` and UI vectors through the gstack probe, then the
+  contract's `probeCmd` (exit 0 holds, 126/127/timeout/signal is instrument-broken), and applies
+  `decideVerdict`.
 - `.githooks/pre-push` (source repository): local pre-push gate. When a push touches
   `plugins/quality-kernel/`, it runs the Node and hook suites on the pushed commit in a temporary
   worktree and blocks the push on any failure; there is deliberately no CI job for these suites.
@@ -15,16 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `NODE_TEST_CONTEXT`: inherited from a parent `node --test`, it makes the child runner exit 0 on
   failing tests.
 - `scripts/breaker-claude.mjs`: isolated launcher for the blind breaker, the production `--breaker`
-  command for `breaker-invoke.mjs`. Runs the bundled `breaker/pipeline-breaker.md` (copied from the
-  catalog agent; a test keeps the bodies equal) under `claude -p --safe-mode --restricted` in a fresh
-  empty temp dir with an allowlisted env, tools `Bash,Read,Glob,Grep`, no MCP and no session
-  persistence; prepends the epistemic-guard preamble (hooks do not run in safe mode; a test keeps the
-  text equal). Refuses blind input with extra keys; reads the typed verdict strictly (exactly one
-  verdict and one `PROTOCOL_VIOLATION` line, else indeterminate) and never trusts a PASS that reports a
-  protocol violation. Opt-in live probe (`QK_CLAUDE_LIVE=1`) with a positive control: a CLAUDE.md marker
-  that a plain `claude -p` returns is not visible to the isolated launch. Idea from Google's
-  Elephant-Goldfish Model (tool-restricted, context-free reviewers with a marker leak probe).
-  Residual: Bash is not confined and can still read the disk.
+  command for `breaker-invoke.mjs`: `claude -p --safe-mode --restricted` in a fresh empty temp dir
+  with an allowlisted env (cloud credentials only for the active provider), no MCP and no session
+  persistence; prepends the epistemic-guard preamble (hooks do not run in safe mode; a test keeps
+  the text equal); refuses blind input with extra keys. Opt-in live probe (`QK_CLAUDE_LIVE=1`) with a
+  positive control: a CLAUDE.md marker that a plain `claude -p` returns is not visible to it. Idea from
+  Google's Elephant-Goldfish Model (tool-restricted, context-free reviewers with a marker leak probe).
 - `scripts/manifest-consistency.test.mjs`: static check that plugin.json, marketplace.json, the
   README status lines and the newest CHANGELOG entry share one version, and that each agent
   declares its expected model alias (never a literal ID).
@@ -32,13 +46,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and XDG ignore (with a control that shows the hostile config does ignore the file).
 
 ### Fixed
-- `hooks/test_hooks.py` no longer depends on the developer's git config. A global or XDG excludes
-  file listing `.quality-kernel/` made a fixture repo look gitignored, failing 2 evidence-gate tests;
-  the suite now pins git's config as `scripts/hermetic-git.mjs` does for the Node suite.
+- The default local-target pattern is anchored. `isLocalTarget` accepted `localhost.attacker.com`,
+  `my-localhost-proxy.example.com` and `127.0.0.1.nip.io`, bypassing the consent gate that limits
+  the autonomous breaker to local systems.
 - The Node suite no longer depends on the developer's git config. A global `core.excludesfile`
   (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
   commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
   Git-spawning tests now import `scripts/hermetic-git.mjs`.
+- `hooks/test_hooks.py` no longer depends on the developer's git config. A global or XDG excludes
+  file listing `.quality-kernel/` made a fixture repo look gitignored, failing 2 evidence-gate tests;
+  the suite now pins git's config as `scripts/hermetic-git.mjs` does for the Node suite.
 
 ## [0.5.0] - 2026-09-25
 
