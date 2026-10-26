@@ -305,6 +305,18 @@ They cover the deterministic gate (CRAP formula + CLI exit codes) and the hook
 behavior (marker/exempt detection, log-vs-block mode, fail-open, and the ledger
 recording including the `unknown-schema` sentinel).
 
+**These suites run locally, before every push — there is no CI job for them.** In the source
+repository, `.githooks/pre-push` runs both suites, plus the gate's own tests, whenever a push touches
+`plugins/quality-kernel/` or `.githooks/`,
+on the **pushed commit** in a temporary worktree (an uncommitted fix cannot green a red commit),
+and blocks the push on any failure. Enable it once per clone:
+
+    git config core.hooksPath .githooks
+
+The suites ignore the developer's own git config (`scripts/hermetic-git.mjs`, and the same pinning
+in `hooks/test_hooks.py`), so a personal excludes file that lists `.quality-kernel/` cannot turn
+them red or green.
+
 ## Design docs
 
 The full design (why each gate exists, the communication model, the graduation

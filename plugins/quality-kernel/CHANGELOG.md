@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unreachable survivors instead of testing them; specifier — re-run invariants and a glossary;
   `/forge` — a Practice section (action log, context-window guard, verifiable units, small
   commits with proof, worktree cleanup).
+- `.githooks/pre-push` (source repository): local pre-push gate. When a push touches
+  `plugins/quality-kernel/` or `.githooks/`, it runs the Node and hook suites and the gate's own tests
+  (`.githooks/quality-kernel-tests.test.mjs`) on the pushed commit in a temporary
+  worktree and blocks the push on any failure; there is deliberately no CI job for these suites.
+  Enable once per clone with `git config core.hooksPath .githooks`. The suites run without
+  `NODE_TEST_CONTEXT`: inherited from a parent `node --test`, it makes the child runner exit 0 on
+  failing tests.
 - `scripts/breaker-claude.mjs`: isolated launcher for the blind breaker, the production `--breaker`
   command for `breaker-invoke.mjs`: `claude -p --safe-mode --restricted` in a fresh empty temp dir
   with an allowlisted env (cloud credentials only for the active provider), no MCP and no session
@@ -66,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (or the XDG `git/ignore`) listing `.quality-kernel/` kept fixtures' `tools.json` out of the base
   commit, failing 59 of 126 tests; a global `core.hooksPath` ran personal hooks on fixture commits.
   Git-spawning tests now import `scripts/hermetic-git.mjs`.
+- `hooks/test_hooks.py` no longer depends on the developer's git config. A global or XDG excludes
+  file listing `.quality-kernel/` made a fixture repo look gitignored, failing 2 evidence-gate tests;
+  the suite now pins git's config as `scripts/hermetic-git.mjs` does for the Node suite.
 
 ## [0.5.0] - 2026-09-25
 
