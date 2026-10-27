@@ -1,12 +1,23 @@
-// "Is this module the script node was asked to run?" Node resolves import.meta.url to the real path
-// but leaves process.argv[1] as typed, so a plain URL comparison is false when the script is invoked
-// through a symlink (on macOS /tmp and /var are symlinks) — and a gate whose main() never runs exits
-// 0 with no output, which reads as a pass. Compare real paths instead.
-import { realpathSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+// True when the module at `metaUrl` is the script node was asked to run.
+//
+// Node resolves symlinks for the main module, so `import.meta.url` is the real path while
+// process.argv[1] is the path as typed. Comparing them directly (or via a `file://` template, which
+// also breaks on spaces and non-ASCII) made a gate run through a symlinked path — a symlinked
+// plugin install, macOS /tmp -> /private/tmp — skip main() and exit 0: a silent PASS. Compare the
+// real paths instead.
+// The plain comparison comes first, so a realpath failure can only affect the symlinked case.
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-export function isEntrypoint(metaUrl) {
-  const invoked = process.argv[1];
-  if (!invoked) return false;
-  try { return realpathSync(invoked) === realpathSync(fileURLToPath(metaUrl)); } catch { return false; }
+export function isMain(metaUrl) {
+  if (!process.argv[1]) return false;
+  const self = fileURLToPath(metaUrl);
+  const target = resolve(process.argv[1]);
+  if (self === target) return true;
+  try {
+    return realpathSync(self) === realpathSync(target);
+  } catch {
+    return false;
+  }
 }

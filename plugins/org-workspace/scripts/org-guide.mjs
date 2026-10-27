@@ -19,7 +19,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync, mkdtempS
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isEntrypoint } from './entrypoint.mjs';
+import { isMain } from './entrypoint.mjs';
 import { profile } from './org-profile.mjs';
 import { redactLine } from './org-integrations.mjs';
 import { validateIntegrations, normalize, renderSystemMap } from './org-map.mjs';
@@ -205,7 +205,7 @@ export function applyGuide(built, { org, stamp = new Date().toISOString().replac
   }
 }
 
-if (isEntrypoint(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   const opt = (n) => { const i = args.indexOf(n); return i === -1 ? undefined : args[i + 1]; };
   try {

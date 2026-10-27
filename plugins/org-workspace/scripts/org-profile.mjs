@@ -11,7 +11,7 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { basename } from 'node:path';
 import { git, readVerifiedBlob } from './safe-git.mjs';
-import { isEntrypoint } from './entrypoint.mjs';
+import { isMain } from './entrypoint.mjs';
 
 const BASE_PREFERENCE = ['development', 'dev', 'develop', 'staging', 'main', 'master'];
 // Files whose contents are never read; their committed paths are reported for a human to act on.
@@ -153,7 +153,7 @@ export function profile({ dir, base } = {}) {
   };
 }
 
-if (isEntrypoint(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   const opt = (n) => { const i = args.indexOf(n); return i === -1 ? undefined : args[i + 1]; };
   try { process.stdout.write(JSON.stringify(profile({ dir: opt('--repo'), base: opt('--base') }), null, 2) + '\n'); }

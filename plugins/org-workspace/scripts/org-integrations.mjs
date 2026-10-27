@@ -21,7 +21,7 @@
 
 import { basename } from 'node:path';
 import { git } from './safe-git.mjs';
-import { isEntrypoint } from './entrypoint.mjs';
+import { isMain } from './entrypoint.mjs';
 import { profile, redact, isSensitive } from './org-profile.mjs';
 
 const MAX_PER_KIND = 1500;
@@ -124,7 +124,7 @@ export function extract({ dir, base } = {}) {
   };
 }
 
-if (isEntrypoint(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   const opt = (n) => { const i = args.indexOf(n); return i === -1 ? undefined : args[i + 1]; };
   try { process.stdout.write(JSON.stringify(extract({ dir: opt('--repo'), base: opt('--base') }), null, 2) + '\n'); }

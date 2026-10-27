@@ -16,7 +16,7 @@ import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node
 import { basename, join } from 'node:path';
 import { git } from './safe-git.mjs';
 import { isRepoName, readGuideForbidden } from './org-guide.mjs';
-import { isEntrypoint } from './entrypoint.mjs';
+import { isMain } from './entrypoint.mjs';
 
 const BASE_CANDIDATES = ['development', 'dev', 'develop', 'staging', 'main', 'master'];
 const HARNESS_NAME = /-qa(-local)?$/i;
@@ -138,7 +138,7 @@ export function discover({ org, repos, exclude = [], forbid = [] } = {}) {
   return { org: root, selectionMode: listed ? 'listed' : 'all', forbidden: [...forbiddenBy.keys()].sort(), candidates };
 }
 
-if (isEntrypoint(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   const opt = (n) => { const i = args.indexOf(n); return i === -1 ? undefined : args[i + 1]; };
   const list = (n) => (opt(n) ? opt(n).split(',').map((s) => s.trim()).filter(Boolean) : undefined);
