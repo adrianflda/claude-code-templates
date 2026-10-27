@@ -249,6 +249,17 @@ test('OG-15: a repo that cannot be profiled is recorded, not silently dropped', 
   assert.match(b.profilingProblems[0].error, /not found|repo not found/);
 });
 
+// INV-OG-19: an existing repo whose declared base branch does not exist is reported by name AND the
+// real branch, not only the ghost-repo "not found" case above.
+test('INV-OG-19: a repo with a non-existent declared base branch is reported by name and branch', () => {
+  const root = org();
+  const guide = { ...GUIDE, repos: GUIDE.repos.map((r) => (r.name === 'web' ? { ...r, base: 'no-such-branch' } : r)) };
+  const b = build(root, { edges: [], unmatched: [] }, guide);
+  assert.strictEqual(b.profilingProblems.length, 1);
+  assert.strictEqual(b.profilingProblems[0].repo, 'web');
+  assert.match(b.profilingProblems[0].error, /no-such-branch/);
+});
+
 // A guide update without a new map (the usual /org-learn case) keeps the last map's summary.
 test('re-applying without --integrations keeps the who-calls-whom summary of the last map', () => {
   const root = org();
@@ -284,6 +295,22 @@ test('OG-6/INV-OG-21: the marker says the block is generated/overwritten and nam
 
 // OG-10/F3/INV-OG-6: a bare, unquoted AWS-access-key-shaped token in an integration map's
 // unmatched[].reason is refused end-to-end through buildGuide — not just at the hasSecret-unit level.
+// OG-19(b)/F11: `unmatched[].evidence` is checked exactly like an edge's evidence — malformed,
+// missing, or past a file's end all throw and write nothing.
+for (const [name, evidence, re] of [
+  ['malformed (no line number)', 'src/api/eventAPI.js', /must be "path:line"/],
+  ['missing', undefined, /must be "path:line"/],
+  ['past the end of the file', 'src/api/eventAPI.js:999', /has \d+ line\(s\)/],
+]) {
+  test(`OG-19(b): unmatched[].evidence ${name} throws; nothing written`, () => {
+    const root = org();
+    const bad = { edges: [], unmatched: [{ ...UNMATCHED, evidence }] };
+    assert.throws(() => build(root, bad), re);
+    assert.strictEqual(existsSync(join(root, 'SYSTEM-MAP.md')), false);
+    assert.strictEqual(claudeOf(root), HAND);
+  });
+}
+
 test('OG-10/INV-OG-6: a bare AKIA-shaped token in unmatched[].reason is refused; SYSTEM-MAP.md unwritten', () => {
   const root = org();
   const bad = { edges: [], unmatched: [{ ...UNMATCHED, reason: 'uses key AKIAABCDEFGHIJKLMNOP for auth' }] };

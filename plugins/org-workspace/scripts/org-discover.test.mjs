@@ -262,3 +262,16 @@ test("R3.4: an '@' in the URL path keeps the host; copies are detected across ss
   repo(org, 'app', { remote: 'git@github.com:Org/App.git' }); repo(org, 'dup', { remote: 'https://github.com/org/app.git' });
   assert.strictEqual(byName(discover({ org })).dup.kind, 'copy');
 });
+
+// OG-19(d)/F21: two repos sharing a remote with NEITHER named like it (no "original") both keep kind
+// 'repo' and each names the other in its reason, instead of exercising a path no test ever hit.
+test('OG-19(d): two repos sharing a remote, neither named like it, both keep kind repo and name each other', () => {
+  const org = orgDir();
+  repo(org, 'alpha', { remote: 'git@github.com:Org/real-name.git' });
+  repo(org, 'beta', { remote: 'git@github.com:Org/real-name.git' });
+  const s = byName(discover({ org }));
+  assert.strictEqual(s.alpha.kind, 'repo');
+  assert.strictEqual(s.beta.kind, 'repo');
+  assert.match(s.alpha.reasons.join(' '), /shares its origin with beta/);
+  assert.match(s.beta.reasons.join(' '), /shares its origin with alpha/);
+});

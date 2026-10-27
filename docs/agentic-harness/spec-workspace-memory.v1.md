@@ -1,7 +1,13 @@
 # Spec — the workspace as the org's global guide (v1, design only)
 
-Status: DESIGN (2026-10-01), simplified after Adrian's review. Builds on `/init-workspace` M1 (repos,
-how they are tested) and M2 (`SYSTEM-MAP.md`, who calls whom). Nothing here is built.
+**Status: SUPERSEDED (OG-18).** This `WORKSPACE.md` + `/workspace-learn` design was never built. The
+shipped design is the **`org-workspace` plugin** (`/org-init`, `/org-learn`, the managed block in the
+org-root `CLAUDE.md`, `guide.json`, `SYSTEM-MAP.md`) — see `plugins/org-workspace/`, not this document.
+Kept for history only; nothing below is built or planned.
+
+Status (original, historical): DESIGN (2026-10-01), simplified after Adrian's review. Builds on
+`/init-workspace` M1 (repos, how they are tested) and M2 (`SYSTEM-MAP.md`, who calls whom). Nothing
+here is built.
 
 ## 1. Goal (Adrian, 2026-10-01)
 

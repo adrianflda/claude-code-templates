@@ -1,7 +1,14 @@
 # Spec — `/init-workspace` (v1, design only)
 
-Status: M1 BUILT, WIP (quality-kernel 0.8.0: discover, profile, propose, verify with human approval;
-open gaps G1–G4 in the plugin CHANGELOG — paused 2026-10-01 to move on to M2);
+**Status: SUPERSEDED (OG-18).** The automatic gate-config generator this spec describes (M1:
+`ws-propose`/`ws-verify`/`ws-command`) was retired in quality-kernel 0.10.0 (see its CHANGELOG). The
+shipped design for "where the truth of each thing lives" across repos is the **`org-workspace` plugin**
+(`/org-init`, `/org-learn`, the managed block in the org-root `CLAUDE.md`, `guide.json`,
+`SYSTEM-MAP.md`) — see `plugins/org-workspace/`, not this document. Kept for history only; nothing
+below is built or planned.
+
+Status (original, historical): M1 BUILT, WIP (quality-kernel 0.8.0: discover, profile, propose, verify
+with human approval; open gaps G1–G4 in the plugin CHANGELOG — paused 2026-10-01 to move on to M2);
 M2 (integration map) and M3 (seams) are design only. Author: Claude with Adrian, 2026-09-29.
 Decisions (Adrian, 2026-09-29): lives in quality-kernel as the init step every other command builds
 on; `SYSTEM-MAP.md` is committed; a repo that cannot be tested locally gets a proposal to dockerize
