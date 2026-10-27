@@ -182,6 +182,7 @@ for (const [name, edge, re] of [
   ['a line of an empty file', { ...EDGE, evidence: { ...EDGE.evidence, to: 'empty/__init__.py:1' } }, /has 0 line\(s\)/],
   ['a path with ..', { ...EDGE, evidence: { ...EDGE.evidence, from: '../api/spaces/urls.py:3' } }, /must be "path:line"/],
   ['a repo the guide does not list', { ...EDGE, to: 'billing' }, /"billing" is not a selected repo/],
+  ['INV-OG-17: a syntactically invalid repo name (path traversal)', { ...EDGE, to: '../x' }, /invalid repo name/],
   ['a self edge', { ...EDGE, to: 'web', evidence: { from: 'src/api/eventAPI.js:2', to: 'src/api/eventAPI.js:2' } }, /two different repos/],
   ['an unknown kind', { ...EDGE, kind: 'magic' }, /kind must be one of/],
   ['an unknown key', { ...EDGE, trusted: true }, /unknown key "trusted"/],

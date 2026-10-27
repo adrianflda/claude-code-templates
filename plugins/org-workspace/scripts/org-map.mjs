@@ -35,6 +35,13 @@ const PATH_LINE = /([A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,6}):\d+(?:-\d+)?/g;
 const unciteText = (v) => (typeof v === 'string' ? v.replace(PATH_LINE, '$1') : v);
 const METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'any', 'head', 'options']);
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+// OG-10/INV-OG-17: the same repo-name pattern as org-guide.mjs's validateGuide (duplicated, not
+// imported, to avoid a circular import between the two modules — see the contract's "one policy
+// module" recommendation, module layout left to the architect). A syntactically invalid name (e.g.
+// path traversal) is "invalid repo name", distinct from a syntactically valid name that simply is not
+// one of the selected repos.
+const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+const isRepoName = (n) => typeof n === 'string' && REPO_NAME.test(n) && n !== '.' && n !== '..';
 
 // The endpoint's distinctive tokens: `GET /v1/events/get/{eventId}` -> events, get, eventid.
 const endpointTokens = (endpoint) => [...new Set(String(endpoint).toLowerCase().split(/[^a-z0-9_-]+/))]
@@ -81,7 +88,11 @@ export function validateIntegrations(integrations, { repos, secretIn = () => fal
     if (typeof v !== 'string' || !v.trim() || v.length > MAX_TEXT || CONTROL.test(v)) e(`${name} must be a single-line string of 1..${MAX_TEXT} characters`);
     else if (textHasSecret(v, secretIn)) e(`${name} contains a secret-looking value`);
   };
-  const repo = (e, v, name) => { if (typeof v !== 'string' || !own(repos, v)) { e(`${name} "${v}" is not a selected repo`); return false; } return true; };
+  const repo = (e, v, name) => {
+    if (!isRepoName(v)) { e(`${name} "${v}" is an invalid repo name`); return false; }
+    if (!own(repos, v)) { e(`${name} "${v}" is not a selected repo`); return false; }
+    return true;
+  };
   const label = (line, endpoint) => (line !== null && endpointTokens(endpoint).some((t) => line.toLowerCase().includes(t)) ? 'matches' : 'exists');
 
   const checks = [];
