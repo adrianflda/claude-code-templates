@@ -14,7 +14,7 @@ This is a contract: externally observable behavior only. It does not name classe
 what is already public API cited as OBSERVED fact), or file layout, except where the panel's own
 finding already named a file/symbol as the thing to fix — those are marked RECOMMENDED, not mandated.
 
-**Scope cut, 2026-10-27 (Adrián, human decision):** hand-edit detection via a render hash (formerly
+**Scope cut, 2026-10-27 (Adrian, human decision):** hand-edit detection via a render hash (formerly
 OG-5), crash-mid-write atomic convergence (formerly OG-21) and concurrent-apply locking (formerly OG-22)
 are REMOVED from this contract after repeated blind-review rounds found the three requirements
 internally contradictory and under-specified (see the 4th review,
@@ -120,7 +120,7 @@ NOT require or expect one. The marker text (OG-6) tells the reader up front that
 survive the next apply and that `/org-learn` is how to make a change stick. *Trade-off:* a hand edit is
 silently lost on the next apply rather than detected and refused — simpler and fully specified, at the
 cost of the safety net the removed OG-5 tried (and, across three review rounds, failed) to specify
-correctly; Adrián's explicit call (2026-10-27) was that this simpler, fully-specified rule is worth more
+correctly; Adrian's explicit call (2026-10-27) was that this simpler, fully-specified rule is worth more
 than a safety net this contract could not pin down without contradicting itself (see the 4th review,
 cited at the top of this file, and §9 Residual risks).
 
@@ -685,7 +685,7 @@ reproduction in §1.)
 5. This contract does not re-litigate whether `/org-learn`'s conversation-reading step (SKILL.md:12-14,
    already treating transcripts as untrusted data) needs changes — out of scope; only its guide.json-vs
    -rendered-block read path (step 1) is in scope here (OG-3).
-6. **Scope cut, 2026-10-27 (human decision — Adrián):** crash-mid-write atomicity and concurrent-apply
+6. **Scope cut, 2026-10-27 (human decision — Adrian):** crash-mid-write atomicity and concurrent-apply
    locking (formerly OG-21/OG-22) are OUT OF SCOPE for this contract after three review rounds could not
    pin them down without contradicting OG-5 (also cut). This contract makes a documented **single-writer
    assumption**: at most one `/org-init`/`/org-learn --apply` runs against a given org folder at a time,
