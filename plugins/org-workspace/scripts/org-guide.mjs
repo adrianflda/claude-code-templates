@@ -168,12 +168,24 @@ export function renderBlock(g, { date, pairs = null, mapFile = 'SYSTEM-MAP.md' }
   return L.join('\n');
 }
 
-// The CLAUDE.md with the block replaced (or appended); refuses ambiguous markers.
+// Any begin marker LINE, past or present wording: `<!-- org-workspace:begin` up to its own first
+// `-->`. The exact BEGIN text has changed release to release (0.1.0's said "edit with them (or by
+// hand...)"; this one says the block is generated/overwritten) — a live CLAUDE.md written by an older
+// version must still be recognised, not read as having zero begin markers (panel HIGH, review
+// 985e8175: that exact mismatch made every apply on the real Matchbox CLAUDE.md throw "unbalanced or
+// repeated", because count(current-wording BEGIN)=0 while count(END)=1).
+const BEGIN_MARKER = /<!-- org-workspace:begin.*?-->/s;
+
+// The CLAUDE.md with the block replaced (or appended); refuses ambiguous markers. Replacing a block
+// that used an older BEGIN wording converts it to the current wording (and current content) in the
+// same pass — there is no separate "migrate the marker" step.
 export function spliceBlock(current, block) {
-  const count = (m) => current.split(m).length - 1;
-  if (count(BEGIN) > 1 || count(END) > 1 || count(BEGIN) !== count(END)) throw new Error('CLAUDE.md has unbalanced or repeated org-workspace markers — fix them by hand first');
-  if (!current.includes(BEGIN)) return `${current}${current && !current.endsWith('\n') ? '\n' : ''}${current ? '\n' : ''}${block}\n`;
-  const i = current.indexOf(BEGIN); const j = current.indexOf(END) + END.length;
+  const beginCount = (current.match(new RegExp(BEGIN_MARKER, 'gs')) || []).length;
+  const endCount = current.split(END).length - 1;
+  if (beginCount > 1 || endCount > 1 || beginCount !== endCount) throw new Error('CLAUDE.md has unbalanced or repeated org-workspace markers — fix them by hand first');
+  const beginMatch = BEGIN_MARKER.exec(current);
+  if (!beginMatch) return `${current}${current && !current.endsWith('\n') ? '\n' : ''}${current ? '\n' : ''}${block}\n`;
+  const i = beginMatch.index; const j = current.indexOf(END) + END.length;
   // j === i means the END sits immediately before the BEGIN with nothing in between — a stray END,
   // not a valid closed block before this one; left unchecked it keeps the stray END (prefix) AND
   // inserts the new block (which itself contains a BEGIN), producing two BEGIN markers (F15).
@@ -315,6 +327,12 @@ export function buildGuide({ org, guide, integrations = null, date }) {
   const problems = validateGuide(guide);
   const integration = integrations === null ? noIntegrationMap() : buildIntegrationMap(org, guide, integrations);
   problems.push(...integration.errors.map((m) => `integrations: ${m}`));
+  // MEDIUM (review e2c3801d): when the map's own errors already make this throw (e.g. an edge
+  // referencing a repo that failed to profile shows up as "not a selected repo"), surface the real
+  // profiling cause too, instead of only the unrelated-looking error. Left out of a SUCCESSFUL build
+  // on purpose — an unprofilable repo nobody's edge references stays non-fatal (OG-15's own case),
+  // reported in `profilingProblems` for the CLI warning only.
+  if (integration.errors.length) problems.push(...integration.profilingProblems.map((p) => `profiling: "${p.repo}" could not be profiled: ${p.error}`));
   if (problems.length) throw new Error(`invalid guide:\n- ${problems.join('\n- ')}`);
   const { map, profilingProblems } = integration;
   const pairs = integration.pairs !== null ? integration.pairs : carriedSummary(org);

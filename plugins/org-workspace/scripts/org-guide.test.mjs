@@ -120,6 +120,49 @@ test('OG-11: an END immediately before a BEGIN throws instead of producing two B
   assert.strictEqual(claudeOf(root), END + BEGIN + 'tail');
 });
 
+// Panel HIGH (review 985e8175): the live Matchbox CLAUDE.md still carries the 0.1.0 marker wording
+// (`<!-- org-workspace:begin — managed by /org-init and /org-learn; edit with them (or by hand,
+// inside these markers) -->`). spliceBlock matched the exact, current BEGIN string only, so on that
+// file count(BEGIN)=0 / count(END)=1 and every apply threw "unbalanced or repeated" — the live gate's
+// own next apply was broken by changing the marker text. spliceBlock must recognise ANY begin marker
+// line (legacy or current wording: `<!-- org-workspace:begin` up to its own first `-->`) as a begin
+// marker for counting AND for locating the block to replace.
+const LEGACY_BEGIN = '<!-- org-workspace:begin — managed by /org-init and /org-learn; edit with them (or by hand, inside these markers) -->';
+
+test('OG-11/marker-compat: a legacy-wording BEGIN marker is recognised, converted to the new wording', () => {
+  const before = 'before text\n\n';
+  const after = '\nafter text\n';
+  const current = `${before}${LEGACY_BEGIN}\nold content\n${END}${after}`;
+  const block = `${BEGIN}\nNEW CONTENT\n${END}`;
+  const next = spliceBlock(current, block);
+  assert.ok(next.startsWith(before), 'text before the block is byte-identical');
+  assert.ok(next.endsWith(after), 'text after the block is byte-identical');
+  assert.doesNotMatch(next, /old content/);
+  assert.match(next, /NEW CONTENT/);
+  assert.strictEqual(next.split(BEGIN).length - 1, 1, 'exactly one (new-wording) BEGIN in the result');
+  assert.doesNotMatch(next, /edit with them \(or by hand/, 'the legacy marker text is gone');
+});
+
+test('OG-11/marker-compat: one legacy + one current BEGIN is a repeated-marker error', () => {
+  const current = `${LEGACY_BEGIN}\na\n${END}\n${BEGIN}\nb\n${END}`;
+  assert.throws(() => spliceBlock(current, `${BEGIN}\nc\n${END}`), /unbalanced or repeated/);
+});
+
+// The real, live Matchbox CLAUDE.md, copied READ-ONLY into a temp dir — never written to in place.
+// Confirms the actual production file converts cleanly and everything outside the block survives.
+test('OG-11/marker-compat: the real Matchbox CLAUDE.md (legacy marker) converts cleanly, read-only copy only', (t) => {
+  const REAL = '/Users/adrian/Projects/Matchbox/CLAUDE.md';
+  if (!existsSync(REAL)) { t.skip('real CLAUDE.md not present on this machine'); return; }
+  const realBytesBefore = readFileSync(REAL, 'utf8');
+  assert.match(realBytesBefore, /org-workspace:begin — managed by \/org-init/, 'sanity: the live file still has the legacy wording this test targets');
+  const before = realBytesBefore.slice(0, realBytesBefore.indexOf('<!-- org-workspace:begin'));
+  const after = realBytesBefore.slice(realBytesBefore.indexOf('<!-- org-workspace:end -->') + '<!-- org-workspace:end -->'.length);
+  const next = spliceBlock(realBytesBefore, `${BEGIN}\nreplacement\n${END}`);
+  assert.ok(next.startsWith(before), 'text before the block is byte-identical to the real file');
+  assert.ok(next.endsWith(after), 'text after the block is byte-identical to the real file');
+  assert.strictEqual(readFileSync(REAL, 'utf8'), realBytesBefore, 'the real Matchbox CLAUDE.md was never written to');
+});
+
 test('a symlinked CLAUDE.md is refused', () => {
   const root = org({ claude: null });
   const elsewhere = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-x-'))), 'target.md');
@@ -289,6 +332,21 @@ test('OG-15: a repo that cannot be profiled is recorded, not silently dropped', 
   assert.strictEqual(b.profilingProblems.length, 1);
   assert.strictEqual(b.profilingProblems[0].repo, 'ghost');
   assert.match(b.profilingProblems[0].error, /not found|repo not found/);
+});
+
+// Panel MEDIUM (review e2c3801d, two citations): when the integration map's own edge references the
+// unprofilable repo, validateIntegrations already reports "X is not a selected repo" and buildGuide
+// throws — but it threw with ONLY that message, discarding the real profiling error (e.g. a missing
+// base branch), reintroducing the F18/OG-15 defect behind a different, unrelated error text.
+test('OG-15/MEDIUM: when a build throws anyway, the thrown message also names the real profiling error', () => {
+  const root = org();
+  const guideWithGhost = { ...GUIDE, repos: [...GUIDE.repos, { name: 'ghost', role: 'app', base: 'main' }] };
+  const edgeToGhost = { ...EDGE, to: 'ghost' }; // references the unprofilable repo directly
+  let thrown;
+  try { build(root, { edges: [edgeToGhost], unmatched: [] }, guideWithGhost); } catch (e) { thrown = e; }
+  assert.ok(thrown, 'expected buildGuide to throw ("ghost" is not a selected repo)');
+  assert.match(thrown.message, /ghost/);
+  assert.match(thrown.message, /not found|repo not found/, 'the real profiling error must survive, not just "is not a selected repo"');
 });
 
 // INV-OG-19: an existing repo whose declared base branch does not exist is reported by name AND the
