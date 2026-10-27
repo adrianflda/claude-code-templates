@@ -23,6 +23,7 @@ import { isMain } from './entrypoint.mjs';
 import { profile } from './org-profile.mjs';
 import { hasSecret } from './org-integrations.mjs';
 import { validateIntegrations, normalize, renderSystemMap } from './org-map.mjs';
+import { isRepoName, isBoundedSingleLineText, TEXT_MAX_LENGTH } from './org-policy.mjs';
 
 // OG-1/OG-6: this block is GENERATED output — every apply re-renders it fresh from guide.json and
 // overwrites whatever currently sits between the markers, including a hand edit. The marker text says
@@ -30,13 +31,12 @@ import { validateIntegrations, normalize, renderSystemMap } from './org-map.mjs'
 export const BEGIN = '<!-- org-workspace:begin — generated from guide.json by /org-init and /org-learn; this block is OVERWRITTEN on every apply, so make changes through /org-learn, not by editing it directly -->';
 export const END = '<!-- org-workspace:end -->';
 export const BLOCK_BUDGET = 4096;
-const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-export const isRepoName = (n) => typeof n === 'string' && NAME.test(n) && n !== '.' && n !== '..';
+// OG-10: isRepoName and the per-field text rule are shared with org-map.mjs via org-policy.mjs
+// (the budget there is unified at 300 — org-map.mjs's existing limit, the larger of the two, so
+// widening is non-breaking: no text the live guide/map already carries becomes invalid).
+// Re-exported here so existing importers of isRepoName from this module keep working unchanged.
+export { isRepoName };
 const ROLES = ['app', 'harness', 'library', 'docs', 'other'];
-// OG-10: the per-field text budget is unified at 300 (org-map.mjs's existing limit — the larger of the
-// two, so widening is non-breaking: no text the live guide/map already carries becomes invalid).
-const MAX_TEXT = 300;
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
 const KEYS = { repos: ['name', 'role', 'base', 'harnessOf', 'note'], truth: ['topic', 'where', 'note'], conventions: ['rule', 'source'], threads: ['text', 'source'] };
 const MARKER_TEXT = /org-workspace:(begin|end)/;
 
@@ -82,7 +82,7 @@ export function validateGuide(g) {
   if (g.summary !== undefined && !validSummary(g.summary)) errs.push('summary must be an array of {from, to, n} (n a non-negative integer)');
   const text = (v, name, optional = false) => {
     if (v === undefined && optional) return;
-    if (typeof v !== 'string' || !v.trim() || v.length > MAX_TEXT || CONTROL.test(v)) errs.push(`${name} must be a single-line string of 1..${MAX_TEXT} characters`);
+    if (!isBoundedSingleLineText(v)) errs.push(`${name} must be a single-line string of 1..${TEXT_MAX_LENGTH} characters`);
     else if (hasSecret(v)) errs.push(`${name} contains a secret-looking value`);
     else if (MARKER_TEXT.test(v)) errs.push(`${name} must not contain the block markers`);
   };
@@ -169,6 +169,40 @@ export function spliceBlock(current, block) {
   return current.slice(0, i) + block + current.slice(j);
 }
 
+// OG-4: the who-calls-whom summary carried forward from guide.json's OWN `summary` field — the same
+// symlink/parse refusal as any other read of guide.json (OG-2). Returns `undefined` when no /org-init
+// or /org-learn has ever recorded a `summary` field at all (the caller then falls back to the legacy
+// file); `null` when the field is present but malformed (a warning is printed, the legacy file is
+// never consulted in that case — a recorded-but-bad summary does not resurrect an older one); the
+// carried array otherwise.
+function carriedSummaryFromGuideFile(org) {
+  const onDisk = readGuideFileRaw(org); // throws on symlink/corrupt — fails the whole build (OG-2)
+  if (!onDisk || !Object.prototype.hasOwnProperty.call(onDisk, 'summary')) return undefined;
+  if (validSummary(onDisk.summary)) return onDisk.summary;
+  process.stderr.write('warning: guide.json\'s "summary" field is not shaped as {from,to,n}[] — no "Who calls whom" section this run (re-run with --integrations to rebuild it)\n');
+  return null;
+}
+
+// OG-4: the one-time fold-in of the legacy map-summary.json, consulted only while guide.json has never
+// recorded a `summary` field (carriedSummaryFromGuideFile returned `undefined`). From the next apply
+// on, guide.json's own field is authoritative and this file is never read again.
+function carriedSummaryFromLegacyFile(org) {
+  const legacyPath = join(org, '.claude', 'org-workspace', 'map-summary.json');
+  let legacySt;
+  try { legacySt = lstatSync(legacyPath); } catch { legacySt = null; }
+  if (!legacySt) return null;
+  if (legacySt.isSymbolicLink()) throw new Error(`${legacyPath} is a symlink — refusing to read through it`);
+  try {
+    const legacy = JSON.parse(readFileSync(legacyPath, 'utf8'));
+    if (validSummary(legacy)) return legacy; // one-time fold-in; from now on guide.json.summary is authoritative
+    process.stderr.write('warning: legacy map-summary.json is not shaped as {from,to,n}[] — not folded in; no "Who calls whom" section this run\n');
+    return null;
+  } catch (e) {
+    process.stderr.write(`warning: legacy map-summary.json could not be parsed (${e.message}) — not folded in; no "Who calls whom" section this run\n`);
+    return null;
+  }
+}
+
 export function buildGuide({ org, guide, integrations = null, date }) {
   if (!org || !existsSync(org)) throw new Error(`org folder not found: ${org}`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) throw new Error('date must be YYYY-MM-DD');
@@ -198,29 +232,13 @@ export function buildGuide({ org, guide, integrations = null, date }) {
     }
   }
   if (problems.length) throw new Error(`invalid guide:\n- ${problems.join('\n- ')}`);
-  // OG-4: without a new map, the who-calls-whom summary is carried forward from the `summary` field of
-  // the guide.json ALREADY ON DISK (not a separate file) — same symlink/parse refusal as any other
-  // read of guide.json (OG-2). guide.json's OWN `summary` field, once ever recorded, is authoritative
-  // from then on; a legacy map-summary.json is folded in exactly once, only while guide.json has never
-  // recorded a summary field at all, and is never read again after that.
+  // OG-4: without a new map, the who-calls-whom summary is carried forward — first from guide.json's
+  // own `summary` field (carriedSummaryFromGuideFile), and only when that field has never been
+  // recorded at all, from the legacy map-summary.json (carriedSummaryFromLegacyFile), folded in
+  // exactly once.
   if (pairs === null) {
-    const onDisk = readGuideFileRaw(org); // throws on symlink/corrupt — fails the whole build (OG-2)
-    if (onDisk && Object.prototype.hasOwnProperty.call(onDisk, 'summary')) {
-      if (validSummary(onDisk.summary)) pairs = onDisk.summary;
-      else process.stderr.write('warning: guide.json\'s "summary" field is not shaped as {from,to,n}[] — no "Who calls whom" section this run (re-run with --integrations to rebuild it)\n');
-    } else {
-      const legacyPath = join(org, '.claude', 'org-workspace', 'map-summary.json');
-      let legacySt;
-      try { legacySt = lstatSync(legacyPath); } catch { legacySt = null; }
-      if (legacySt) {
-        if (legacySt.isSymbolicLink()) throw new Error(`${legacyPath} is a symlink — refusing to read through it`);
-        try {
-          const legacy = JSON.parse(readFileSync(legacyPath, 'utf8'));
-          if (validSummary(legacy)) pairs = legacy; // one-time fold-in; from now on guide.json.summary is authoritative
-          else process.stderr.write('warning: legacy map-summary.json is not shaped as {from,to,n}[] — not folded in; no "Who calls whom" section this run\n');
-        } catch (e) { process.stderr.write(`warning: legacy map-summary.json could not be parsed (${e.message}) — not folded in; no "Who calls whom" section this run\n`); }
-      }
-    }
+    const fromGuide = carriedSummaryFromGuideFile(org);
+    pairs = fromGuide !== undefined ? fromGuide : carriedSummaryFromLegacyFile(org);
   }
   const block = renderBlock(guide, { date, pairs });
   if (Buffer.byteLength(block) > BLOCK_BUDGET) throw new Error(`the guide block is ${Buffer.byteLength(block)} bytes; the budget is ${BLOCK_BUDGET} (~1k tokens) — shorten it: point to sources, do not copy them`);
@@ -244,13 +262,17 @@ function diff(a, b, label) {
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 }
 
-export function applyGuide(built, { org, stamp = new Date().toISOString().replace(/[:.]/g, '-') } = {}) {
-  const guidePath = join(org, '.claude', 'org-workspace', 'guide.json');
-  // OG-12/F5/F7/F10: EVERY write-target precondition is checked before writing ANY of them — CLAUDE.md
-  // is no longer written first and left standing when a later check (guide.json's, SYSTEM-MAP.md's)
-  // throws. (CLAUDE.md's own symlink-ness was already checked in buildGuide, before `built` existed.)
+// OG-12/F5/F7/F10: EVERY write-target precondition is checked before writing ANY of them — CLAUDE.md
+// is no longer written first and left standing when a later check (guide.json's, SYSTEM-MAP.md's)
+// throws. (CLAUDE.md's own symlink-ness was already checked in buildGuide, before `built` existed.)
+function assertWriteTargetsAreSafe(built, guidePath) {
   if (existsSync(guidePath) && lstatSync(guidePath).isSymbolicLink()) throw new Error(`${guidePath} is a symlink — refusing to write through it`);
   if (built.map && existsSync(built.mapPath) && lstatSync(built.mapPath).isSymbolicLink()) throw new Error(`${built.mapPath} is a symlink — refusing to write through it`);
+}
+
+export function applyGuide(built, { org, stamp = new Date().toISOString().replace(/[:.]/g, '-') } = {}) {
+  const guidePath = join(org, '.claude', 'org-workspace', 'guide.json');
+  assertWriteTargetsAreSafe(built, guidePath);
   const backups = join(org, '.claude', 'org-workspace', 'backups');
   mkdirSync(backups, { recursive: true });
   if (built.current) writeFileSync(join(backups, `CLAUDE.md.${stamp}`), built.current);

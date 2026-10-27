@@ -18,6 +18,7 @@
 import { readVerifiedBlob } from './safe-git.mjs';
 import { isSensitive } from './org-profile.mjs';
 import { hasValueSecret } from './org-integrations.mjs';
+import { isRepoName, isBoundedSingleLineText, TEXT_MAX_LENGTH } from './org-policy.mjs';
 
 export const KINDS = ['http', 'ws', 'webhook', 'queue', 'shared-db', 'doc'];
 const CONFIDENCE = ['high', 'medium', 'low'];
@@ -25,23 +26,19 @@ const GUARDABLE = ['fields', 'route-exists'];
 const EDGE_KEYS = new Set(['from', 'to', 'kind', 'endpoint', 'evidence', 'confidence', 'guardable', 'note']);
 const UNMATCHED_KEYS = new Set(['from', 'endpoint', 'evidence', 'reason']);
 const MAX_EDGES = 500;
-const MAX_TEXT = 300;
 const AT = /^([A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+ -]+)*):([1-9][0-9]{0,6})$/;
-// C0/C1 controls and bidi overrides (a U+202E can make a rendered path read differently).
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
 // A `file.ext:12` reference in free text would read like a checked citation: its line number is
 // stripped (`views.py:497` -> `views.py`), deterministically, when the map is normalized.
 const PATH_LINE = /([A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,6}):\d+(?:-\d+)?/g;
 const unciteText = (v) => (typeof v === 'string' ? v.replace(PATH_LINE, '$1') : v);
 const METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'any', 'head', 'options']);
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-// OG-10/INV-OG-17: the same repo-name pattern as org-guide.mjs's validateGuide (duplicated, not
-// imported, to avoid a circular import between the two modules — see the contract's "one policy
-// module" recommendation, module layout left to the architect). A syntactically invalid name (e.g.
-// path traversal) is "invalid repo name", distinct from a syntactically valid name that simply is not
-// one of the selected repos.
-const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-const isRepoName = (n) => typeof n === 'string' && REPO_NAME.test(n) && n !== '.' && n !== '..';
+// OG-10/INV-OG-17: isRepoName and the single-line text rule come from org-policy.mjs, shared with
+// org-guide.mjs's validateGuide (docs/contracts/org-guide-v1.md, "one policy module") — a leaf module
+// with no imports of its own, so importing it here creates no cycle with org-guide.mjs (which already
+// imports this module, for the integration-map rendering). A syntactically invalid name (e.g. path
+// traversal) is "invalid repo name", distinct from a syntactically valid name that simply is not one
+// of the selected repos.
 
 // The endpoint's distinctive tokens: `GET /v1/events/get/{eventId}` -> events, get, eventid.
 const endpointTokens = (endpoint) => [...new Set(String(endpoint).toLowerCase().split(/[^a-z0-9_-]+/))]
@@ -74,7 +71,7 @@ export function validateIntegrations(integrations, { repos, secretIn = () => fal
   };
   // Checks one citation; returns its line text, or null after recording the problem.
   const cite = (e, repo, at, side) => {
-    const m = typeof at === 'string' && at.length <= MAX_TEXT ? AT.exec(at) : null;
+    const m = typeof at === 'string' && at.length <= TEXT_MAX_LENGTH ? AT.exec(at) : null;
     if (!m || m[1].split('/').some((s) => s === '..' || s === '.')) { e(`evidence.${side} must be "path:line" (got ${JSON.stringify(at)})`); return null; }
     const L = fileLines(repo, m[1]);
     if (L === null) { e(`evidence.${side} "${at}": ${m[1]} is not a committed, readable file of ${repo} at ${repos[repo].sha.slice(0, 12)}`); return null; }
@@ -85,7 +82,7 @@ export function validateIntegrations(integrations, { repos, secretIn = () => fal
   };
   const text = (e, v, name, { optional = false } = {}) => {
     if (v === undefined && optional) return;
-    if (typeof v !== 'string' || !v.trim() || v.length > MAX_TEXT || CONTROL.test(v)) e(`${name} must be a single-line string of 1..${MAX_TEXT} characters`);
+    if (!isBoundedSingleLineText(v)) e(`${name} must be a single-line string of 1..${TEXT_MAX_LENGTH} characters`);
     else if (textHasSecret(v, secretIn)) e(`${name} contains a secret-looking value`);
   };
   const repo = (e, v, name) => {

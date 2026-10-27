@@ -369,18 +369,32 @@ test('OG-4/OG-19(g): a symlinked legacy map-summary.json makes the apply refuse,
   assert.strictEqual(claudeOf(root), before);
 });
 
-test('OG-4/OG-19(c)(g): a shape-invalid legacy map-summary.json only warns; no crash, no section', () => {
-  const root = org();
-  run(root, null, { ...GUIDE });
-  write(root, '.claude/org-workspace/map-summary.json', JSON.stringify({ not: 'an array' }));
+// Shared scaffolding for the three "a carried-summary problem only warns" tests below: build()+
+// applyGuide() still succeed, capturing stderr to assert the expected warning fired and that no
+// "Who calls whom" section was rendered this run.
+function buildAndApplyExpectingOnlyAWarning(root, { guide = GUIDE, stamp, warningPattern }) {
   const original = process.stderr.write;
   const lines = [];
   process.stderr.write = (s) => { lines.push(s); return true; };
   let b;
-  try { b = build(root, null, { ...GUIDE, threads: [{ text: 'still works', source: 's' }] }); } finally { process.stderr.write = original; }
-  applyGuide(b, { org: root, stamp: 's-inv' });
-  assert.ok(lines.some((l) => /not shaped as/.test(l)), `expected a shape warning, got: ${JSON.stringify(lines)}`);
+  try { b = build(root, null, guide); } finally { process.stderr.write = original; }
+  applyGuide(b, { org: root, stamp });
+  assert.ok(lines.some((l) => warningPattern.test(l)), `expected a warning matching ${warningPattern}, got: ${JSON.stringify(lines)}`);
   assert.doesNotMatch(claudeOf(root), /Who calls whom/);
+}
+
+test('OG-4/OG-19(c)(g): a shape-invalid legacy map-summary.json only warns; no crash, no section', () => {
+  const root = org();
+  run(root, null, { ...GUIDE });
+  write(root, '.claude/org-workspace/map-summary.json', JSON.stringify({ not: 'an array' }));
+  buildAndApplyExpectingOnlyAWarning(root, { guide: { ...GUIDE, threads: [{ text: 'still works', source: 's' }] }, stamp: 's-inv', warningPattern: /not shaped as/ });
+});
+
+test('OG-4/OG-19(c)(g): an unparseable legacy map-summary.json only warns; no crash, no section', () => {
+  const root = org();
+  run(root, null, { ...GUIDE });
+  write(root, '.claude/org-workspace/map-summary.json', 'not json{');
+  buildAndApplyExpectingOnlyAWarning(root, { guide: { ...GUIDE, threads: [{ text: 'still works', source: 's' }] }, stamp: 's-inv3', warningPattern: /could not be parsed/ });
 });
 
 test('OG-4/OG-19(c): a malformed "summary" field already on guide.json only warns; no crash, no section', () => {
@@ -388,14 +402,7 @@ test('OG-4/OG-19(c): a malformed "summary" field already on guide.json only warn
   run(root, null, { ...GUIDE });
   const g = JSON.parse(readFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), 'utf8'));
   writeFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), JSON.stringify({ ...g, summary: [{ from: 'web' }] }));
-  const original = process.stderr.write;
-  const lines = [];
-  process.stderr.write = (s) => { lines.push(s); return true; };
-  let b;
-  try { b = build(root); } finally { process.stderr.write = original; }
-  applyGuide(b, { org: root, stamp: 's-inv2' });
-  assert.ok(lines.some((l) => /not shaped as/.test(l)), `expected a shape warning, got: ${JSON.stringify(lines)}`);
-  assert.doesNotMatch(claudeOf(root), /Who calls whom/);
+  buildAndApplyExpectingOnlyAWarning(root, { stamp: 's-inv2', warningPattern: /not shaped as/ });
 });
 
 // OG-19(a)/F5/F7/F10: symlinked write targets, including the SYSTEM-MAP.md case (only a real write
@@ -414,6 +421,18 @@ test('OG-19(a): a symlinked guide.json makes applyGuide throw; CLAUDE.md is unch
   // check would run; either way, nothing is ever written (OG-12).
   assert.throws(() => { const b = build(root, null, { ...GUIDE, threads: [{ text: 'new', source: 's' }] }); applyGuide(b, { org: root, stamp: 's-sym' }); }, /symlink/);
   assert.strictEqual(claudeOf(root), before, 'CLAUDE.md must remain byte-identical — OG-12');
+  assert.strictEqual(readFileSync(outside, 'utf8'), 'old', 'the symlink target is untouched');
+});
+
+test('OG-12: applyGuide refuses a guide.json that becomes a symlink only after build() already ran (its own precondition, not just buildGuide\'s)', () => {
+  const root = org();
+  const b = build(root); // first ever build: guide.json does not exist yet, so build()'s own read is a no-op
+  const outside = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-sym4-'))), 'g.json');
+  writeFileSync(outside, 'old');
+  const guidePath = join(root, '.claude', 'org-workspace', 'guide.json');
+  mkdirSync(dirname(guidePath), { recursive: true });
+  symlinkSync(outside, guidePath);
+  assert.throws(() => applyGuide(b, { org: root, stamp: 's-sym4' }), /symlink/);
   assert.strictEqual(readFileSync(outside, 'utf8'), 'old', 'the symlink target is untouched');
 });
 
