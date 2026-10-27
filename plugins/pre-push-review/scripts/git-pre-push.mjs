@@ -21,17 +21,29 @@
  * review, e.g. a branch deletion). It fails closed: a missing, killed, timed out or unstartable
  * panel exits 1.
  *
+ * Before the panel, a repository that opted in to the quality-kernel gate on push has every pushed
+ * range re-verified by it (see qkOptIn below). Any outcome other than verified (exit 0) or verified on
+ * a critical surface (exit 3, which still needs the breaker and a human before merge) blocks the
+ * push: a failing gate, and also a gate that cannot run (memory pressure, missing, timed out).
+ *
  * It honors no skip switch: AI_REVIEW_SKIP, PREPUSH_REVIEW_SKIP and AI_REVIEW_REQUIRED are
  * removed or forced in the environment given to the panel. The only way past it is the human
  * typing `git push --no-verify`, which git itself implements and no hook can see.
  */
 import { spawn, spawnSync } from 'child_process';
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { dirname, join, resolve } from 'path';
+import { basename, dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const TIMEOUT_MS = Number(process.env.AI_REVIEW_GATE_TIMEOUT_MS || 540_000);
+const QK_TIMEOUT_MS = Number(process.env.QK_PUSH_TIMEOUT_MS || 1_800_000);
+// Node clamps a timer above 2^31-1 ms to 1 ms, so a larger value would kill the gate at once.
+const MAX_TIMER_MS = 2_147_483_647;
+// The gate's memory guard refuses to start at this macOS pressure level or above. Its own default
+// is 2, where a laptop with a local Docker stack sits most of the time, so on push it is 3 unless
+// the environment sets QK_MEM_MAX_PRESSURE_LEVEL. A refusal still blocks the push.
+const QK_ENV = { QK_MEM_MAX_PRESSURE_LEVEL: '3', ...process.env };
 const ZERO = /^0+$/;
 
 const say = (msg) => process.stderr.write(`${msg}\n`);
@@ -113,6 +125,36 @@ function rangeFor(localSha, remoteSha) {
   return { base, head: localSha };
 }
 
+/**
+ * Whether this repository opted in to the quality-kernel gate on push, and where it lives:
+ * { repo, org } when <org>/.quality-kernel/repos/<name>/tools.json says `"runOnPush": true`, where
+ * <org> holds an org guide (.claude/org-workspace/guide.json) and <name> is the MAIN checkout (a push
+ * from a linked worktree is gated against it: the commits are in the shared object store). null when
+ * it did not opt in; { error } when that cannot be told (fail closed).
+ */
+function qkOptIn() {
+  const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (common.status !== 0) return null;
+  let main;
+  try {
+    const dir = realpathSync(common.stdout.trim());
+    main = basename(dir) === '.git' ? dirname(dir) : realpathSync(root);
+  } catch {
+    return null;
+  }
+  const org = dirname(main);
+  if (!existsSync(join(org, '.claude', 'org-workspace', 'guide.json'))) return null;
+  const toolsPath = join(org, '.quality-kernel', 'repos', basename(main), 'tools.json');
+  if (!existsSync(toolsPath)) return null;
+  let tools;
+  try {
+    tools = JSON.parse(readFileSync(toolsPath, 'utf8'));
+  } catch (e) {
+    return { error: `cannot read ${toolsPath} (${e.message}), so it is unknown whether the quality gate must run` };
+  }
+  return tools && tools.runOnPush === true ? { repo: main, org } : null;
+}
+
 // One panel run per distinct range; a ref list we cannot trust falls back to the panel's guess.
 const runs = [];
 const usableRefs = stdin.clean && refs.length && refs.every((p) => SHA.test(p[1]) && SHA.test(p[3]));
@@ -124,7 +166,7 @@ if (usableRefs) {
     if (r?.error) fail(`${r.error}, so the push cannot be matched to a review.`);
     if (!r || seen.has(`${r.base} ${r.head}`)) continue;
     seen.add(`${r.base} ${r.head}`);
-    runs.push({ args: ['--range', r.base, r.head], head: r.head });
+    runs.push({ args: ['--range', r.base, r.head], head: r.head, base: r.base });
   }
   if (!runs.length) {
     say('[pre-push-review] The remote already has every pushed commit: nothing new to review.');
@@ -140,8 +182,9 @@ const env = { ...process.env, AI_REVIEW_REQUIRED: '1' };
 delete env.AI_REVIEW_SKIP;
 delete env.PREPUSH_REVIEW_SKIP;
 
-// One deadline for the whole push, however many ranges it has.
-const deadline = Date.now() + TIMEOUT_MS;
+// One deadline for the panel runs, however many ranges there are. It starts with the first panel
+// run, so the quality gate before it does not use up the panel's time.
+let deadline = null;
 
 // Interrupts are passed on to whichever panel is running. Registered once: a handler per run
 // would pile up, and the first (stale) one would exit before the live panel was killed.
@@ -159,9 +202,11 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   });
 }
 
-function runPanel(args) {
+// Runs a node script as the leader of its own process group, streaming its stderr (and, with
+// echoStdout, its stdout) to the terminal; the whole group is killed at the deadline.
+function runChild(script, args, { label, deadline, timeoutMs, childEnv, echoStdout = true }) {
   return new Promise((done) => {
-    const result = { out: '', code: null, failure: '' };
+    const result = { out: '', stdout: '', code: null, failure: '' };
     const finish = () => {
       activeChild = null;
       done(result);
@@ -170,14 +215,14 @@ function runPanel(args) {
     try {
       // Detached: the panel leads its own process group, so the whole tree (its `claude`
       // children included) can be killed together.
-      child = spawn(process.execPath, [panel, ...args], {
+      child = spawn(process.execPath, [script, ...args], {
         cwd: root,
-        env,
+        env: childEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true,
       });
     } catch (e) {
-      result.failure = `the panel could not run (${e.code || e.message})`;
+      result.failure = `${label} could not run (${e.code || e.message})`;
       return finish();
     }
     activeChild = child;
@@ -185,10 +230,13 @@ function runPanel(args) {
       if (result.out.length < 32 * 1024 * 1024) result.out += chunk;
       process.stderr.write(chunk);
     };
-    child.stdout.on('data', forward);
+    child.stdout.on('data', (chunk) => {
+      if (result.stdout.length < 32 * 1024 * 1024) result.stdout += chunk;
+      if (echoStdout) forward(chunk);
+    });
     child.stderr.on('data', forward);
     const timer = setTimeout(() => {
-      result.failure = `the panel did not finish in ${TIMEOUT_MS} ms`;
+      result.failure = `${label} did not finish in ${timeoutMs} ms`;
       try {
         process.kill(-child.pid, 'SIGKILL');
       } catch {
@@ -200,23 +248,85 @@ function runPanel(args) {
       finish();
     }, Math.max(0, deadline - Date.now()));
     child.on('error', (e) => {
-      result.failure ||= `the panel could not run (${e.code || e.message})`;
+      result.failure ||= `${label} could not run (${e.code || e.message})`;
       clearTimeout(timer);
       finish();
     });
     child.on('close', (status, signal) => {
       clearTimeout(timer);
-      if (!result.failure && signal) result.failure = `the panel was killed by ${signal}`;
+      if (!result.failure && signal) result.failure = `${label} was killed by ${signal}`;
       result.code = status;
       finish();
     });
   });
 }
 
+const runPanel = (args) => {
+  deadline ??= Date.now() + TIMEOUT_MS;
+  return runChild(panel, args, { label: 'the panel', deadline, timeoutMs: TIMEOUT_MS, childEnv: env });
+};
+
+/** The last JSON line a child printed on stdout, or null. */
+function lastJson(text) {
+  for (const line of text.trim().split('\n').reverse()) {
+    try {
+      return JSON.parse(line);
+    } catch {
+      /* not the verdict line */
+    }
+  }
+  return null;
+}
+
 let out = '';
+
+// The quality-kernel gate, for a repository that opted in. It returns why the push must be
+// blocked, or '' to go on to the panel.
+async function qualityGate() {
+  const optIn = qkOptIn();
+  if (!optIn) return '';
+  if (optIn.error) return optIn.error;
+  const qkGate = resolve(here, '..', '..', 'quality-kernel', 'scripts', 'qk-gate.mjs');
+  if (!existsSync(qkGate)) {
+    return `this repository runs the quality gate on push, but the quality gate is missing (${qkGate}). Install the quality-kernel plugin next to pre-push-review.`;
+  }
+  if (!runs.every((run) => run.base)) return 'cannot tell which commits are pushed, so the quality gate cannot verify them';
+  if (!Number.isInteger(QK_TIMEOUT_MS) || QK_TIMEOUT_MS <= 0 || QK_TIMEOUT_MS > MAX_TIMER_MS) {
+    return `QK_PUSH_TIMEOUT_MS must be a whole number of milliseconds between 1 and ${MAX_TIMER_MS}`;
+  }
+  const qkDeadline = Date.now() + QK_TIMEOUT_MS;
+  for (const run of runs) {
+    if (git(['cat-file', '-e', `${run.base}^{commit}`]).status !== 0) {
+      return `the push of ${run.head.slice(0, 7)} shares no history with the remote (no base commit), so the quality gate has nothing to verify it against`;
+    }
+    // --no-ledger: the referee must not write its audit rows into the product repo on every push.
+    const args = ['--repo', optIn.repo, '--base', run.base, '--head', run.head, '--org', optIn.org, '--no-ledger'];
+    say(`[pre-push-review] quality gate: ${run.base.slice(0, 7)}..${run.head.slice(0, 7)}`);
+    const r = await runChild(qkGate, args, {
+      label: 'the quality gate',
+      deadline: qkDeadline,
+      timeoutMs: QK_TIMEOUT_MS,
+      childEnv: QK_ENV,
+      echoStdout: false,
+    });
+    out += `\n$ qk-gate ${args.join(' ')}\n${r.out}\n${r.stdout}`;
+    if (r.failure) return `${r.failure}; the push was NOT verified`;
+    const verdict = lastJson(r.stdout) || {};
+    const why = verdict.referee?.reason || (verdict.notes || []).join(' ') || 'no reason given';
+    if (r.code === 0) say('[pre-push-review] quality gate: verified green.');
+    else if (r.code === 3) {
+      say('[pre-push-review] quality gate: verified green on a critical surface: the live breaker and a human review are required before merge (not before push).');
+    } else if (r.code === 1) return `the quality gate failed: ${why}`;
+    else if (r.code === 2) return `the quality gate could not verify the push (indeterminate): ${why}`;
+    else return `the quality gate ended with exit ${r.code}: ${why}`;
+  }
+  return '';
+}
+
 let code = 0;
 let failure = '';
-for (const run of runs) {
+const qkBlock = await qualityGate();
+for (const run of qkBlock ? [] : runs) {
   const r = await runPanel(run.args);
   out += `\n$ ai-review-panel ${run.args.join(' ')}\n${r.out}`;
   if (r.failure) {
@@ -236,7 +346,8 @@ try {
   mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
   chmodSync(cacheDir, 0o700);
   const logFile = join(cacheDir, `review-${sha}.log`);
-  writeFileSync(logFile, `repository: ${root}\nexit: ${code}${failure ? ` (${failure})` : ''}\n\n${out}`, {
+  const outcome = qkBlock ? `blocked by the quality gate (${qkBlock})` : `${code}${failure ? ` (${failure})` : ''}`;
+  writeFileSync(logFile, `repository: ${root}\nexit: ${outcome}\n\n${out}`, {
     mode: 0o600,
   });
   chmodSync(logFile, 0o600);
@@ -245,6 +356,7 @@ try {
   /* the log is best-effort */
 }
 
+if (qkBlock) fail(qkBlock);
 if (failure) fail(`${failure}; the change was NOT reviewed.`);
 if (code === 0) process.exit(0);
 if (code === 1) fail('critical issue(s) found by the expert panel. Fix them and push again.');

@@ -56,6 +56,29 @@ read, the gate falls back to the panel's own guess (`--branch`).
 - **No skip switch is honored.** `AI_REVIEW_SKIP`, `PREPUSH_REVIEW_SKIP` and
   `AI_REVIEW_REQUIRED=0` are ignored by the gate: the panel always runs, and always as required.
 
+**Quality gate on push (opt-in per repository).** Before the panel, a repository can have every
+pushed range re-verified by the quality-kernel gate (`qk-gate.mjs`, which re-runs the base's tests
+against the pushed code). A repository opts in in its org config, outside the repository:
+`<org>/.quality-kernel/repos/<name>/tools.json` with `"runOnPush": true`, where `<org>` holds an
+org guide (`.claude/org-workspace/guide.json`) and `<name>` is the main checkout's folder (a push
+from a linked worktree is gated against the main checkout). The gate script is found next to this
+plugin, at `../quality-kernel/scripts/qk-gate.mjs`; there is no variable to point it elsewhere.
+
+| Gate outcome | Push |
+|---|---|
+| exit 0, verified | continues to the panel |
+| exit 3, verified on a critical surface | continues to the panel, with a warning: the live breaker and a human review are still needed before merge |
+| exit 1, the base's tests fail on the pushed code | **blocked** |
+| exit 2, indeterminate: the gate could not run (memory pressure, no contract, ...) | **blocked** |
+| missing gate script, unreadable `tools.json`, a push with no base commit, an unreadable ref list, timeout, any other exit | **blocked** |
+
+A repository without `"runOnPush": true` (or outside an org) is not gated; its push runs the panel
+only, as before. The opt-in is per repository because a gate run takes as long as the suite, twice.
+A gated push can therefore take the gate's time plus the panel's: from Claude, push with
+`run_in_background: true` (a foreground Bash call is capped at 600000 ms), and keep the SSH
+connection alive (`GIT_SSH_COMMAND="ssh -o ServerAliveInterval=30"`). The gate runs with
+`--no-ledger`, so it writes nothing into the repository.
+
 **2. The guard: `scripts/prepush-gate.mjs`, a Claude Code `PreToolUse` hook.** It never runs the
 panel (no double review). On a Bash command that contains a real `git push` it only checks that
 the push will go through the gate, and blocks otherwise:
@@ -199,7 +222,9 @@ node scripts/ai-review-panel.mjs --pr 123   # review a PR and post a rolling com
 | `AI_REVIEW_BLOCK_ON` | `critical` | severity that blocks: `critical` or `high` |
 | `AI_REVIEW_TIMEOUT_MS` | `240000` | per-agent timeout |
 | `AI_REVIEW_REQUIRED` | forced to `1` by the gate; `0` when the panel is run directly | `1` = exit 2 if no reviewer could run. The gate ignores any other value |
-| `AI_REVIEW_GATE_TIMEOUT_MS` | `540000` | how long the gate waits for the panel; past it the push is blocked as not reviewed |
+| `AI_REVIEW_GATE_TIMEOUT_MS` | `540000` | how long the gate waits for the panel (counted from the first panel run, after the quality gate); past it the push is blocked as not reviewed |
+| `QK_MEM_MAX_PRESSURE_LEVEL` | `3` on push | macOS memory-pressure level at which the quality gate refuses to start (its own default is 2); a refusal blocks the push |
+| `QK_PUSH_TIMEOUT_MS` | `1800000` | how long the gate waits for the quality gate (all pushed ranges together); past it the push is blocked as not verified |
 | `CLAUDE_BIN` | auto | explicit path to the `claude` binary |
 
 `PREPUSH_REVIEW_SKIP` and `AI_REVIEW_SKIP` no longer skip a push: the gate removes them, and the

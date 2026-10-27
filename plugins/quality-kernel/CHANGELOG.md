@@ -5,6 +5,23 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-10-27
+
+### Fixed — commit proof
+- `proof.mjs` no longer fails in every repo the gate has run in: the referee's verdict rows
+  (`source: "referee"`, no `command`) were counted as unreadable ledger lines, which fail closed.
+  They are now skipped. A row with a command is still read as a command row, whatever its source.
+- `hooks/evidence-gate.py` writes the ledger at the git top level of where the command ran (its
+  leading `cd <dir> &&` target, else the session cwd), not in the session cwd. Runs made from an org
+  folder above the repo landed in the org folder, where `proof.mjs --repo <repo>` never looked.
+- `python -m unittest` and `tofu test` / `terraform test` are recorded as verification runs.
+
+### Added
+- `"runOnPush": true` in an org `tools.json` makes `pre-push-review` (1.3.0) run `qk-gate.mjs` on
+  every pushed range before the panel, and block the push when the gate fails or cannot run.
+  On push the memory guard's threshold defaults to pressure level 3 (`QK_MEM_MAX_PRESSURE_LEVEL`
+  overrides it); a refusal still blocks.
+
 ## [0.11.0] - 2026-10-26
 
 Merges the `main` line into the workspace line. Both lines had released a "0.6.0" since they

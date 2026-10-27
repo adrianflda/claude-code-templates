@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.11.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.11.1.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -260,12 +260,15 @@ Automatic, always on (no invocation needed):
 - **`hooks/evidence-gate.py`** (PostToolUse + PostToolUseFailure / Bash) — records
   test/build/verify commands with their real exit code (`0` on PostToolUse, `N`
   from the `Exit code N` line on PostToolUseFailure) and `duration_ms` to
-  `.quality-kernel/evidence-ledger.jsonl`. Tool output is never stored and the
+  `.quality-kernel/evidence-ledger.jsonl` at the git top level of where the command ran: its
+  leading `cd <dir> &&` target, else the session cwd (so `proof.mjs --repo <repo>` finds runs made
+  from an org folder above the repo). Runners include `pytest`, `python -m unittest`, `node --test`,
+  `tofu test` / `terraform test`, `npm test` and the other tools listed in the hook. Tool output is never stored and the
   command is stored redacted. Inside a git repo the ledger is written only when
   `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
   model as context. Recording only; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.11.0)
+## Gate status — teeth vs. prose (v0.11.1)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
@@ -276,8 +279,9 @@ installing the plugin does not imply the full guarantee.
 | Evidence-gate (G2) | **wired, record-only** | hook writes a ledger; hard-block is v1 |
 | CRAP gate | **wired (teeth)** | deterministic script, non-zero exit over threshold |
 | DRY gate | **script (teeth when run)** | `scripts/dry-gate.mjs` over a jscpd report; the cleaner/hardener/qa run it, no hook forces it |
-| Commit proof | **script (teeth when run)** | `scripts/proof.mjs` turns ledger events since the last commit into `Proof:` trailers; a piped exit 0 is `Unverified`, never proof; exit 1 on any unproven command |
+| Commit proof | **script (teeth when run)** | `scripts/proof.mjs` turns ledger events since the last commit into `Proof:` trailers; a piped exit 0 is `Unverified`, never proof; exit 1 on any unproven command; the referee's own verdict rows in the ledger are skipped |
 | Pre-push panel | **wired (teeth)** | the existing `pre-push-review` plugin |
+| Gate on push | **wired (teeth), opt-in per repo** | `pre-push-review` runs `qk-gate.mjs` before the panel when the org `tools.json` says `"runOnPush": true`; a failing gate or one that cannot run (memory pressure, timeout) blocks the push |
 | Re-executing referee | **wired (teeth)** | `scripts/referee.mjs`; commit-anchored, two-run, fail-closed; red-team suite in `scripts/attacks.test.mjs` |
 | Blind breaker (live oracle) | **bundled, tool-less author + deterministic instruments** | `scripts/breaker-claude.mjs`: a no-tools, no-context model writes vectors; `vector-breaker.mjs` executes them (HTTP/UI) and computes the verdict; **the only thing that closes the in-process limit (M2)** |
 | Adversarial critic (Opus) | **by-reference** | invokes the host's `adversarial-critic` |
