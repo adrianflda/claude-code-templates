@@ -63,6 +63,12 @@ const VALUE_REDACTIONS = (t) => t
 // Free text (an agent's note): a quoted secret value, a Bearer token or a high-entropy literal.
 export const hasValueSecret = (text) => { const t = String(text).slice(0, 400); return VALUE_REDACTIONS(t) !== t; };
 export const redactLine = (line) => VALUE_REDACTIONS(redact(line.slice(0, 400)));
+// OG-10: THE single secret-detection rule for all user/agent-supplied text accepted into the guide or
+// the integration map — the union redactLine already covers (AKIA/ASIA/ghp_/github_pat_/sk-/xox/JWT,
+// NAME=value, a credentialed URL, a quoted value after a key/token/secret/password/auth name, a
+// Bearer/Basic/Token header, a long high-entropy quoted literal). Both the guide path (validateGuide)
+// and the map path (validateIntegrations, via buildGuide's secretIn) use exactly this one predicate.
+export const hasSecret = (text) => { const t = String(text).slice(0, 400); return redactLine(t) !== t; };
 const firstQuoted = (s) => { const m = /[`'"]([^`'"]*)[`'"]/.exec(s); return m ? m[1] : null; };
 const cap = (list) => list.slice(0, MAX_PER_KIND);
 

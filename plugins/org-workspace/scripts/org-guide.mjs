@@ -21,33 +21,36 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isMain } from './entrypoint.mjs';
 import { profile } from './org-profile.mjs';
-import { redactLine } from './org-integrations.mjs';
+import { hasSecret } from './org-integrations.mjs';
 import { validateIntegrations, normalize, renderSystemMap } from './org-map.mjs';
 
-// OG-6: the marker text tells the reader to make changes through /org-learn, not by hand — guide.json
-// is the source of truth (OG-1/OG-3), so a hand edit inside the markers is no longer the supported
-// way to change the guide.
-export const BEGIN = '<!-- org-workspace:begin — managed by /org-init and /org-learn; make changes through /org-learn, not by editing this block directly -->';
+// OG-1/OG-6: this block is GENERATED output — every apply re-renders it fresh from guide.json and
+// overwrites whatever currently sits between the markers, including a hand edit. The marker text says
+// so, and tells the reader /org-learn is the way to make a change stick.
+export const BEGIN = '<!-- org-workspace:begin — generated from guide.json by /org-init and /org-learn; this block is OVERWRITTEN on every apply, so make changes through /org-learn, not by editing it directly -->';
 export const END = '<!-- org-workspace:end -->';
 export const BLOCK_BUDGET = 4096;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 export const isRepoName = (n) => typeof n === 'string' && NAME.test(n) && n !== '.' && n !== '..';
 const ROLES = ['app', 'harness', 'library', 'docs', 'other'];
-const MAX_TEXT = 200;
+// OG-10: the per-field text budget is unified at 300 (org-map.mjs's existing limit — the larger of the
+// two, so widening is non-breaking: no text the live guide/map already carries becomes invalid).
+const MAX_TEXT = 300;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
 const KEYS = { repos: ['name', 'role', 'base', 'harnessOf', 'note'], truth: ['topic', 'where', 'note'], conventions: ['rule', 'source'], threads: ['text', 'source'] };
 const MARKER_TEXT = /org-workspace:(begin|end)/;
 
-// OG-1/OG-2/OG-3: `guide.json` is the sole authoritative record of the forbidden-repo list — the
-// rendered CLAUDE.md block is a derived view, never parsed back. Absent guide.json (no /org-init has
-// ever run) is a normal, empty-forbidden-list case; a guide.json that exists but cannot be trusted
-// (a symlink anywhere on its path, invalid JSON, or the wrong shape) fails closed instead.
-export function readGuideForbidden(org) {
+// OG-1/OG-2/OG-3: `guide.json` is the sole authoritative record of the guide — the rendered CLAUDE.md
+// block is a derived view, never parsed back. Absent guide.json (no /org-init has ever run) returns
+// `null` (a normal case, not an error); a guide.json that exists but cannot be trusted (a symlink
+// anywhere on its path, invalid JSON, or the wrong shape) fails closed instead. Shared by
+// readGuideForbidden and buildGuide's OG-4 who-calls-whom carry-forward — the same read, same rules.
+function readGuideFileRaw(org) {
   let p = org;
   for (const part of ['.claude', 'org-workspace', 'guide.json']) {
     p = join(p, part);
     let st;
-    try { st = lstatSync(p); } catch { return []; } // nothing written yet at this point: not an error
+    try { st = lstatSync(p); } catch { return null; } // nothing written yet at this point: not an error
     if (st.isSymbolicLink()) throw new Error(`${p} is a symlink — refusing to read through it`);
   }
   let raw;
@@ -55,24 +58,32 @@ export function readGuideForbidden(org) {
   let g;
   try { g = JSON.parse(raw); } catch (e) { throw new Error(`${p} is not valid JSON: ${e.message}`); }
   if (!g || typeof g !== 'object' || Array.isArray(g)) throw new Error(`${p} has an unexpected shape (expected an object)`);
-  if (g.forbidden !== undefined && !Array.isArray(g.forbidden)) throw new Error(`${p}: "forbidden" must be an array`);
+  return g;
+}
+
+export function readGuideForbidden(org) {
+  const g = readGuideFileRaw(org);
+  if (g === null) return [];
+  if (g.forbidden !== undefined && !Array.isArray(g.forbidden)) throw new Error('guide.json: "forbidden" must be an array');
   return (g.forbidden || []).filter(isRepoName);
 }
 
-// OG-7: `version` (and `renderHash`) are tool-stamped fields written back into the same guide.json a
-// human/agent may hand the tool again as the next --guide input (e.g. a straight re-apply) — they
-// are optional on the way in and are not required, but when present must be well-formed.
-const KNOWN_TOP_KEYS = ['org', 'repos', 'forbidden', 'truth', 'conventions', 'threads', 'version', 'renderHash'];
+// OG-7/OG-4: `version` and `summary` (the who-calls-whom carry-forward, OG-4) are tool-stamped fields
+// written back into the same guide.json a human/agent may hand the tool again as the next --guide
+// input (e.g. a straight re-apply) — optional on the way in, not required, but well-formed when
+// present. OG-1: there is deliberately NO render-hash/hand-edit-detection field in this schema.
+const KNOWN_TOP_KEYS = ['org', 'repos', 'forbidden', 'truth', 'conventions', 'threads', 'version', 'summary'];
+const validSummary = (s) => Array.isArray(s) && s.every((p) => p && isRepoName(p.from) && isRepoName(p.to) && Number.isInteger(p.n) && p.n >= 0);
 export function validateGuide(g) {
   const errs = [];
   if (!g || typeof g !== 'object' || Array.isArray(g)) return ['guide must be an object'];
   for (const k of Object.keys(g)) if (!KNOWN_TOP_KEYS.includes(k)) errs.push(`unknown key "${k}"`);
   if (g.version !== undefined && g.version !== 1) errs.push(`version must be 1 (got ${JSON.stringify(g.version)})`);
-  if (g.renderHash !== undefined && !/^[0-9a-f]{64}$/.test(g.renderHash)) errs.push('renderHash must be a sha256 hex digest');
+  if (g.summary !== undefined && !validSummary(g.summary)) errs.push('summary must be an array of {from, to, n} (n a non-negative integer)');
   const text = (v, name, optional = false) => {
     if (v === undefined && optional) return;
     if (typeof v !== 'string' || !v.trim() || v.length > MAX_TEXT || CONTROL.test(v)) errs.push(`${name} must be a single-line string of 1..${MAX_TEXT} characters`);
-    else if (redactLine(v) !== v.slice(0, 400)) errs.push(`${name} contains a secret-looking value`);
+    else if (hasSecret(v)) errs.push(`${name} contains a secret-looking value`);
     else if (MARKER_TEXT.test(v)) errs.push(`${name} must not contain the block markers`);
   };
   text(g.org, 'org');
@@ -175,7 +186,9 @@ export function buildGuide({ org, guide, integrations = null, date }) {
       try { const p = profile({ dir, base: r.base }); repos[r.name] = { dir, sha: p.sha, base: p.base }; }
       catch (e) { profilingProblems.push({ repo: r.name, error: e.message }); }
     }
-    const { errors, checks } = validateIntegrations(integrations, { repos });
+    // OG-10/F3: the map path is checked against the SAME secret rule as the guide path (hasSecret),
+    // not just hasValueSecret's narrower, quoted-value-only subset.
+    const { errors, checks } = validateIntegrations(integrations, { repos, secretIn: hasSecret });
     problems.push(...errors.map((m) => `integrations: ${m}`));
     if (!errors.length) {
       map = { repos: Object.fromEntries(Object.entries(repos).map(([n, r]) => [n, { base: r.base, sha: r.sha }])), ...normalize(integrations, checks) };
@@ -185,13 +198,29 @@ export function buildGuide({ org, guide, integrations = null, date }) {
     }
   }
   if (problems.length) throw new Error(`invalid guide:\n- ${problems.join('\n- ')}`);
-  // Without a new map, keep the last one's summary (an /org-learn update must not drop it).
-  const summaryPath = join(org, '.claude', 'org-workspace', 'map-summary.json');
-  if (pairs === null && existsSync(summaryPath) && !lstatSync(summaryPath).isSymbolicLink()) {
-    try {
-      const prev = JSON.parse(readFileSync(summaryPath, 'utf8'));
-      if (Array.isArray(prev) && prev.every((p) => p && isRepoName(p.from) && isRepoName(p.to) && Number.isInteger(p.n))) pairs = prev;
-    } catch { /* an unreadable summary is dropped; re-run with --integrations to restore it */ }
+  // OG-4: without a new map, the who-calls-whom summary is carried forward from the `summary` field of
+  // the guide.json ALREADY ON DISK (not a separate file) — same symlink/parse refusal as any other
+  // read of guide.json (OG-2). guide.json's OWN `summary` field, once ever recorded, is authoritative
+  // from then on; a legacy map-summary.json is folded in exactly once, only while guide.json has never
+  // recorded a summary field at all, and is never read again after that.
+  if (pairs === null) {
+    const onDisk = readGuideFileRaw(org); // throws on symlink/corrupt — fails the whole build (OG-2)
+    if (onDisk && Object.prototype.hasOwnProperty.call(onDisk, 'summary')) {
+      if (validSummary(onDisk.summary)) pairs = onDisk.summary;
+      else process.stderr.write('warning: guide.json\'s "summary" field is not shaped as {from,to,n}[] — no "Who calls whom" section this run (re-run with --integrations to rebuild it)\n');
+    } else {
+      const legacyPath = join(org, '.claude', 'org-workspace', 'map-summary.json');
+      let legacySt;
+      try { legacySt = lstatSync(legacyPath); } catch { legacySt = null; }
+      if (legacySt) {
+        if (legacySt.isSymbolicLink()) throw new Error(`${legacyPath} is a symlink — refusing to read through it`);
+        try {
+          const legacy = JSON.parse(readFileSync(legacyPath, 'utf8'));
+          if (validSummary(legacy)) pairs = legacy; // one-time fold-in; from now on guide.json.summary is authoritative
+          else process.stderr.write('warning: legacy map-summary.json is not shaped as {from,to,n}[] — not folded in; no "Who calls whom" section this run\n');
+        } catch (e) { process.stderr.write(`warning: legacy map-summary.json could not be parsed (${e.message}) — not folded in; no "Who calls whom" section this run\n`); }
+      }
+    }
   }
   const block = renderBlock(guide, { date, pairs });
   if (Buffer.byteLength(block) > BLOCK_BUDGET) throw new Error(`the guide block is ${Buffer.byteLength(block)} bytes; the budget is ${BLOCK_BUDGET} (~1k tokens) — shorten it: point to sources, do not copy them`);
@@ -199,8 +228,12 @@ export function buildGuide({ org, guide, integrations = null, date }) {
   if (existsSync(claudePath) && lstatSync(claudePath).isSymbolicLink()) throw new Error(`${claudePath} is a symlink — refusing to write through it`);
   const current = existsSync(claudePath) ? readFileSync(claudePath, 'utf8') : '';
   // OG-7: every persisted guide.json carries "version": 1, whether or not the proposal supplied one.
+  // OG-4: `summary` is stamped from the computed `pairs` (fresh, carried-forward, or folded-in from
+  // the legacy file) — never whatever stray value the input proposal happened to carry — and is
+  // omitted entirely when there is nothing to record (no map has ever run for this guide).
   const stamped = { ...guide, version: 1 };
-  return { claudePath, current, next: spliceBlock(current, block), block, guide: stamped, pairs: map ? pairs : null, summaryPath, map: map ? renderSystemMap({ date, branch: '(org folder, not versioned)', ...map }) : null, mapPath: join(org, 'SYSTEM-MAP.md'), profilingProblems };
+  if (pairs !== null) stamped.summary = pairs; else delete stamped.summary;
+  return { claudePath, current, next: spliceBlock(current, block), block, guide: stamped, map: map ? renderSystemMap({ date, branch: '(org folder, not versioned)', ...map }) : null, mapPath: join(org, 'SYSTEM-MAP.md'), profilingProblems };
 }
 
 function diff(a, b, label) {
@@ -212,19 +245,20 @@ function diff(a, b, label) {
 }
 
 export function applyGuide(built, { org, stamp = new Date().toISOString().replace(/[:.]/g, '-') } = {}) {
+  const guidePath = join(org, '.claude', 'org-workspace', 'guide.json');
+  // OG-12/F5/F7/F10: EVERY write-target precondition is checked before writing ANY of them — CLAUDE.md
+  // is no longer written first and left standing when a later check (guide.json's, SYSTEM-MAP.md's)
+  // throws. (CLAUDE.md's own symlink-ness was already checked in buildGuide, before `built` existed.)
+  if (existsSync(guidePath) && lstatSync(guidePath).isSymbolicLink()) throw new Error(`${guidePath} is a symlink — refusing to write through it`);
+  if (built.map && existsSync(built.mapPath) && lstatSync(built.mapPath).isSymbolicLink()) throw new Error(`${built.mapPath} is a symlink — refusing to write through it`);
   const backups = join(org, '.claude', 'org-workspace', 'backups');
   mkdirSync(backups, { recursive: true });
   if (built.current) writeFileSync(join(backups, `CLAUDE.md.${stamp}`), built.current);
   writeFileSync(built.claudePath, built.next);
-  const guidePath = join(org, '.claude', 'org-workspace', 'guide.json');
-  if (existsSync(guidePath) && lstatSync(guidePath).isSymbolicLink()) throw new Error(`${guidePath} is a symlink — refusing to write through it`);
   writeFileSync(guidePath, JSON.stringify(built.guide, null, 2) + '\n');
-  if (built.pairs) {
-    if (existsSync(built.summaryPath) && lstatSync(built.summaryPath).isSymbolicLink()) throw new Error(`${built.summaryPath} is a symlink — refusing to write through it`);
-    writeFileSync(built.summaryPath, JSON.stringify(built.pairs, null, 2) + '\n');
-  }
+  // OG-4: map-summary.json is retired — guide.json's own "summary" field is the only store, written
+  // above as part of built.guide. Nothing else is written for it, not even transitionally.
   if (built.map) {
-    if (existsSync(built.mapPath) && lstatSync(built.mapPath).isSymbolicLink()) throw new Error(`${built.mapPath} is a symlink — refusing to write through it`);
     if (existsSync(built.mapPath)) writeFileSync(join(backups, `SYSTEM-MAP.md.${stamp}`), readFileSync(built.mapPath));
     writeFileSync(built.mapPath, built.map);
   }

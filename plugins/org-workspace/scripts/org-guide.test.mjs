@@ -2,7 +2,7 @@ import './hermetic-git.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, realpathSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, realpathSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -257,4 +257,148 @@ test('re-applying without --integrations keeps the who-calls-whom summary of the
   const s = claudeOf(root);
   assert.match(s, /- `web` → `api`: 1/);
   assert.match(s, /a new thread/);
+});
+
+// OG-1/OG-19(h)/INV-OG-26 (scope cut 2026-10-27): the block is GENERATED output; every apply
+// overwrites whatever is currently between the markers, including a hand edit — no refusal, no
+// detection, no renderHash.
+test('OG-1/OG-19(h): a hand edit inside the markers is overwritten by the next apply, not refused', () => {
+  const root = org();
+  run(root);
+  const before = claudeOf(root);
+  const i = before.indexOf(BEGIN); const j = before.indexOf(END) + END.length;
+  const handEdited = before.slice(0, i) + before.slice(i, j).replace('Acme', 'HAND-EDITED-ACME') + before.slice(j);
+  assert.notStrictEqual(handEdited, before, 'sanity: the hand edit actually changed the block');
+  writeFileSync(join(root, 'CLAUDE.md'), handEdited);
+  const b2 = build(root); // same guide.json content as the first apply
+  applyGuide(b2, { org: root, stamp: 's2' }); // must NOT throw
+  const after = claudeOf(root);
+  assert.doesNotMatch(after, /HAND-EDITED-ACME/, 'the hand edit is gone');
+  assert.strictEqual(after, before, 'the block is back to exactly the fresh render (byte-identical to the first apply)');
+});
+
+test('OG-6/INV-OG-21: the marker says the block is generated/overwritten and names /org-learn', () => {
+  assert.match(BEGIN, /\/org-learn/);
+  assert.match(BEGIN, /generated|overwritten|OVERWRITTEN/);
+});
+
+// OG-10/F3/INV-OG-6: a bare, unquoted AWS-access-key-shaped token in an integration map's
+// unmatched[].reason is refused end-to-end through buildGuide — not just at the hasSecret-unit level.
+test('OG-10/INV-OG-6: a bare AKIA-shaped token in unmatched[].reason is refused; SYSTEM-MAP.md unwritten', () => {
+  const root = org();
+  const bad = { edges: [], unmatched: [{ ...UNMATCHED, reason: 'uses key AKIAABCDEFGHIJKLMNOP for auth' }] };
+  assert.throws(() => build(root, bad), /secret-looking value/);
+  assert.strictEqual(existsSync(join(root, 'SYSTEM-MAP.md')), false);
+});
+
+// INV-OG-24 (representative subset): every pattern OG-10 lists is refused in BOTH the guide path and
+// the map path, not only the AKIA shape.
+const SECRET_SAMPLES = [
+  'ghp_' + 'a'.repeat(36),
+  'sk-live-' + 'a'.repeat(24),
+  'xoxb-' + '1'.repeat(10),
+  'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
+  'Bearer ' + 'a'.repeat(20),
+  'https://user:pass@host/x',
+];
+for (const secret of SECRET_SAMPLES) {
+  test(`INV-OG-24: "${secret.slice(0, 12)}..." is refused in the guide path (truth[].note)`, () => {
+    const root = org();
+    assert.match(validateGuide({ ...GUIDE, truth: [{ topic: 'Keys', where: 'x', note: secret }] }).join('\n'), /secret-looking value/);
+  });
+  test(`INV-OG-24: "${secret.slice(0, 12)}..." is refused in the map path (edge.note)`, () => {
+    const root = org();
+    assert.throws(() => build(root, { edges: [{ ...EDGE, note: secret }] }), /secret-looking value/);
+  });
+}
+
+// OG-4/F19/F20: the who-calls-whom summary lives in guide.json's own "summary" field; map-summary.json
+// is a one-time legacy migration, never read again afterward.
+test('OG-4: a legacy map-summary.json is folded into guide.json once, then never read again', () => {
+  const root = org();
+  run(root, null, { ...GUIDE }); // first apply: no integrations, no legacy file -> no summary yet
+  assert.strictEqual(JSON.parse(readFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), 'utf8')).summary, undefined);
+  write(root, '.claude/org-workspace/map-summary.json', JSON.stringify([{ from: 'web', to: 'api', n: 3 }]));
+  run(root, null, { ...GUIDE, threads: [{ text: 'folded in', source: 's' }] });
+  const g1 = JSON.parse(readFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), 'utf8'));
+  assert.deepStrictEqual(g1.summary, [{ from: 'web', to: 'api', n: 3 }]);
+  assert.match(claudeOf(root), /- `web` → `api`: 3/);
+  // Now change the legacy file; it must NEVER be read again (guide.json.summary is authoritative).
+  write(root, '.claude/org-workspace/map-summary.json', JSON.stringify([{ from: 'web', to: 'api', n: 999 }]));
+  run(root, null, { ...GUIDE, threads: [] });
+  const g2 = JSON.parse(readFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), 'utf8'));
+  assert.deepStrictEqual(g2.summary, [{ from: 'web', to: 'api', n: 3 }], 'the stale legacy file is ignored once guide.json has its own summary');
+});
+
+test('OG-4/OG-19(g): a symlinked legacy map-summary.json makes the apply refuse, nothing written', () => {
+  const root = org();
+  run(root, null, { ...GUIDE });
+  const outside = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-legacy-'))), 'target.json');
+  writeFileSync(outside, JSON.stringify([{ from: 'a', to: 'b', n: 1 }]));
+  symlinkSync(outside, join(root, '.claude', 'org-workspace', 'map-summary.json'));
+  const before = claudeOf(root);
+  assert.throws(() => build(root, null, { ...GUIDE, threads: [{ text: 'x', source: 's' }] }), /symlink/);
+  assert.strictEqual(claudeOf(root), before);
+});
+
+test('OG-4/OG-19(c)(g): a shape-invalid legacy map-summary.json only warns; no crash, no section', () => {
+  const root = org();
+  run(root, null, { ...GUIDE });
+  write(root, '.claude/org-workspace/map-summary.json', JSON.stringify({ not: 'an array' }));
+  const original = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (s) => { lines.push(s); return true; };
+  let b;
+  try { b = build(root, null, { ...GUIDE, threads: [{ text: 'still works', source: 's' }] }); } finally { process.stderr.write = original; }
+  applyGuide(b, { org: root, stamp: 's-inv' });
+  assert.ok(lines.some((l) => /not shaped as/.test(l)), `expected a shape warning, got: ${JSON.stringify(lines)}`);
+  assert.doesNotMatch(claudeOf(root), /Who calls whom/);
+});
+
+test('OG-4/OG-19(c): a malformed "summary" field already on guide.json only warns; no crash, no section', () => {
+  const root = org();
+  run(root, null, { ...GUIDE });
+  const g = JSON.parse(readFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), 'utf8'));
+  writeFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), JSON.stringify({ ...g, summary: [{ from: 'web' }] }));
+  const original = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (s) => { lines.push(s); return true; };
+  let b;
+  try { b = build(root); } finally { process.stderr.write = original; }
+  applyGuide(b, { org: root, stamp: 's-inv2' });
+  assert.ok(lines.some((l) => /not shaped as/.test(l)), `expected a shape warning, got: ${JSON.stringify(lines)}`);
+  assert.doesNotMatch(claudeOf(root), /Who calls whom/);
+});
+
+// OG-19(a)/F5/F7/F10: symlinked write targets, including the SYSTEM-MAP.md case (only a real write
+// target when --integrations is supplied — a guide-only apply never touches it).
+test('OG-19(a): a symlinked guide.json makes applyGuide throw; CLAUDE.md is unchanged', () => {
+  const root = org();
+  run(root);
+  const before = claudeOf(root);
+  const outside = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-sym-'))), 'g.json');
+  writeFileSync(outside, 'old');
+  const guidePath = join(root, '.claude', 'org-workspace', 'guide.json');
+  unlinkSync(guidePath);
+  symlinkSync(outside, guidePath);
+  // A symlinked guide.json is refused the moment anything tries to read or write through it — here
+  // that happens during build's OG-4 carry-forward read, even before applyGuide's own precondition
+  // check would run; either way, nothing is ever written (OG-12).
+  assert.throws(() => { const b = build(root, null, { ...GUIDE, threads: [{ text: 'new', source: 's' }] }); applyGuide(b, { org: root, stamp: 's-sym' }); }, /symlink/);
+  assert.strictEqual(claudeOf(root), before, 'CLAUDE.md must remain byte-identical — OG-12');
+  assert.strictEqual(readFileSync(outside, 'utf8'), 'old', 'the symlink target is untouched');
+});
+
+test('OG-19(a): a symlinked SYSTEM-MAP.md (a real target this run) makes applyGuide throw, CLAUDE.md unchanged', () => {
+  const root = org();
+  run(root, { edges: [EDGE] });
+  const before = claudeOf(root);
+  const outside = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-sym2-'))), 'map.md');
+  writeFileSync(outside, 'old map');
+  unlinkSync(join(root, 'SYSTEM-MAP.md'));
+  symlinkSync(outside, join(root, 'SYSTEM-MAP.md'));
+  const b = build(root, { edges: [EDGE] });
+  assert.throws(() => applyGuide(b, { org: root, stamp: 's-sym3' }), /symlink/);
+  assert.strictEqual(claudeOf(root), before);
+  assert.strictEqual(readFileSync(outside, 'utf8'), 'old map');
 });
