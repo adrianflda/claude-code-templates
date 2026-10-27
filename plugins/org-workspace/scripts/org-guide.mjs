@@ -50,7 +50,14 @@ function readGuideFileRaw(org) {
   for (const part of ['.claude', 'org-workspace', 'guide.json']) {
     p = join(p, part);
     let st;
-    try { st = lstatSync(p); } catch { return null; } // nothing written yet at this point: not an error
+    try { st = lstatSync(p); } catch (e) {
+      // Only ENOENT means "nothing written yet" (not an error). Any other lstat failure — EACCES,
+      // ENOTDIR (a path component is a plain file), EIO, ELOOP — must fail closed (OG-2): silently
+      // treating it as absent would make readGuideForbidden return [] and let discover open a
+      // forbidden repo (panel HIGH, review e2c3801d).
+      if (e.code === 'ENOENT') return null;
+      throw new Error(`cannot stat ${p}: ${e.message}`);
+    }
     if (st.isSymbolicLink()) throw new Error(`${p} is a symlink — refusing to read through it`);
   }
   let raw;
@@ -264,10 +271,27 @@ function renderBudgetedBlock(guide, { date, pairs }) {
   return block;
 }
 
+// Walks each path component under `root`, refusing if ANY of them — a parent directory or the final
+// target — is a symlink, dangling or not. `existsSync` (used previously) follows symlinks to decide
+// existence, so a DANGLING symlink (its target does not exist yet) reported existsSync() === false
+// and skipped the check entirely; writeFileSync then followed the link and created the file outside
+// the org folder (panel MEDIUM, review e2c3801d). lstat does not follow the link, so this catches it
+// whether or not the target exists. A component that genuinely does not exist yet (ENOENT) is fine —
+// nothing is written through it yet; any other stat error fails closed.
+function assertPathNotSymlinked(root, relParts) {
+  let p = root;
+  for (const part of relParts) {
+    p = join(p, part);
+    let st;
+    try { st = lstatSync(p); } catch (e) { if (e.code === 'ENOENT') return; throw new Error(`cannot stat ${p}: ${e.message}`); }
+    if (st.isSymbolicLink()) throw new Error(`${p} is a symlink — refusing to write through it`);
+  }
+}
+
 // The current <org>/CLAUDE.md ('' when absent); refuses to go through a symlink.
 function readClaudeMd(org) {
   const claudePath = join(org, 'CLAUDE.md');
-  if (existsSync(claudePath) && lstatSync(claudePath).isSymbolicLink()) throw new Error(`${claudePath} is a symlink — refusing to write through it`);
+  assertPathNotSymlinked(org, ['CLAUDE.md']);
   return { claudePath, current: existsSync(claudePath) ? readFileSync(claudePath, 'utf8') : '' };
 }
 
@@ -304,15 +328,21 @@ function diff(a, b, label) {
 
 // OG-12/F5/F7/F10: EVERY write-target precondition is checked before writing ANY of them — CLAUDE.md
 // is no longer written first and left standing when a later check (guide.json's, SYSTEM-MAP.md's)
-// throws. (CLAUDE.md's own symlink-ness was already checked in buildGuide, before `built` existed.)
-function assertWriteTargetsAreSafe(built, guidePath) {
-  if (existsSync(guidePath) && lstatSync(guidePath).isSymbolicLink()) throw new Error(`${guidePath} is a symlink — refusing to write through it`);
-  if (built.map && existsSync(built.mapPath) && lstatSync(built.mapPath).isSymbolicLink()) throw new Error(`${built.mapPath} is a symlink — refusing to write through it`);
+// throws. CLAUDE.md is re-checked here too (not just in buildGuide): it could have been swapped for a
+// symlink between build() and apply(). The guide.json check walks every path component (.claude,
+// .claude/org-workspace, guide.json), so a symlinked intermediate directory is refused even when
+// --integrations was given (buildGuide's own carry-forward check, which also walks every component,
+// only runs on the no-new-map path) — that same walk also protects the backups directory and
+// SYSTEM-MAP.md's own backup copy, both written under .claude/org-workspace.
+function assertWriteTargetsAreSafe(built, org) {
+  assertPathNotSymlinked(org, ['CLAUDE.md']);
+  assertPathNotSymlinked(org, ['.claude', 'org-workspace', 'guide.json']);
+  if (built.map) assertPathNotSymlinked(org, ['SYSTEM-MAP.md']);
 }
 
 export function applyGuide(built, { org, stamp = new Date().toISOString().replace(/[:.]/g, '-') } = {}) {
   const guidePath = join(org, '.claude', 'org-workspace', 'guide.json');
-  assertWriteTargetsAreSafe(built, guidePath);
+  assertWriteTargetsAreSafe(built, org);
   const backups = join(org, '.claude', 'org-workspace', 'backups');
   mkdirSync(backups, { recursive: true });
   if (built.current) writeFileSync(join(backups, `CLAUDE.md.${stamp}`), built.current);

@@ -2,7 +2,7 @@ import './hermetic-git.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, realpathSync, symlinkSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, realpathSync, symlinkSync, unlinkSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -128,6 +128,17 @@ test('a symlinked CLAUDE.md is refused', () => {
   assert.throws(() => build(root), /symlink/);
 });
 
+// Panel MEDIUM (review e2c3801d): `existsSync(p) && lstatSync(p).isSymbolicLink()` follows the link
+// to decide existence first — a DANGLING symlink (target does not exist) reports existsSync() false,
+// so the check is skipped and writeFileSync follows the link, creating a file outside the org folder.
+test('a DANGLING symlinked CLAUDE.md is refused, not silently followed (writes nowhere)', () => {
+  const root = org({ claude: null });
+  const nowhere = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-dangle-'))), 'does-not-exist.md');
+  symlinkSync(nowhere, join(root, 'CLAUDE.md'));
+  assert.throws(() => build(root), /symlink/);
+  assert.strictEqual(existsSync(nowhere), false, 'the dangling target must not have been created');
+});
+
 test('guide validation: shape, names, single-line secret-free text, no markers, bounded threads', () => {
   for (const [g, re] of [
     [{ ...GUIDE, extra: 1 }, /unknown key "extra"/],
@@ -158,6 +169,25 @@ test('the forbidden list written by the guide is what discover reads back (and n
   assert.deepStrictEqual(readGuideForbidden(root), ['web-qa']);
   const c = discover({ org: root }).candidates.find((x) => x.name === 'web-qa');
   assert.strictEqual(c.forbidden, true); assert.strictEqual(c.opened, false);
+});
+
+// Panel HIGH (review e2c3801d): readGuideFileRaw's bare `catch { return null; }` treated EVERY lstat
+// error as "not written yet" (ENOENT), including ENOTDIR/EACCES/EIO/ELOOP — fails OPEN (OG-2 requires
+// fail-closed on anything but a genuine absence).
+test('OG-2: readGuideForbidden fails closed on a real stat error, not just absence (ENOTDIR)', () => {
+  const root = org();
+  writeFileSync(join(root, '.claude'), 'a plain file, not a directory'); // makes '.claude/org-workspace' ENOTDIR
+  assert.throws(() => readGuideForbidden(root), /ENOTDIR|not a directory|cannot stat/);
+});
+
+test('OG-2: readGuideForbidden fails closed on EACCES (a directory it cannot stat into)', (t) => {
+  if (process.getuid && process.getuid() === 0) { t.skip('running as root: chmod 000 does not deny root'); return; }
+  const root = org();
+  mkdirSync(join(root, '.claude'));
+  chmodSync(join(root, '.claude'), 0o000);
+  try {
+    assert.throws(() => readGuideForbidden(root), /EACCES|permission|cannot stat/);
+  } finally { chmodSync(join(root, '.claude'), 0o755); }
 });
 
 // --- the integration map (SYSTEM-MAP.md + the summary in the block) ---
@@ -426,6 +456,8 @@ test('OG-19(a): a symlinked guide.json makes applyGuide throw; CLAUDE.md is unch
 
 test('OG-12: applyGuide refuses a guide.json that becomes a symlink only after build() already ran (its own precondition, not just buildGuide\'s)', () => {
   const root = org();
+  const before = claudeOf(root); // F5/F7: CLAUDE.md must stay byte-identical — it must never be
+  // written before guide.json's own precondition is checked.
   const b = build(root); // first ever build: guide.json does not exist yet, so build()'s own read is a no-op
   const outside = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-sym4-'))), 'g.json');
   writeFileSync(outside, 'old');
@@ -434,6 +466,21 @@ test('OG-12: applyGuide refuses a guide.json that becomes a symlink only after b
   symlinkSync(outside, guidePath);
   assert.throws(() => applyGuide(b, { org: root, stamp: 's-sym4' }), /symlink/);
   assert.strictEqual(readFileSync(outside, 'utf8'), 'old', 'the symlink target is untouched');
+  assert.strictEqual(claudeOf(root), before, 'CLAUDE.md must remain byte-identical (F5/F7)');
+  assert.strictEqual(existsSync(join(root, '.claude', 'org-workspace', 'backups')), false, 'no backup file was created either — nothing was written at all');
+});
+
+test('a DANGLING symlinked guide.json is refused by applyGuide, not silently followed', () => {
+  const root = org();
+  const before = claudeOf(root);
+  const b = build(root);
+  const nowhere = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-dangle2-'))), 'does-not-exist.json');
+  const guidePath = join(root, '.claude', 'org-workspace', 'guide.json');
+  mkdirSync(dirname(guidePath), { recursive: true });
+  symlinkSync(nowhere, guidePath);
+  assert.throws(() => applyGuide(b, { org: root, stamp: 's-dangle2' }), /symlink/);
+  assert.strictEqual(existsSync(nowhere), false, 'the dangling target must not have been created');
+  assert.strictEqual(claudeOf(root), before);
 });
 
 test('OG-19(a): a symlinked SYSTEM-MAP.md (a real target this run) makes applyGuide throw, CLAUDE.md unchanged', () => {
@@ -448,6 +495,19 @@ test('OG-19(a): a symlinked SYSTEM-MAP.md (a real target this run) makes applyGu
   assert.throws(() => applyGuide(b, { org: root, stamp: 's-sym3' }), /symlink/);
   assert.strictEqual(claudeOf(root), before);
   assert.strictEqual(readFileSync(outside, 'utf8'), 'old map');
+});
+
+test('a DANGLING symlinked SYSTEM-MAP.md is refused, not silently followed', () => {
+  const root = org();
+  run(root, { edges: [EDGE] });
+  const before = claudeOf(root);
+  const nowhere = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-dangle3-'))), 'does-not-exist.md');
+  unlinkSync(join(root, 'SYSTEM-MAP.md'));
+  symlinkSync(nowhere, join(root, 'SYSTEM-MAP.md'));
+  const b = build(root, { edges: [EDGE] });
+  assert.throws(() => applyGuide(b, { org: root, stamp: 's-dangle3' }), /symlink/);
+  assert.strictEqual(existsSync(nowhere), false, 'the dangling target must not have been created');
+  assert.strictEqual(claudeOf(root), before);
 });
 
 // OG-20/INV-OG-12: a disposable, read-only copy of the real Matchbox guide.json's bytes resolves the
