@@ -190,6 +190,17 @@ test('OG-2: readGuideForbidden fails closed on EACCES (a directory it cannot sta
   } finally { chmodSync(join(root, '.claude'), 0o755); }
 });
 
+// Panel LOW (review e2c3801d, two citations): a `forbidden` entry that fails isRepoName was silently
+// dropped (`.filter(isRepoName)`) instead of failing closed — a hand-edited or stricter-rule-rejected
+// name shrinks the deny set with no signal, and discover then opens a repo meant to be forbidden.
+test('OG-2: readGuideForbidden throws on an invalid forbidden entry instead of silently dropping it', () => {
+  const root = org();
+  write(root, '.claude/org-workspace/guide.json', JSON.stringify({ org: 't', repos: [], forbidden: ['ok-name', '../etc'] }));
+  assert.throws(() => readGuideForbidden(root), /invalid repo name|forbidden/);
+  write(root, '.claude/org-workspace/guide.json', JSON.stringify({ org: 't', repos: [], forbidden: ['ok-name', 7] }));
+  assert.throws(() => readGuideForbidden(root), /invalid repo name|forbidden/);
+});
+
 // --- the integration map (SYSTEM-MAP.md + the summary in the block) ---
 test('with a valid map: SYSTEM-MAP.md is written and the block carries a pointer + one line per pair', () => {
   const root = org();

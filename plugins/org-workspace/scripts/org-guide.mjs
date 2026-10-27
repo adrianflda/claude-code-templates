@@ -72,7 +72,12 @@ export function readGuideForbidden(org) {
   const g = readGuideFileRaw(org);
   if (g === null) return [];
   if (g.forbidden !== undefined && !Array.isArray(g.forbidden)) throw new Error('guide.json: "forbidden" must be an array');
-  return (g.forbidden || []).filter(isRepoName);
+  const list = g.forbidden || [];
+  // Fail closed on a bad entry (OG-2) instead of silently dropping it: a hand-edited or
+  // stricter-rule-rejected name must not shrink the deny set with no signal (panel LOW, e2c3801d).
+  const bad = list.find((n) => !isRepoName(n));
+  if (bad !== undefined) throw new Error(`guide.json: forbidden entry ${JSON.stringify(bad)} is an invalid repo name`);
+  return list;
 }
 
 // OG-7/OG-4: `version` and `summary` (the who-calls-whom carry-forward, OG-4) are tool-stamped fields
