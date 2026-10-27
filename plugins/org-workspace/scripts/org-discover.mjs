@@ -100,7 +100,7 @@ export function discover({ org, repos, exclude = [], forbid = [] } = {}) {
 
   // The deny set comes FIRST, so forbidden / excluded dirs are never opened.
   const forbiddenBy = new Map(forbid.map((n) => [n, 'option']));
-  for (const n of readGuideForbidden(root)) if (!forbiddenBy.has(n)) forbiddenBy.set(n, 'CLAUDE.md');
+  for (const n of readGuideForbidden(root)) if (!forbiddenBy.has(n)) forbiddenBy.set(n, 'guide.json');
 
   const listed = Array.isArray(repos) && repos.length ? [...new Set(repos)] : null;
   const candidates = [];

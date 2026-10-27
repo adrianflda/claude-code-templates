@@ -35,15 +35,25 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u20
 const KEYS = { repos: ['name', 'role', 'base', 'harnessOf', 'note'], truth: ['topic', 'where', 'note'], conventions: ['rule', 'source'], threads: ['text', 'source'] };
 const MARKER_TEXT = /org-workspace:(begin|end)/;
 
-// The forbidden repos recorded in the guide block of <org>/CLAUDE.md (empty when there is none).
+// OG-1/OG-2/OG-3: `guide.json` is the sole authoritative record of the forbidden-repo list — the
+// rendered CLAUDE.md block is a derived view, never parsed back. Absent guide.json (no /org-init has
+// ever run) is a normal, empty-forbidden-list case; a guide.json that exists but cannot be trusted
+// (a symlink anywhere on its path, invalid JSON, or the wrong shape) fails closed instead.
 export function readGuideForbidden(org) {
-  const p = join(org, 'CLAUDE.md');
-  if (!existsSync(p) || lstatSync(p).isSymbolicLink()) return [];
-  const s = readFileSync(p, 'utf8');
-  const i = s.indexOf(BEGIN); const j = s.indexOf(END);
-  if (i === -1 || j < i) return [];
-  const m = /^- Forbidden \(never open, run or write\): (.+)$/m.exec(s.slice(i, j));
-  return m ? m[1].split(',').map((x) => x.trim().replace(/^`|`$/g, '')).filter(isRepoName) : [];
+  let p = org;
+  for (const part of ['.claude', 'org-workspace', 'guide.json']) {
+    p = join(p, part);
+    let st;
+    try { st = lstatSync(p); } catch { return []; } // nothing written yet at this point: not an error
+    if (st.isSymbolicLink()) throw new Error(`${p} is a symlink — refusing to read through it`);
+  }
+  let raw;
+  try { raw = readFileSync(p, 'utf8'); } catch (e) { throw new Error(`cannot read ${p}: ${e.message}`); }
+  let g;
+  try { g = JSON.parse(raw); } catch (e) { throw new Error(`${p} is not valid JSON: ${e.message}`); }
+  if (!g || typeof g !== 'object' || Array.isArray(g)) throw new Error(`${p} has an unexpected shape (expected an object)`);
+  if (g.forbidden !== undefined && !Array.isArray(g.forbidden)) throw new Error(`${p}: "forbidden" must be an array`);
+  return (g.forbidden || []).filter(isRepoName);
 }
 
 export function validateGuide(g) {

@@ -27,6 +27,8 @@ function repo(root, name, { files = { 'README.md': name }, branches = [], remote
 }
 const orgDir = () => realpathSync(mkdtempSync(join(tmpdir(), 'qk-disc-')));
 const byName = (inv) => Object.fromEntries(inv.candidates.map((c) => [c.name, c]));
+// OG-1/OG-2/OG-3: the forbidden list is read from guide.json, never from CLAUDE.md's rendered block.
+const writeGuide = (org, g) => write(org, '.claude/org-workspace/guide.json', JSON.stringify(g));
 
 test('classifies repos, worktrees, copies, harnesses and plain dirs', () => {
   const org = orgDir();
@@ -60,22 +62,41 @@ test('only repos are suggested; copies, worktrees, plain dirs and forbidden repo
   assert.strictEqual(s.plain.suggested, false);
 });
 
-test('forbidden repos recorded in the CLAUDE.md org guide are carried over and never opened', () => {
+// OG-1/OG-2/OG-3 (F1): the rendered CLAUDE.md block is a derived view only; the forbidden list
+// always comes from guide.json itself, never a regex-parse of the rendered markdown.
+test('forbidden repos recorded in guide.json are carried over and never opened', () => {
   const org = orgDir();
   repo(org, 'app'); repo(org, 'app-qa');
-  writeFileSync(join(org, 'CLAUDE.md'), `# Org rules\n\n${BEGIN}\n## Org guide\n\n- Forbidden (never open, run or write): \`app-qa\`, \`other-qa\`\n${END}\n`);
+  writeGuide(org, { org: 't', repos: [], forbidden: ['app-qa', 'other-qa'] });
   const inv = discover({ org });
   const s = byName(inv);
   assert.strictEqual(s['app-qa'].forbidden, true);
-  assert.strictEqual(s['app-qa'].forbiddenBy, 'CLAUDE.md');
+  assert.strictEqual(s['app-qa'].forbiddenBy, 'guide.json');
   assert.strictEqual(s['app-qa'].opened, false);
   assert.deepStrictEqual(inv.forbidden, ['app-qa', 'other-qa']);
 });
 
-test('a forbidden line OUTSIDE the managed block is not read as a rule', () => {
+test('a forbidden-looking line in CLAUDE.md prose is not read as a rule: only guide.json counts', () => {
   const org = orgDir(); repo(org, 'app'); repo(org, 'app-qa');
-  writeFileSync(join(org, 'CLAUDE.md'), '- Forbidden (never open, run or write): `app`\n');
-  assert.strictEqual(byName(discover({ org })).app.forbidden, false);
+  writeFileSync(join(org, 'CLAUDE.md'), `${BEGIN}\n- Forbidden (never open, run or write): \`app\`\n${END}\n`);
+  assert.strictEqual(byName(discover({ org })).app.forbidden, false, 'CLAUDE.md prose must never be parsed back');
+  writeGuide(org, { org: 't', repos: [], forbidden: ['app'] });
+  assert.strictEqual(byName(discover({ org })).app.forbidden, true, 'the same name IS forbidden once guide.json says so');
+});
+
+// OG-2 (Gherkin "readGuideForbidden fails closed on a corrupt or symlinked guide.json"): a symlinked
+// or unparsable guide.json must throw, never silently fall back to an empty forbidden list.
+test('OG-2: a symlinked or corrupt guide.json makes discover fail closed, not silently empty', () => {
+  const org = orgDir(); repo(org, 'app');
+  const elsewhere = join(realpathSync(mkdtempSync(join(tmpdir(), 'qk-disc-x-'))), 'g.json');
+  writeFileSync(elsewhere, JSON.stringify({ forbidden: ['app'] }));
+  mkdirSync(join(org, '.claude', 'org-workspace'), { recursive: true });
+  symlinkSync(elsewhere, join(org, '.claude', 'org-workspace', 'guide.json'));
+  assert.throws(() => discover({ org }), /symlink/);
+
+  const org2 = orgDir(); repo(org2, 'app');
+  write(org2, '.claude/org-workspace/guide.json', '{not json');
+  assert.throws(() => discover({ org: org2 }), /not valid JSON/);
 });
 test('hidden dirs and plain files are not listed at all (no credential file names in the output)', () => {
   const org = orgDir();
@@ -177,7 +198,7 @@ test('all mode: forbidden and excluded dirs are listed by name and never opened'
 
 test('forbidden names are exposed at the top level, also in listed mode', () => {
   const org = orgDir(); repo(org, 'app'); repo(org, 'qa-team');
-  writeFileSync(join(org, 'CLAUDE.md'), `${BEGIN}\n- Forbidden (never open, run or write): \`guide-forbidden\`\n${END}\n`);
+  writeGuide(org, { org: 't', repos: [], forbidden: ['guide-forbidden'] });
   const inv = discover({ org, repos: ['app'], forbid: ['qa-team'] });
   assert.deepStrictEqual(inv.forbidden, ['guide-forbidden', 'qa-team']);
 });
