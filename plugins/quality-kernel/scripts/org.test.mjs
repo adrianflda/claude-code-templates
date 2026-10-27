@@ -185,16 +185,21 @@ test('orgRepoDir: a symlinked .git, an object alternates file and a linked workt
   assert.match(orgRepoDir(org, 'wt').error, /gitfile/);
 });
 
+// Captures stderr.write calls made while running fn(), restoring the real stream afterward even if
+// fn throws (same guarantee the inlined try/finally versions had).
+function captureStderr(fn) {
+  const original = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (s) => { lines.push(s); return true; };
+  try { return { result: fn(), lines }; } finally { process.stderr.write = original; }
+}
+
 // OG-8/OG-9: a guide.json with no "version" field is grandfathered in as version 1 (the real,
 // pre-existing Matchbox guide.json has none); an explicit unsupported version fails closed instead of
 // a partial read; orgPin stays a pure content hash either way.
 test('OG-8: a guide.json with no "version" field is read as version 1, with a one-line stderr warning', () => {
   const root = orgDir(); // GUIDE (the module-level fixture) has no "version" field
-  const original = process.stderr.write;
-  const lines = [];
-  process.stderr.write = (s) => { lines.push(s); return true; };
-  let m;
-  try { m = readOrgManifest(root); } finally { process.stderr.write = original; }
+  const { result: m, lines } = captureStderr(() => readOrgManifest(root));
   assert.ok(m && m.repos.app, 'still accepted as a usable manifest');
   assert.strictEqual(lines.length, 1, `expected exactly one warning, got: ${JSON.stringify(lines)}`);
   assert.match(lines[0], /no "version" field/);
@@ -212,11 +217,7 @@ test('OG-8: an explicit unsupported version fails closed, never a partial/best-e
 
 test('OG-8: version 1 (explicit) is accepted with no warning', () => {
   const root = orgDir({ guide: { ...GUIDE, version: 1 } });
-  const original = process.stderr.write;
-  const lines = [];
-  process.stderr.write = (s) => { lines.push(s); return true; };
-  let m;
-  try { m = readOrgManifest(root); } finally { process.stderr.write = original; }
+  const { result: m, lines } = captureStderr(() => readOrgManifest(root));
   assert.ok(m && m.repos.app);
   assert.deepStrictEqual(lines, []);
 });
