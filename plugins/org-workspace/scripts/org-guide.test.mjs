@@ -429,3 +429,27 @@ test('OG-19(a): a symlinked SYSTEM-MAP.md (a real target this run) makes applyGu
   assert.strictEqual(claudeOf(root), before);
   assert.strictEqual(readFileSync(outside, 'utf8'), 'old map');
 });
+
+// OG-20/INV-OG-12: a disposable, read-only copy of the real Matchbox guide.json's bytes resolves the
+// same repos/forbidden set before and after a no-"--integrations" apply — the real org folder itself
+// is only ever opened once, read-only, by the `cp`-equivalent below; no real mbvs-* repo directories
+// are checked out, and none are needed (no --integrations means buildGuide's profile() branch never
+// runs). Machine-specific: skipped when the real file is not present (matches QA step 7's own wording).
+test('OG-20/INV-OG-12: real Matchbox guide.json bytes resolve the same repos/forbidden before and after an apply', async (t) => {
+  const REAL = '/Users/adrian/Projects/Matchbox/.claude/org-workspace/guide.json';
+  if (!existsSync(REAL)) { t.skip('real guide.json not present on this machine'); return; }
+  const { readOrgManifest } = await import('../../quality-kernel/scripts/org.mjs');
+  const realBytesBefore = readFileSync(REAL);
+  const fix = realpathSync(mkdtempSync(join(tmpdir(), 'inv12-')));
+  mkdirSync(join(fix, '.claude', 'org-workspace'), { recursive: true });
+  const fixGuidePath = join(fix, '.claude', 'org-workspace', 'guide.json');
+  writeFileSync(fixGuidePath, realBytesBefore); // read-only copy; REAL is never opened for writing
+  const before = readOrgManifest(fix);
+  const beforeSet = { repos: Object.keys(before.repos).sort(), forbidden: [...before.forbidden].sort() };
+  const r = spawnSync('node', [cli, '--org', fix, '--guide', fixGuidePath, '--date', '2026-10-26', '--apply'], { encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const after = readOrgManifest(fix);
+  const afterSet = { repos: Object.keys(after.repos).sort(), forbidden: [...after.forbidden].sort() };
+  assert.deepStrictEqual(afterSet, beforeSet, 'readOrgManifest must resolve the same repos/forbidden before and after the schema-version apply');
+  assert.deepStrictEqual(readFileSync(REAL), realBytesBefore, 'the real Matchbox guide.json must never be modified by this verification');
+});
