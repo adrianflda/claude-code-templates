@@ -28,6 +28,17 @@ diverged on 2026-10-08; this entry carries `main`'s 0.6.0 (2026-10-26) notes. Th
 - `scripts/entrypoint.mjs` is removed: `route.mjs` and `qk-org-gate.mjs` use `main`'s
   `scripts/is-main.mjs`, which fixed the same symlinked-entrypoint bug and has its own tests.
 
+### Changed — org guide schema version (contract: docs/contracts/org-guide-v1.md, OG-8/OG-9)
+- `readOrgManifest` now grandfathers a `guide.json` with no `"version"` field in as version 1 (the
+  real, pre-existing Matchbox `guide.json` has none, so the org gate keeps working with zero manual
+  migration), printing a one-line warning to stderr that names the command (`/org-learn --apply` or
+  `org-guide.mjs --apply`) that stamps the version in. An explicit, unsupported `version` (anything
+  other than `1`) now fails closed with a named error instead of a silent partial read; `findOrg`
+  surfaces that error in place of the generic "no usable org guide" message.
+- `orgPin` needed no change: it was already a pure content hash of `guide.json`'s bytes (plus
+  `.quality-kernel/repos/`), so it changes correctly the moment a version/hash stamp changes those
+  bytes — a regression test now locks this in.
+
 
 ### Changed
 - **The blind breaker no longer has a shell.** `scripts/breaker-claude.mjs` now runs in two stages:

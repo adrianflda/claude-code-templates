@@ -1,6 +1,6 @@
 {
   "name": "org-workspace",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A light global guide for an org folder of many repos. /org-init discovers the repos and maps who calls whom (SYSTEM-MAP.md, every connection cited file:line on both sides) and writes a short managed block into the CLAUDE.md at the folder root — the file Claude Code already loads — recording where the truth of each thing lives. /org-learn proposes a small update to that block from a conversation. Pointers, not copies; a ~1k-token budget; nothing is written without the user's OK.",
   "author": { "name": "Adrian" },
   "keywords": ["claude-md", "multi-repo", "org", "system-map", "integrations", "knowledge"],

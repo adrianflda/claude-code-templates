@@ -27,7 +27,7 @@
       "name": "org-workspace",
       "source": "./plugins/org-workspace",
       "description": "A light global guide for an org folder of many repos: /org-init maps who calls whom and writes a short managed block into the root CLAUDE.md saying where the truth of each thing lives; /org-learn updates it from a conversation.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "productivity",
       "keywords": ["claude-md", "multi-repo", "org", "system-map", "integrations"]
     },
