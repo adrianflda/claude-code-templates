@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdi
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildGuide, applyGuide, validateGuide, readGuideForbidden, spliceBlock, BEGIN, END, BLOCK_BUDGET } from './org-guide.mjs';
+import { buildGuide, applyGuide, validateGuide, readGuideForbidden, spliceBlock, summarizeEdges, stampGuide, BEGIN, END, BLOCK_BUDGET } from './org-guide.mjs';
 import { discover } from './org-discover.mjs';
 
 // The org guide lives in a managed block of <org>/CLAUDE.md (the file Claude Code already loads);
@@ -472,4 +472,37 @@ test('OG-20/INV-OG-12: real Matchbox guide.json bytes resolve the same repos/for
   const afterSet = { repos: Object.keys(after.repos).sort(), forbidden: [...after.forbidden].sort() };
   assert.deepStrictEqual(afterSet, beforeSet, 'readOrgManifest must resolve the same repos/forbidden before and after the schema-version apply');
   assert.deepStrictEqual(readFileSync(REAL), realBytesBefore, 'the real Matchbox guide.json must never be modified by this verification');
+});
+
+// --- buildGuide's step seams (summarizeEdges, stampGuide) ---
+
+test('summarizeEdges counts edges per caller/provider pair, in order of first appearance', () => {
+  const edges = [
+    { from: 'web', to: 'api' }, { from: 'admin', to: 'api' }, { from: 'web', to: 'api' },
+    { from: 'web', to: 'aws' }, { from: 'admin', to: 'api' }, { from: 'web', to: 'api' },
+  ];
+  assert.deepStrictEqual(summarizeEdges(edges), [
+    { from: 'web', to: 'api', n: 3 }, { from: 'admin', to: 'api', n: 2 }, { from: 'web', to: 'aws', n: 1 },
+  ]);
+  assert.deepStrictEqual(summarizeEdges([]), []);
+});
+
+test('summarizeEdges keeps pairs whose names share a prefix apart (a-b -> c is not a -> b-c)', () => {
+  assert.deepStrictEqual(summarizeEdges([{ from: 'a-b', to: 'c' }, { from: 'a', to: 'b-c' }]), [
+    { from: 'a-b', to: 'c', n: 1 }, { from: 'a', to: 'b-c', n: 1 },
+  ]);
+});
+
+test('stampGuide always writes version 1 and replaces any proposed summary with the computed pairs', () => {
+  const proposal = { org: 'Acme', repos: [], version: 1, summary: [{ from: 'stale', to: 'x', n: 9 }] };
+  const pairs = [{ from: 'web', to: 'api', n: 2 }];
+  assert.deepStrictEqual(stampGuide(proposal, pairs), { org: 'Acme', repos: [], version: 1, summary: pairs });
+  assert.deepStrictEqual(stampGuide({ org: 'Acme' }, []), { org: 'Acme', version: 1, summary: [] });
+  assert.strictEqual(proposal.summary[0].from, 'stale', 'the proposal object itself is not mutated');
+});
+
+test('stampGuide omits summary entirely when there is nothing to record (pairs === null)', () => {
+  const stamped = stampGuide({ org: 'Acme', summary: [{ from: 'stale', to: 'x', n: 9 }] }, null);
+  assert.deepStrictEqual(stamped, { org: 'Acme', version: 1 });
+  assert.ok(!Object.hasOwn(stamped, 'summary'));
 });

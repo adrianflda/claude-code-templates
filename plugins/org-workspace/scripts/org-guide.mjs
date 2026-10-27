@@ -203,55 +203,95 @@ function carriedSummaryFromLegacyFile(org) {
   }
 }
 
-export function buildGuide({ org, guide, integrations = null, date }) {
+// buildGuide's steps, in the order it runs them. Each one owns one concern, so the orchestrator below
+// reads as the sequence of checks the contract requires (inputs, guide, map, summary, block, target).
+
+function assertBuildInputs(org, date) {
   if (!org || !existsSync(org)) throw new Error(`org folder not found: ${org}`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) throw new Error('date must be YYYY-MM-DD');
-  const problems = validateGuide(guide);
+}
+
+// Every repo named by the map must be one of the guide's repos; each is profiled at its base.
+// OG-15/F18: a repo that cannot be profiled is recorded (name + the actual error), not silently
+// dropped from `repos` — a later "X is not a selected repo" error used to hide why.
+function profileGuideRepos(org, guide) {
+  const repos = {};
   const profilingProblems = [];
-  let map = null, pairs = null;
-  if (integrations !== null) {
-    // Every repo named by the map must be one of the guide's repos; each is profiled at its base.
-    const repos = {};
-    for (const r of guide.repos || []) {
-      if (!isRepoName(r.name)) continue;
-      const dir = join(org, r.name);
-      // OG-15/F18: a repo that cannot be profiled is recorded (name + the actual error), not
-      // silently dropped from `repos` — a later "X is not a selected repo" error used to hide why.
-      try { const p = profile({ dir, base: r.base }); repos[r.name] = { dir, sha: p.sha, base: p.base }; }
-      catch (e) { profilingProblems.push({ repo: r.name, error: e.message }); }
-    }
-    // OG-10/F3: the map path is checked against the SAME secret rule as the guide path (hasSecret),
-    // not just hasValueSecret's narrower, quoted-value-only subset.
-    const { errors, checks } = validateIntegrations(integrations, { repos, secretIn: hasSecret });
-    problems.push(...errors.map((m) => `integrations: ${m}`));
-    if (!errors.length) {
-      map = { repos: Object.fromEntries(Object.entries(repos).map(([n, r]) => [n, { base: r.base, sha: r.sha }])), ...normalize(integrations, checks) };
-      const count = new Map();
-      for (const e of map.edges) { const k = `${e.from}\0${e.to}`; count.set(k, (count.get(k) || 0) + 1); }
-      pairs = [...count].map(([k, n]) => { const [from, to] = k.split('\0'); return { from, to, n }; });
-    }
+  for (const r of guide.repos || []) {
+    if (!isRepoName(r.name)) continue;
+    const dir = join(org, r.name);
+    try { const p = profile({ dir, base: r.base }); repos[r.name] = { dir, sha: p.sha, base: p.base }; }
+    catch (e) { profilingProblems.push({ repo: r.name, error: e.message }); }
   }
-  if (problems.length) throw new Error(`invalid guide:\n- ${problems.join('\n- ')}`);
-  // OG-4: without a new map, the who-calls-whom summary is carried forward — first from guide.json's
-  // own `summary` field (carriedSummaryFromGuideFile), and only when that field has never been
-  // recorded at all, from the legacy map-summary.json (carriedSummaryFromLegacyFile), folded in
-  // exactly once.
-  if (pairs === null) {
-    const fromGuide = carriedSummaryFromGuideFile(org);
-    pairs = fromGuide !== undefined ? fromGuide : carriedSummaryFromLegacyFile(org);
-  }
+  return { repos, profilingProblems };
+}
+
+// The who-calls-whom summary of a map: one { from, to, n } per caller/provider pair, n = its edge
+// count, pairs in order of first appearance.
+export function summarizeEdges(edges) {
+  const count = new Map();
+  for (const e of edges) { const k = `${e.from}\0${e.to}`; count.set(k, (count.get(k) || 0) + 1); }
+  return [...count].map(([k, n]) => { const [from, to] = k.split('\0'); return { from, to, n }; });
+}
+
+const noIntegrationMap = () => ({ errors: [], map: null, pairs: null, profilingProblems: [] });
+
+// The integration map step: profile the guide's repos, validate the proposed map against them, and,
+// when it is valid, normalize it and summarize its edges. `errors` are reported, not thrown, so the
+// caller can list them together with the guide's own problems.
+function buildIntegrationMap(org, guide, integrations) {
+  const { repos, profilingProblems } = profileGuideRepos(org, guide);
+  // OG-10/F3: the map path is checked against the SAME secret rule as the guide path (hasSecret),
+  // not just hasValueSecret's narrower, quoted-value-only subset.
+  const { errors, checks } = validateIntegrations(integrations, { repos, secretIn: hasSecret });
+  if (errors.length) return { errors, map: null, pairs: null, profilingProblems };
+  const map = { repos: Object.fromEntries(Object.entries(repos).map(([n, r]) => [n, { base: r.base, sha: r.sha }])), ...normalize(integrations, checks) };
+  return { errors, map, pairs: summarizeEdges(map.edges), profilingProblems };
+}
+
+// OG-4: without a new map, the who-calls-whom summary is carried forward — first from guide.json's
+// own `summary` field (carriedSummaryFromGuideFile), and only when that field has never been
+// recorded at all, from the legacy map-summary.json (carriedSummaryFromLegacyFile), folded in
+// exactly once.
+function carriedSummary(org) {
+  const fromGuide = carriedSummaryFromGuideFile(org);
+  return fromGuide !== undefined ? fromGuide : carriedSummaryFromLegacyFile(org);
+}
+
+function renderBudgetedBlock(guide, { date, pairs }) {
   const block = renderBlock(guide, { date, pairs });
   if (Buffer.byteLength(block) > BLOCK_BUDGET) throw new Error(`the guide block is ${Buffer.byteLength(block)} bytes; the budget is ${BLOCK_BUDGET} (~1k tokens) — shorten it: point to sources, do not copy them`);
+  return block;
+}
+
+// The current <org>/CLAUDE.md ('' when absent); refuses to go through a symlink.
+function readClaudeMd(org) {
   const claudePath = join(org, 'CLAUDE.md');
   if (existsSync(claudePath) && lstatSync(claudePath).isSymbolicLink()) throw new Error(`${claudePath} is a symlink — refusing to write through it`);
-  const current = existsSync(claudePath) ? readFileSync(claudePath, 'utf8') : '';
-  // OG-7: every persisted guide.json carries "version": 1, whether or not the proposal supplied one.
-  // OG-4: `summary` is stamped from the computed `pairs` (fresh, carried-forward, or folded-in from
-  // the legacy file) — never whatever stray value the input proposal happened to carry — and is
-  // omitted entirely when there is nothing to record (no map has ever run for this guide).
+  return { claudePath, current: existsSync(claudePath) ? readFileSync(claudePath, 'utf8') : '' };
+}
+
+// OG-7: every persisted guide.json carries "version": 1, whether or not the proposal supplied one.
+// OG-4: `summary` is stamped from the computed `pairs` (fresh, carried-forward, or folded-in from
+// the legacy file) — never whatever stray value the input proposal happened to carry — and is
+// omitted entirely when there is nothing to record (no map has ever run for this guide).
+export function stampGuide(guide, pairs) {
   const stamped = { ...guide, version: 1 };
   if (pairs !== null) stamped.summary = pairs; else delete stamped.summary;
-  return { claudePath, current, next: spliceBlock(current, block), block, guide: stamped, map: map ? renderSystemMap({ date, branch: '(org folder, not versioned)', ...map }) : null, mapPath: join(org, 'SYSTEM-MAP.md'), profilingProblems };
+  return stamped;
+}
+
+export function buildGuide({ org, guide, integrations = null, date }) {
+  assertBuildInputs(org, date);
+  const problems = validateGuide(guide);
+  const integration = integrations === null ? noIntegrationMap() : buildIntegrationMap(org, guide, integrations);
+  problems.push(...integration.errors.map((m) => `integrations: ${m}`));
+  if (problems.length) throw new Error(`invalid guide:\n- ${problems.join('\n- ')}`);
+  const { map, profilingProblems } = integration;
+  const pairs = integration.pairs !== null ? integration.pairs : carriedSummary(org);
+  const block = renderBudgetedBlock(guide, { date, pairs });
+  const { claudePath, current } = readClaudeMd(org);
+  return { claudePath, current, next: spliceBlock(current, block), block, guide: stampGuide(guide, pairs), map: map ? renderSystemMap({ date, branch: '(org folder, not versioned)', ...map }) : null, mapPath: join(org, 'SYSTEM-MAP.md'), profilingProblems };
 }
 
 function diff(a, b, label) {
