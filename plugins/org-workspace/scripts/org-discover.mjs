@@ -15,7 +15,8 @@
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { git } from './safe-git.mjs';
-import { isRepoName, readGuideForbidden } from './org-guide.mjs';
+import { readGuideForbidden } from './org-guide.mjs';
+import { isRepoName } from './org-policy.mjs';
 import { isMain } from './entrypoint.mjs';
 
 const BASE_CANDIDATES = ['development', 'dev', 'develop', 'staging', 'main', 'master'];
