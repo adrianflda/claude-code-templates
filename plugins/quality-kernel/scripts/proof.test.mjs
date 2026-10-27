@@ -53,6 +53,38 @@ test("parseLedger: counts malformed lines instead of trusting them", () => {
   assert.equal(malformed, 2);
 });
 
+// The referee (qk-gate) appends its own verdict rows to the same ledger: { ts, source: "referee",
+// verify, pass, ... } with no `command`. They are not shell commands, so they are neither proof nor
+// unreadable; counting them as malformed made every repo the gate had run in fail proof forever.
+const refereeRow = (ts) => ({ ts, source: "referee", verify: "bash -c 'python3 -m unittest'", pass: true });
+
+test("parseLedger: referee verdict rows are skipped, not counted as malformed", () => {
+  const { rows, malformed, referee } = parseLedger(jsonl([row("npm test", 1, 0), refereeRow(2), refereeRow(3)]));
+  assert.deepEqual(rows.map((r) => r.command), ["npm test"]);
+  assert.equal(malformed, 0);
+  assert.equal(referee, 2);
+});
+
+test("parseLedger: a referee-shaped row with a command or without a timestamp is not waved through", () => {
+  const forged = { ...refereeRow(2), command: "npm test", exit_code: 0 };
+  const noTs = { source: "referee", pass: true };
+  const otherSource = { ts: 4, source: "bash-hook", exit_code: 0 };
+  const nullCommand = { ...refereeRow(5), command: null };
+  const { rows, malformed, referee } = parseLedger(jsonl([forged, noTs, otherSource, nullCommand]));
+  assert.equal(rows.length, 1, "a row with a command is read as a command row, whatever its source");
+  assert.equal(referee, 0);
+  assert.equal(malformed, 3, "only the referee's own rows may lack a command");
+});
+
+test("CLI: referee rows in the ledger do not block the proof", () => {
+  withLedger([refereeRow(5), row("npm test", 10, 0), refereeRow(11)], (ledger) => {
+    const r = runCli(["--ledger", ledger, "--since-ts", "1"]);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^Proof: `npm test` -> exit 0$/m);
+    assert.doesNotMatch(r.out, /unreadable/);
+  });
+});
+
 test("classify: only an uninterrupted exit 0 is proof", () => {
   const status = (r) => classify(r).status;
   assert.equal(status(row("t", 1, 0)), "proof");

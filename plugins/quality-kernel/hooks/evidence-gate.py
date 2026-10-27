@@ -2,7 +2,8 @@
 """Quality-Kernel evidence-gate - v2 (audit layer).
 
 PostToolUse + PostToolUseFailure hook on Bash. Records that a test/build/verify-shaped
-command RAN, with its exit code, to a per-project ledger (.quality-kernel/evidence-ledger.jsonl).
+command RAN, with its exit code, to a per-project ledger (.quality-kernel/evidence-ledger.jsonl)
+at the git top level of where the command ran: its leading `cd <dir>` target, else the session cwd.
 
 Exit codes: PostToolUse fires only when the command succeeded -> exit_code 0. Failures arrive
 via PostToolUseFailure, whose `error` string starts with "Exit code N" (documented: key the hook
@@ -27,8 +28,8 @@ import time
 # the start is the fix for the old bug where the runner word appearing inside a quoted BODY
 # (e.g. `gh pr comment -b "...pytest..."`) was miscounted as a verification event.
 _RUNNERS = (
-    r"(?:pytest|vitest|jest|mocha|mutmut|stryker|cosmic-ray|tsc|eslint|jscpd|"
-    r"node\s+--test|go\s+test|cargo\s+(?:test|build)|coverage|nyc|"
+    r"(?:pytest|unittest|vitest|jest|mocha|mutmut|stryker|cosmic-ray|tsc|eslint|jscpd|"
+    r"node\s+--test|go\s+test|cargo\s+(?:test|build)|(?:tofu|terraform)\s+test|coverage|nyc|"
     r"npm\s+(?:run\s+)?(?:test|build|lint))"
 )
 _PREFIX = r"(?:(?:npx|pnpm|yarn|bunx|poetry\s+run|python3?\s+-m)\s+)?"
@@ -71,6 +72,31 @@ def redact(command: str) -> str:
         out = pat.sub("[REDACTED]", out)
     out = _SECRETS[-1].sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", out)
     return out[:_MAX_COMMAND]
+
+
+# `cd <dir> &&` (or `;`) as the FIRST segment: the test runs there, not in the session cwd.
+# Only a leading cd counts; a later one runs after the test or in a subshell.
+_LEADING_CD = re.compile(r"""^\s*cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)""")
+
+
+def ledger_root(command: str, session_cwd: str) -> str:
+    """The directory whose .quality-kernel/ gets the row: the git top level of where the command
+    ran (its leading `cd` target, else the session cwd), so `proof.mjs --repo <repo>` finds it.
+    A cd target that does not exist, or a directory outside git, is used as is."""
+    where = session_cwd
+    m = _LEADING_CD.match(command)
+    if m:
+        target = os.path.expanduser(m.group(1).strip("'\""))
+        target = os.path.normpath(os.path.join(session_cwd, target))
+        if os.path.isdir(target):
+            where = target
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=where,
+                             capture_output=True, text=True, timeout=2,
+                             env={**os.environ, "LC_ALL": "C"})
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return where  # ledger_is_safe reports the git problem
+    return top.stdout.strip() if top.returncode == 0 and top.stdout.strip() else where
 
 
 def ledger_is_safe(cwd: str):
@@ -136,7 +162,7 @@ def main() -> None:
         duration = data.get("duration_ms")
         agent_id = data.get("agent_id")
 
-        cwd = data.get("cwd") or os.getcwd()
+        cwd = ledger_root(command, data.get("cwd") or os.getcwd())
         ok, reason = ledger_is_safe(cwd)
         if not ok:
             msg = f"[quality-kernel] evidence-gate: ledger not written: {reason}"
