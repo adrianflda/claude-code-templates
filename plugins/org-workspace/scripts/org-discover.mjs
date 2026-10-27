@@ -30,17 +30,25 @@ export function stripCredentials(url) {
   const noQuery = (u) => u.replace(/[?#].*$/, '');
   const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(url);
   if (scheme) {
-    const rest = url.slice(scheme[0].length);
+    // Strip the query string/fragment BEFORE locating the userinfo separator (OG-14/F16): an '@'
+    // inside a query string (e.g. "?next=x@evil/y") must never be mistaken for one.
+    const rest = noQuery(url.slice(scheme[0].length));
     // The userinfo may itself contain '/', ':' or '@': the host begins after the last '@' that
     // still has a '/' (the path) somewhere after it, or after the last '@' when there is no path.
     const at = rest.lastIndexOf('@');
-    if (at === -1) return scheme[0] + noQuery(rest);
+    if (at === -1) return scheme[0] + rest;
     // An '@' that sits in the PATH (a '/' before it, none after it) is not userinfo.
-    if (rest.slice(0, at).includes('/') && !rest.slice(at + 1).includes('/')) return scheme[0] + noQuery(rest);
-    return scheme[0] + noQuery(rest.slice(at + 1));
+    if (rest.slice(0, at).includes('/') && !rest.slice(at + 1).includes('/')) return scheme[0] + rest;
+    return scheme[0] + rest.slice(at + 1);
   }
-  const scp = /^([^@/]+)@([^:/]+):(.*)$/.exec(url);
-  if (scp) return scp[1] === 'git' ? `git@${scp[2]}:${noQuery(scp[3])}` : `${scp[2]}:${noQuery(scp[3])}`;
+  // scp-style: user[:password]@host:path — the password itself may contain '@' (OG-14/F14), so the
+  // host is identified by the LAST '@' that is immediately followed by a bare "host:" (no further
+  // '@' or ':' before that colon), not the first one.
+  const scp = /^(.*)@([^@/:]+):(.*)$/.exec(url);
+  if (scp) {
+    const user = scp[1].split(':')[0];
+    return user === 'git' ? `git@${scp[2]}:${noQuery(scp[3])}` : `${scp[2]}:${noQuery(scp[3])}`;
+  }
   return noQuery(url);
 }
 // A comparable key for "same remote": host/path, lower-case, no .git suffix.

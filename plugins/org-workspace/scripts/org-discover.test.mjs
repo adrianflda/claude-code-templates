@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, chmodSync, readFil
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { discover } from './org-discover.mjs';
+import { discover, stripCredentials } from './org-discover.mjs';
 import { BEGIN, END } from './org-guide.mjs';
 
 // Phase 0 of /org-init: list the org folder's repos and classify them, reading git metadata
@@ -207,6 +207,20 @@ test('credentials are stripped from every remote form', () => {
     const org = orgDir(); repo(org, 'app', { remote: input });
     assert.strictEqual(byName(discover({ org })).app.remote, want, input);
   }
+});
+
+// OG-14 / F14+F16 / Gherkin "credentials are fully stripped from an scp-style remote with '@' in the
+// password" and "a query-string '@' does not corrupt the stripped host".
+test('OG-14: an scp-style password containing "@" is fully stripped, not just its tail', () => {
+  assert.strictEqual(stripCredentials('user:p@ss@host:O/a.git'), 'host:O/a.git');
+  const org = orgDir(); repo(org, 'app', { remote: 'user:p@ss@host:O/a.git' });
+  const inv = discover({ org });
+  assert.strictEqual(byName(inv).app.remote, 'host:O/a.git');
+  assert.doesNotMatch(JSON.stringify(inv), /p@ss/);
+});
+
+test('OG-14: a query-string "@" does not relocate the stripped host', () => {
+  assert.strictEqual(stripCredentials('https://github.com/O/a.git?next=x@evil/y'), 'https://github.com/O/a.git');
 });
 
 // --- round 3 ---
