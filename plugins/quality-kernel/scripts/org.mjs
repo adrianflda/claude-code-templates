@@ -96,6 +96,16 @@ export function readOrgManifest(orgDir) {
   let g;
   try { g = JSON.parse(raw); } catch { return null; }
   if (!g || !Array.isArray(g.repos) || (g.forbidden !== undefined && !(Array.isArray(g.forbidden) && g.forbidden.every((x) => typeof x === 'string')))) return null;
+  // OG-8: a guide.json with no "version" field at all (e.g. the real, pre-existing Matchbox file) is
+  // grandfathered in as version 1 — the live gate keeps working with no manual migration — but a
+  // warning names the command that stamps it in, so the grandfather clause does not go unnoticed
+  // forever (residual risk #1: it is permanent debt until something re-applies the guide). An
+  // EXPLICIT version this reader does not support fails closed instead of a partial/best-effort read.
+  if (g.version === undefined) {
+    process.stderr.write(`warning: ${GUIDE_FILE} has no "version" field; treating it as version 1. Run /org-learn --apply (or org-guide.mjs --apply) on this org folder to stamp the current schema version in.\n`);
+  } else if (g.version !== 1) {
+    throw new Error(`${GUIDE_FILE} has version ${JSON.stringify(g.version)}, which this quality-kernel does not support (only version 1) — a plugin upgrade or a guide migration is needed`);
+  }
   // Entries are kept as written (names and fields are validated per repo by the callers, so one bad
   // entry is reported for itself); an entry without a string name, or a duplicate name, makes the
   // whole guide unusable — which repo it meant is unknowable.
@@ -150,7 +160,8 @@ export function findOrg(repoDir, { org, pin } = {}) {
   if (dirname(repoTop) !== root) return { error: `${repoTop} is not a repo directly under the org folder ${root}` };
   const entry = orgRepoDir(root, name);
   if (entry.error) return { error: entry.error };
-  const m = readOrgManifest(root);
+  let m;
+  try { m = readOrgManifest(root); } catch (e) { return { error: e.message }; }
   if (!m) return { error: `no usable org guide at ${join(root, GUIDE_FILE)} (run /org-init from the org-workspace plugin)` };
   if (!own(m.repos, name)) return { error: `the org guide does not list "${name}"` };
   if (m.forbidden.includes(name)) return { error: `"${name}" is forbidden in the org guide` };

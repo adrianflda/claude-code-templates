@@ -184,3 +184,50 @@ test('orgRepoDir: a symlinked .git, an object alternates file and a linked workt
   qa.git('worktree', 'add', '-q', join(org, 'wt'));
   assert.match(orgRepoDir(org, 'wt').error, /gitfile/);
 });
+
+// OG-8/OG-9: a guide.json with no "version" field is grandfathered in as version 1 (the real,
+// pre-existing Matchbox guide.json has none); an explicit unsupported version fails closed instead of
+// a partial read; orgPin stays a pure content hash either way.
+test('OG-8: a guide.json with no "version" field is read as version 1, with a one-line stderr warning', () => {
+  const root = orgDir(); // GUIDE (the module-level fixture) has no "version" field
+  const original = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (s) => { lines.push(s); return true; };
+  let m;
+  try { m = readOrgManifest(root); } finally { process.stderr.write = original; }
+  assert.ok(m && m.repos.app, 'still accepted as a usable manifest');
+  assert.strictEqual(lines.length, 1, `expected exactly one warning, got: ${JSON.stringify(lines)}`);
+  assert.match(lines[0], /no "version" field/);
+  assert.match(lines[0], /org-learn --apply|org-guide\.mjs --apply/, 'names the command that stamps the version in');
+});
+
+test('OG-8: an explicit unsupported version fails closed, never a partial/best-effort read', () => {
+  const root = orgDir({ guide: { ...GUIDE, version: 2 } });
+  assert.throws(() => readOrgManifest(root), /version 2.*not support|not support.*version 2/s);
+  const o = findOrg(join(root, 'app'), { org: root });
+  assert.match(o.error, /version 2/);
+  assert.strictEqual(o.dir, undefined);
+  assert.strictEqual(o.pin, undefined);
+});
+
+test('OG-8: version 1 (explicit) is accepted with no warning', () => {
+  const root = orgDir({ guide: { ...GUIDE, version: 1 } });
+  const original = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (s) => { lines.push(s); return true; };
+  let m;
+  try { m = readOrgManifest(root); } finally { process.stderr.write = original; }
+  assert.ok(m && m.repos.app);
+  assert.deepStrictEqual(lines, []);
+});
+
+// OG-9: orgPin is a pure content hash — stamping "version"/"renderHash" into guide.json changes its
+// bytes, so the pin changes too, with no special-casing needed; re-hashing identical bytes is stable.
+test('OG-9: orgPin changes when guide.json bytes change (incl. a version stamp) and is stable otherwise', () => {
+  const root = orgDir({ guide: { ...GUIDE } }); // no version field
+  const a = orgPin(root);
+  assert.strictEqual(orgPin(root), a, 'hashing the same bytes twice is stable');
+  write(root, '.claude/org-workspace/guide.json', JSON.stringify({ ...GUIDE, version: 1 }));
+  const b = orgPin(root);
+  assert.notStrictEqual(a, b, 'stamping version changed the bytes, so the pin must change');
+});
