@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { fakePlugin, git, runNode, tempDir, write } from './helpers.mjs';
+import { execFileSync } from 'node:child_process';
+import { fakePlugin, git, executable, runNode, tempDir, write } from './helpers.mjs';
 
 const ZERO = '0'.repeat(40);
 
@@ -93,6 +94,28 @@ test('an unusable QK_PUSH_TIMEOUT_MS blocks with a clear message', () => {
     assert.match(r.stderr, /QK_PUSH_TIMEOUT_MS/, bad);
     assert.equal(r.qk.length, 0, bad);
   }
+});
+
+test('when git cannot say where the repository lives, the push is blocked, not let through ungated', () => {
+  // A git that works for everything except `rev-parse --git-common-dir`: whether the repo opted in
+  // cannot be told, so the hook must fail closed instead of treating it as "not opted in".
+  const o = makeOrg();
+  const realGit = execFileSync('/bin/sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const bin = tempDir('bin');
+  executable(join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do [ "$a" = "--git-common-dir" ] && exit 128; done\nexec "${realGit}" "$@"\n`);
+  const r = push({ cwd: o.repo, input: update(o), env: { PATH: `${bin}:${process.env.PATH}` } });
+  assert.equal(r.code, 1, r.stderr);
+  assert.match(r.stderr, /cannot tell whether this repository runs the quality gate/);
+  assert.equal(r.panel.length, 0);
+});
+
+test('the hook started from a subdirectory still finds the opt-in', () => {
+  const o = makeOrg();
+  const sub = join(o.repo, 'pkg');
+  mkdirSync(sub);
+  const r = push({ cwd: sub, input: update(o) });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.qk.length, 1);
 });
 
 test('a failing gate blocks the push and the panel does not run', () => {

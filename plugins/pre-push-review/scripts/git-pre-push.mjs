@@ -133,14 +133,19 @@ function rangeFor(localSha, remoteSha) {
  * it did not opt in; { error } when that cannot be told (fail closed).
  */
 function qkOptIn() {
-  const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
-  if (common.status !== 0) return null;
+  // Not knowing where the repository lives means not knowing whether it opted in: fail closed.
+  const unknown = (why) => ({ error: `cannot tell whether this repository runs the quality gate on push (${why})` });
+  // Relative to the repository root when git prints a relative path (no --path-format: older git).
+  const common = git(['rev-parse', '--git-common-dir']);
+  if (common.status !== 0 || !common.stdout.trim()) {
+    return unknown(`git rev-parse --git-common-dir failed: ${(common.stderr || '').trim() || `exit ${common.status}`}`);
+  }
   let main;
   try {
-    const dir = realpathSync(common.stdout.trim());
+    const dir = realpathSync(resolve(root, common.stdout.trim()));
     main = basename(dir) === '.git' ? dirname(dir) : realpathSync(root);
-  } catch {
-    return null;
+  } catch (e) {
+    return unknown(`cannot resolve the git directory: ${e.code || e.message}`);
   }
   const org = dirname(main);
   if (!existsSync(join(org, '.claude', 'org-workspace', 'guide.json'))) return null;
