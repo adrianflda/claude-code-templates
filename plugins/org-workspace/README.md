@@ -35,4 +35,7 @@ review trail; the extractor misses calls made through base-class helpers (the ma
 reading); citation paths are ASCII-only.
 
 Scripts: `org-discover.mjs`, `org-profile.mjs`, `org-integrations.mjs`, `org-map.mjs`, `org-guide.mjs`.
-Tests: `cd scripts && node --test *.test.mjs`.
+Tests: `cd scripts && node --test *.test.mjs` (includes `import-graph.test.mjs`, the static
+dependency-rule check). Property tests are a separate command: `cd scripts && node --test *.prop.mjs`
+(dependency-free kit `prop-kit.mjs`, vendored byte-identical from quality-kernel; seeded, a failure
+prints its seed — replay it with `QK_PROP_SEED=<seed>`).

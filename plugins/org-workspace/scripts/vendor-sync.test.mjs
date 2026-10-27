@@ -19,6 +19,7 @@ for (const [ours, theirs] of [
   ['safe-git.mjs', 'safe-git.mjs'],
   ['hermetic-git.mjs', 'hermetic-git.mjs'],
   ['entrypoint.mjs', 'is-main.mjs'],
+  ['prop-kit.mjs', 'prop-kit.mjs'],
 ]) {
   test(`OG-16: org-workspace/${ours} is byte-identical to quality-kernel/${theirs}`, () => {
     assert.strictEqual(read(join(here, ours)), read(join(qk, theirs)), `${ours} has drifted from quality-kernel's ${theirs} — re-vendor it`);
