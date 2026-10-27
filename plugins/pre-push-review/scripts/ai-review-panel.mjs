@@ -43,18 +43,14 @@ import { execSync, spawn } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { homedir } from 'os';
+import { boundDiffBytes as boundDiffBytesCore, MAX_DIFF_LINES, MAX_DIFF_BYTES, MAX_FILE_BYTES, MAX_LINE_CHARS } from './diff-budget.mjs';
 
-const MAX_DIFF_LINES = 3000;
 // Lines alone do not bound the prompt: one regenerated catalog line can be megabytes, and a
 // prompt over the context window makes every reviewer fail at once. So the diff also gets a
 // byte budget, and any file that looks generated or minified is sent as its header only.
-const envInt = (name, fallback) => {
-  const n = Number.parseInt(process.env[name] ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-};
-const MAX_DIFF_BYTES = envInt('AI_REVIEW_MAX_DIFF_BYTES', 400_000);
-const MAX_FILE_BYTES = envInt('AI_REVIEW_MAX_FILE_BYTES', 100_000);
-const MAX_LINE_CHARS = envInt('AI_REVIEW_MAX_LINE_CHARS', 2_000);
+// (MAX_DIFF_LINES/MAX_DIFF_BYTES/MAX_FILE_BYTES/MAX_LINE_CHARS and the packing logic itself now live
+// in diff-budget.mjs, OG-17/OG-19/INV-OG-13 — extracted so it is importable and unit-testable without
+// this script's real git/agent side effects running at import time.)
 // Cap per-child captured output — mirrors the execSync maxBuffer used elsewhere in this
 // file. runAgent runs 6x concurrently on every push, so uncapped `out += d` on a runaway
 // `claude -p` (huge output, debug spew, CLI bug) could grow unbounded across all children.
@@ -428,50 +424,10 @@ if (deletedFiles) {
   );
 }
 
-/**
- * Bound the diff by bytes and lines, file by file. A file whose diff has a line over MAX_LINE_CHARS or
- * is over MAX_FILE_BYTES (generated, minified, data) keeps only its header plus a note. Files
- * are then packed in diff order while they fit both MAX_DIFF_BYTES and MAX_DIFF_LINES (whole
- * files only, so the line cap never cuts a file in half); the ones that do not fit are listed by
- * name so the reviewers know the review is partial and what was left out.
- */
-function boundDiffBytes(text) {
-  const chunks = text.split(/^(?=diff --git )/m).filter(Boolean);
-  const kept = [];
-  const skipped = [];
-  let used = 0;
-  let usedLines = 0;
-  // Leave room for the footer that lists the skipped files.
-  const lineBudget = MAX_DIFF_LINES - 50;
-  for (const chunk of chunks) {
-    const name = (chunk.match(/^diff --git a\/.+? b\/(.+)$/m) || [])[1] || '(unknown file)';
-    const bytes = Buffer.byteLength(chunk);
-    const longest = chunk.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
-    let piece = chunk;
-    if (longest > MAX_LINE_CHARS || bytes > MAX_FILE_BYTES) {
-      const body = chunk.search(/^(@@|Binary files )/m);
-      const header = body === -1 ? chunk.split('\n').slice(0, 6).join('\n') : chunk.slice(0, body);
-      piece = `${header.trimEnd()}\n# [pre-push-review] content omitted: ${bytes} bytes, longest line ${longest} chars (generated, minified or data).\n`;
-      console.log(`[pre-push-review] ${name}: content omitted (${bytes} bytes, longest line ${longest} chars).`);
-    }
-    const size = Buffer.byteLength(piece);
-    const lines = piece.split('\n').length;
-    if (used + size > MAX_DIFF_BYTES || usedLines + lines > lineBudget) {
-      skipped.push(name);
-      continue;
-    }
-    kept.push(piece);
-    used += size;
-    usedLines += lines;
-  }
-  if (!skipped.length) return kept.join('');
-  console.log(
-    `[pre-push-review] Diff is over the ${MAX_DIFF_BYTES}-byte / ${MAX_DIFF_LINES}-line budget: ${skipped.length} file(s) not sent (review is partial).`,
-  );
-  return `${kept.join('')}\n# [pre-push-review] ${skipped.length} file(s) not reviewed (over the diff budget):\n${skipped.map((n) => `#   ${n}`).join('\n')}\n`;
-}
-
-diff = boundDiffBytes(diff);
+// OG-17: boundDiffBytes itself now makes exact room for the skipped-files footer (diff-budget.mjs),
+// so this later truncation is a defense-in-depth safety net (kept — F23 found removing it would
+// delete the only cap left for a related pathological case) that should not normally fire anymore.
+diff = boundDiffBytesCore(diff, { log: console.log });
 
 let diffLines = diff.split('\n').length;
 if (diffLines > MAX_DIFF_LINES) {
