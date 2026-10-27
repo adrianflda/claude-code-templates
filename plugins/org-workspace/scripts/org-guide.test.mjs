@@ -105,6 +105,12 @@ test('unbalanced or repeated markers and a symlinked CLAUDE.md are refused', () 
   }
 });
 
+// OG-6: the marker text points the reader at /org-learn, not at hand-editing the block.
+test('OG-6: the BEGIN marker tells the reader to use /org-learn, not to hand-edit the block', () => {
+  assert.match(BEGIN, /\/org-learn/);
+  assert.doesNotMatch(BEGIN, /or by hand/i);
+});
+
 // OG-11 / F15: an END sitting immediately before a BEGIN (no separating content) is an ordering
 // error, not a silent two-BEGIN result.
 test('OG-11: an END immediately before a BEGIN throws instead of producing two BEGIN markers', () => {
@@ -216,7 +222,31 @@ test('an existing SYSTEM-MAP.md is backed up before it is replaced', () => {
 test('apply also writes the machine copy .claude/org-workspace/guide.json (what quality-kernel reads)', () => {
   const root = org();
   run(root);
-  assert.deepStrictEqual(JSON.parse(readFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), 'utf8')), GUIDE);
+  const written = JSON.parse(readFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), 'utf8'));
+  assert.deepStrictEqual(written, { ...GUIDE, version: 1 });
+});
+
+// OG-7: the tool stamps "version": 1 into every guide.json it writes, whether or not the proposal
+// given to it (the --guide input) supplied one.
+test('OG-7: guide.json always gets "version": 1, even when the input guide had none', () => {
+  const root = org();
+  const { org: _o, ...guideWithoutVersion } = GUIDE; // sanity: GUIDE itself has no "version" key
+  assert.strictEqual('version' in guideWithoutVersion, false);
+  const b = build(root);
+  applyGuide(b, { org: root, stamp: 's7' });
+  const written = JSON.parse(readFileSync(join(root, '.claude', 'org-workspace', 'guide.json'), 'utf8'));
+  assert.strictEqual(written.version, 1);
+});
+
+// OG-15/F18: a repo named in the guide that cannot be profiled is recorded among the build's
+// problems (name + the real error), not silently dropped with no explanation.
+test('OG-15: a repo that cannot be profiled is recorded, not silently dropped', () => {
+  const root = org();
+  const guideWithGhost = { ...GUIDE, repos: [...GUIDE.repos, { name: 'ghost', role: 'app', base: 'main' }] };
+  const b = build(root, { edges: [EDGE], unmatched: [] }, guideWithGhost);
+  assert.strictEqual(b.profilingProblems.length, 1);
+  assert.strictEqual(b.profilingProblems[0].repo, 'ghost');
+  assert.match(b.profilingProblems[0].error, /not found|repo not found/);
 });
 
 // A guide update without a new map (the usual /org-learn case) keeps the last map's summary.

@@ -24,7 +24,10 @@ import { profile } from './org-profile.mjs';
 import { redactLine } from './org-integrations.mjs';
 import { validateIntegrations, normalize, renderSystemMap } from './org-map.mjs';
 
-export const BEGIN = '<!-- org-workspace:begin — managed by /org-init and /org-learn; edit with them (or by hand, inside these markers) -->';
+// OG-6: the marker text tells the reader to make changes through /org-learn, not by hand — guide.json
+// is the source of truth (OG-1/OG-3), so a hand edit inside the markers is no longer the supported
+// way to change the guide.
+export const BEGIN = '<!-- org-workspace:begin — managed by /org-init and /org-learn; make changes through /org-learn, not by editing this block directly -->';
 export const END = '<!-- org-workspace:end -->';
 export const BLOCK_BUDGET = 4096;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
@@ -56,10 +59,16 @@ export function readGuideForbidden(org) {
   return (g.forbidden || []).filter(isRepoName);
 }
 
+// OG-7: `version` (and `renderHash`) are tool-stamped fields written back into the same guide.json a
+// human/agent may hand the tool again as the next --guide input (e.g. a straight re-apply) — they
+// are optional on the way in and are not required, but when present must be well-formed.
+const KNOWN_TOP_KEYS = ['org', 'repos', 'forbidden', 'truth', 'conventions', 'threads', 'version', 'renderHash'];
 export function validateGuide(g) {
   const errs = [];
   if (!g || typeof g !== 'object' || Array.isArray(g)) return ['guide must be an object'];
-  for (const k of Object.keys(g)) if (!['org', 'repos', 'forbidden', 'truth', 'conventions', 'threads'].includes(k)) errs.push(`unknown key "${k}"`);
+  for (const k of Object.keys(g)) if (!KNOWN_TOP_KEYS.includes(k)) errs.push(`unknown key "${k}"`);
+  if (g.version !== undefined && g.version !== 1) errs.push(`version must be 1 (got ${JSON.stringify(g.version)})`);
+  if (g.renderHash !== undefined && !/^[0-9a-f]{64}$/.test(g.renderHash)) errs.push('renderHash must be a sha256 hex digest');
   const text = (v, name, optional = false) => {
     if (v === undefined && optional) return;
     if (typeof v !== 'string' || !v.trim() || v.length > MAX_TEXT || CONTROL.test(v)) errs.push(`${name} must be a single-line string of 1..${MAX_TEXT} characters`);
@@ -153,6 +162,7 @@ export function buildGuide({ org, guide, integrations = null, date }) {
   if (!org || !existsSync(org)) throw new Error(`org folder not found: ${org}`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) throw new Error('date must be YYYY-MM-DD');
   const problems = validateGuide(guide);
+  const profilingProblems = [];
   let map = null, pairs = null;
   if (integrations !== null) {
     // Every repo named by the map must be one of the guide's repos; each is profiled at its base.
@@ -160,7 +170,10 @@ export function buildGuide({ org, guide, integrations = null, date }) {
     for (const r of guide.repos || []) {
       if (!isRepoName(r.name)) continue;
       const dir = join(org, r.name);
-      try { const p = profile({ dir, base: r.base }); repos[r.name] = { dir, sha: p.sha, base: p.base }; } catch { /* not a profilable repo: not citable */ }
+      // OG-15/F18: a repo that cannot be profiled is recorded (name + the actual error), not
+      // silently dropped from `repos` — a later "X is not a selected repo" error used to hide why.
+      try { const p = profile({ dir, base: r.base }); repos[r.name] = { dir, sha: p.sha, base: p.base }; }
+      catch (e) { profilingProblems.push({ repo: r.name, error: e.message }); }
     }
     const { errors, checks } = validateIntegrations(integrations, { repos });
     problems.push(...errors.map((m) => `integrations: ${m}`));
@@ -185,7 +198,9 @@ export function buildGuide({ org, guide, integrations = null, date }) {
   const claudePath = join(org, 'CLAUDE.md');
   if (existsSync(claudePath) && lstatSync(claudePath).isSymbolicLink()) throw new Error(`${claudePath} is a symlink — refusing to write through it`);
   const current = existsSync(claudePath) ? readFileSync(claudePath, 'utf8') : '';
-  return { claudePath, current, next: spliceBlock(current, block), block, guide, pairs: map ? pairs : null, summaryPath, map: map ? renderSystemMap({ date, branch: '(org folder, not versioned)', ...map }) : null, mapPath: join(org, 'SYSTEM-MAP.md') };
+  // OG-7: every persisted guide.json carries "version": 1, whether or not the proposal supplied one.
+  const stamped = { ...guide, version: 1 };
+  return { claudePath, current, next: spliceBlock(current, block), block, guide: stamped, pairs: map ? pairs : null, summaryPath, map: map ? renderSystemMap({ date, branch: '(org folder, not versioned)', ...map }) : null, mapPath: join(org, 'SYSTEM-MAP.md'), profilingProblems };
 }
 
 function diff(a, b, label) {
@@ -223,6 +238,8 @@ if (isMain(import.meta.url)) {
     const guide = JSON.parse(readFileSync(opt('--guide'), 'utf8'));
     const integrations = opt('--integrations') ? JSON.parse(readFileSync(opt('--integrations'), 'utf8')) : null;
     const built = buildGuide({ org, guide, integrations, date: opt('--date') || new Date().toISOString().slice(0, 10) });
+    // OG-15: a repo that could not be profiled is reported, not silently dropped.
+    for (const p of built.profilingProblems) process.stderr.write(`warning: "${p.repo}" could not be profiled and is not in the integration map: ${p.error}\n`);
     const changes = [diff(built.current, built.next, 'CLAUDE.md')];
     if (built.map) changes.push(diff(existsSync(built.mapPath) ? readFileSync(built.mapPath, 'utf8') : '', built.map, 'SYSTEM-MAP.md').split('\n').slice(0, 12).join('\n') + '\n... (SYSTEM-MAP.md diff truncated)\n');
     if (args.includes('--apply')) { applyGuide(built, { org }); process.stdout.write(`written: ${built.claudePath}${built.map ? `, ${built.mapPath}` : ''} (block ${Buffer.byteLength(built.block)} bytes)\n`); }
