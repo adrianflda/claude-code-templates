@@ -75,8 +75,10 @@ export function profile({ dir, base } = {}) {
   if (top.status !== 0 || realpathSync(top.stdout.trim()) !== realpathSync(dir)) throw new Error(`${dir} is not the top level of a git work tree (it would profile ${top.status === 0 ? top.stdout.trim() : 'nothing'})`);
   const { base: b, ref } = resolveBase(dir, base);
   const sha = git(dir, ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]).stdout.trim();
-  const ls = git(dir, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', '--end-of-options', sha]);
-  if (ls.status !== 0) throw new Error(`cannot list the tree of ${ref}: ${(ls.stderr || '').trim()}`);
+  // A large repo's committed file list can exceed Node's default 1 MiB spawnSync capture limit
+  // (silently truncating the list, OG-13/F8); raise it well above any realistic repo instead.
+  const ls = git(dir, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', '--end-of-options', sha], { maxBuffer: 256 * 1024 * 1024 });
+  if (ls.status !== 0) throw new Error(`cannot list the tree of ${ref}: ${(ls.stderr || '').trim() || `git exited with status ${ls.status}`}`);
   const files = ls.stdout.split('\0').filter(Boolean);
   const has = (p) => files.includes(p);
   // Hash-verified read of a non-sensitive committed file; throws on integrity errors.

@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdi
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildGuide, applyGuide, validateGuide, readGuideForbidden, BEGIN, END, BLOCK_BUDGET } from './org-guide.mjs';
+import { buildGuide, applyGuide, validateGuide, readGuideForbidden, spliceBlock, BEGIN, END, BLOCK_BUDGET } from './org-guide.mjs';
 import { discover } from './org-discover.mjs';
 
 // The org guide lives in a managed block of <org>/CLAUDE.md (the file Claude Code already loads);
@@ -103,6 +103,18 @@ test('unbalanced or repeated markers and a symlinked CLAUDE.md are refused', () 
   for (const bad of [`${BEGIN}\nno end\n`, `${END}\n${BEGIN}\n`, `${BEGIN}\n${END}\n${BEGIN}\n${END}\n`]) {
     assert.throws(() => build(org({ claude: bad })), /marker/, bad);
   }
+});
+
+// OG-11 / F15: an END sitting immediately before a BEGIN (no separating content) is an ordering
+// error, not a silent two-BEGIN result.
+test('OG-11: an END immediately before a BEGIN throws instead of producing two BEGIN markers', () => {
+  assert.throws(() => spliceBlock(END + BEGIN + 'x', BEGIN + 'y' + END), /end marker before the begin marker/);
+  const root = org({ claude: END + BEGIN + 'tail' });
+  assert.throws(() => build(root), /end marker before the begin marker/);
+  assert.strictEqual(claudeOf(root), END + BEGIN + 'tail');
+});
+
+test('a symlinked CLAUDE.md is refused', () => {
   const root = org({ claude: null });
   const elsewhere = join(realpathSync(mkdtempSync(join(tmpdir(), 'org-guide-x-'))), 'target.md');
   writeFileSync(elsewhere, 'x');

@@ -132,7 +132,10 @@ export function spliceBlock(current, block) {
   if (count(BEGIN) > 1 || count(END) > 1 || count(BEGIN) !== count(END)) throw new Error('CLAUDE.md has unbalanced or repeated org-workspace markers — fix them by hand first');
   if (!current.includes(BEGIN)) return `${current}${current && !current.endsWith('\n') ? '\n' : ''}${current ? '\n' : ''}${block}\n`;
   const i = current.indexOf(BEGIN); const j = current.indexOf(END) + END.length;
-  if (j < i) throw new Error('CLAUDE.md has the org-workspace end marker before the begin marker');
+  // j === i means the END sits immediately before the BEGIN with nothing in between — a stray END,
+  // not a valid closed block before this one; left unchecked it keeps the stray END (prefix) AND
+  // inserts the new block (which itself contains a BEGIN), producing two BEGIN markers (F15).
+  if (j <= i) throw new Error('CLAUDE.md has the org-workspace end marker before the begin marker');
   return current.slice(0, i) + block + current.slice(j);
 }
 

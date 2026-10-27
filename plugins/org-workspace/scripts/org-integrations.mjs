@@ -69,7 +69,11 @@ const cap = (list) => list.slice(0, MAX_PER_KIND);
 export function extract({ dir, base } = {}) {
   const p = profile({ dir, base }); // same guards: top-level work tree, base resolution, committed tree
   const { sha } = p;
-  const files = git(dir, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', '--end-of-options', sha]).stdout.split('\0').filter(Boolean);
+  // OG-13/F9: no maxBuffer and no status check at all — worse than org-profile's F8 (a failed or
+  // overflowing spawn silently truncated the list, or would throw on `.stdout` being undefined).
+  const ls = git(dir, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', '--end-of-options', sha], { maxBuffer: 256 * 1024 * 1024 });
+  if (ls.status !== 0) throw new Error(`cannot list the tree of ${sha} in ${dir}: ${(ls.stderr || '').trim() || `git exited with status ${ls.status}`}`);
+  const files = ls.stdout.split('\0').filter(Boolean);
   const inbound = [];
   for (const h of grep(dir, sha, String.raw`(^|[^a-z_])(re_)?path\(|include\(`, [':(glob)**/*urls.py'])) {
     inbound.push({ kind: /include\(/.test(h.text) && !/(re_)?path\(/.test(h.text) ? 'django-include' : 'django', route: firstQuoted(h.text), at: at(h), text: h.text, test: TEST_PATH.test(h.path) });

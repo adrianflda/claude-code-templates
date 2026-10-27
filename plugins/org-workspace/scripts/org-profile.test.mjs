@@ -2,7 +2,7 @@ import './hermetic-git.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -192,4 +192,41 @@ test('envRefs: env NAMES the committed code reads (JS/TS/Python), never values, 
 test('envRefs: a repo whose code reads no env is an empty list', () => {
   const { dir } = repo({ 'package.json': pkg({ scripts: { test: 'jest' } }), 'src/a.js': 'export const x = 1;' });
   assert.deepStrictEqual(profile({ dir }).envRefs, []);
+});
+
+// OG-13 / F8: a `git ls-tree` whose output exceeds the runtime's default capture limit (1 MiB) must
+// still be read in full, not silently truncated and not an unhandled low-level crash. A real ~25k
+// file repo is too slow to build per-test; a PATH-shadowed git stub (same idiom as org-discover
+// .test.mjs's loggingGit()) stands in for one by emitting > 1 MiB from exactly the bulk-listing
+// `ls-tree -r ... --name-only` call profile() makes, and passes every other invocation through to
+// the real git so base/sha resolution still works.
+function bigListingGitStub(realDir) {
+  const bin = realpathSync(mkdtempSync(join(tmpdir(), 'qk-bigls-')));
+  const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+  const script = `#!/bin/sh
+case " $* " in
+  *" ls-tree -r -z --name-only --full-tree "*)
+    i=0
+    while [ $i -lt 40000 ]; do
+      printf 'file-%05d-aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\0' "$i"
+      i=$((i+1))
+    done
+    exit 0
+    ;;
+  *) exec ${JSON.stringify(real)} "$@" ;;
+esac
+`;
+  writeFileSync(join(bin, 'git'), script);
+  chmodSync(join(bin, 'git'), 0o755);
+  return { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+}
+
+test('OG-13: a ls-tree listing over the default 1 MiB capture limit is read in full, not truncated or crashed', () => {
+  const { dir } = repo({ 'package.json': pkg({ scripts: { test: 'jest' } }) });
+  const env = bigListingGitStub(dir);
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import {profile} from ${JSON.stringify(join(here, 'org-profile.mjs'))}; const p = profile({dir: ${JSON.stringify(dir)}}); process.stdout.write(String(p.files));`],
+    { encoding: 'utf8', env });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(Number(r.stdout.trim()), 40000, `expected all 40000 fake files to be read, got stderr=${r.stderr}`);
 });

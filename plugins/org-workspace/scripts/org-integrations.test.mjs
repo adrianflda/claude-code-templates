@@ -2,7 +2,7 @@ import './hermetic-git.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,4 +146,43 @@ test('cited lines: quoted values next to key/token/secret names, Bearer tokens a
   const out = extract({ dir }).outbound.map((x) => x.text).join('\n');
   for (const secret of Object.values(lines)) assert.ok(!out.includes(secret), `${secret} leaked: ${out}`);
   assert.match(out, /axios\.get\('\/b\/'/, 'paths are kept');
+});
+
+// OG-13 / F9: the `git ls-tree` that lists every committed file (extract()'s `files`) had no
+// maxBuffer AND no status check at all — worse than org-profile's F8, a failed/overflowing spawn
+// would throw on `.stdout` being undefined, or silently truncate. Same PATH-shadowed git stub idiom
+// as org-profile.test.mjs's OG-13 case: emit > 1 MiB from exactly the bulk-listing call.
+// The canary is the LAST entry emitted: a buffer cut (the default 1 MiB) drops the tail of the
+// listing first, so finding it in `contracts` is positive proof the full list was read, not just
+// proof the process didn't crash (a truncated-but-clean exit must fail this test).
+function bigListingGitStub() {
+  const bin = realpathSync(mkdtempSync(join(tmpdir(), 'qk-bigls2-')));
+  const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+  const script = `#!/bin/sh
+case " $* " in
+  *" ls-tree -r -z --name-only --full-tree "*)
+    i=0
+    while [ $i -lt 40000 ]; do
+      printf 'file-%05d-aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\0' "$i"
+      i=$((i+1))
+    done
+    printf 'CONTRACT-CANARY.md\\0'
+    exit 0
+    ;;
+  *) exec ${JSON.stringify(real)} "$@" ;;
+esac
+`;
+  writeFileSync(join(bin, 'git'), script);
+  chmodSync(join(bin, 'git'), 0o755);
+  return { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+}
+
+test('OG-13: extract() reads a > 1 MiB file listing in full (the tail is not silently dropped)', () => {
+  const { dir } = repo({ 'package.json': pkg({}) });
+  const env = bigListingGitStub();
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import {extract} from ${JSON.stringify(join(here, 'org-integrations.mjs'))}; const r = extract({dir: ${JSON.stringify(dir)}}); process.stdout.write(JSON.stringify(r.contracts));`],
+    { encoding: 'utf8', env });
+  assert.strictEqual(r.status, 0, `expected a clean run, got status=${r.status} stderr=${r.stderr}`);
+  assert.ok(JSON.parse(r.stdout).includes('CONTRACT-CANARY.md'), `tail entry missing — listing was truncated: ${r.stdout}`);
 });
