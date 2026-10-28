@@ -50,7 +50,9 @@ read, the gate falls back to the panel's own guess (`--branch`).
 
 - **Reviewed, nothing blocking** → exit 0, the push proceeds.
 - **Nothing to review** (deleting a branch, or the remote already has every pushed commit) → exit 0.
-- **Critical issue found** → the push is **blocked**; the report is on the terminal.
+- **Critical issue found, or a ticket line contradicted** (a "Fit to the ticket" row marked
+  `contradicted` whose quote is found in the ticket) → the push is **blocked**; the report is on
+  the terminal.
 - **No reviewer could run** → blocked.
 - **The panel is missing, killed, timed out or cannot start** → blocked (fail closed).
 - **No skip switch is honored.** `AI_REVIEW_SKIP`, `PREPUSH_REVIEW_SKIP` and
@@ -136,7 +138,7 @@ The panel is up to 8 independent specialist reviewers, each constrained to one b
 | Test Coverage & Quality | untested branches, weak assertions, flaky patterns |
 | Maintainability & Design | boundaries, duplication, dead code, leaky abstractions |
 | Readability & Simplicity | comments that explain what the code should make obvious, jargon or invented terms in names and comments, designs more complex than the goal needs (always with the simpler alternative); at most `medium` unless it hides a correctness risk |
-| Fit to the ticket | runs only when ticket text is found: does the change do what the ticket's "Done when" and business reason ask, and does it add a rule or exemption the ticket contradicts; `high` when the design contradicts an explicit requirement |
+| Fit to the ticket | runs only when ticket text is found, over the **whole branch**: one row per acceptance criterion and business reason (`met` / `partial` / `missing` / `contradicted`, with the ticket line quoted) plus one `unrequested` row per rule or exemption the change adds that no ticket line asks for; a confirmed `contradicted` row **blocks** |
 
 Each reviewer ingests the repo's own guidance (`CLAUDE.md` / `.github/copilot-instructions.md`
 / `AGENTS.md` / `.cursorrules`), so the generic panel auto-adapts per project.
@@ -147,7 +149,11 @@ The other reviewers only see the diff, so they cannot tell when a well-written c
 wrong thing. The "Fit to the ticket" reviewer gets the ticket text as well:
 
 - with `--pr <n>`: the PR title and body, plus the issues they reference;
-- otherwise (a push, `--branch`, `--base`): the issues referenced in the reviewed commits' messages.
+- otherwise (a push, `--branch`, `--base`): the pushed branch's PR, when it has one (the gate
+  tells the panel which ref is pushed through `AI_REVIEW_PUSH_REF`; run directly, the panel uses
+  the checked-out branch), the commit messages of the whole branch since it left its base, and,
+  when neither names an issue, the number in the branch name (`feat/76-flags` → `#76`), as a
+  last resort only: that number can also be another repository's issue.
 
 Recognised references: `#12` (the `origin` repository), `owner/repo#12`, `repo#12` (a repository of the
 same owner as `origin`, for example `prodmgt#31` from a `PhoenixCare/...` checkout means
@@ -158,6 +164,36 @@ uses your own `gh` login, so another owner's (possibly private) issue never reac
 a posted comment. Skipped references are listed in the output. If `gh` is missing or not
 logged in, or nothing is referenced, the output says so and that reviewer is skipped; the rest of
 the panel runs as usual. Staged changes have no commit messages, so they never get a ticket.
+
+**The ticket reviewer sees the whole branch, not this push.** A design decision usually arrives in
+one large push, and the pushes after it are small: reviewed per push, the ticket reviewer never
+sees the design again. So it reviews everything on the branch since it left its base, on every
+push. The base is `--base`/the PR's base when given, else the PR of the pushed branch, else the
+repository's default branch (`gh repo view`), else `origin/HEAD`, else `dev`, `develop`, `main`
+or `master`, whichever exists locally. The output says what it covered (`"Fit to the ticket"
+covers the whole branch: 9 commit(s) vs origin/dev`). The other reviewers still see only the push.
+
+**Its answer is a table, and a confirmed contradiction blocks.** One row per acceptance
+criterion (`Done when` or similar) and per stated business reason, each with the ticket line
+quoted and a status: `met`, `partial` (not finished yet), `missing` (nothing in the diff does
+it) or `contradicted` (the design makes that line false or works against it, including a rule,
+refusal or exemption the change adds under which the line cannot hold for a case the ticket does
+not exclude). Then one `unrequested` row per rule, exemption, refusal or special case the change
+adds that no ticket line asks for. A `contradicted` row **blocks the push only when its quote is
+found verbatim in the ticket** (case, markdown marks and whitespace aside): a quote the ticket
+does not contain cannot be checked by anyone reading the report, so it is shown as
+`CONTRADICTED? (quote not found in the ticket: not blocking)`. When the reviewer finds no
+acceptance criterion, the output says `ticket has no acceptance criteria` and the business reason
+alone is checked. In the run log the rows count as `high` (contradicted), `medium` (missing,
+unrequested) and `low` (partial) for the role, and `ticketFit` records the rows, the confirmed
+contradictions and the base.
+
+For an offline replay, `--ticket-file <path>` uses a saved ticket instead of `gh` (no PR or issue
+is looked up), and `AI_REVIEW_ROLES=ticket` runs that reviewer alone:
+
+```
+AI_REVIEW_ROLES=ticket node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md
+```
 
 Every `gh` call (issues, `gh pr view`, the PR comment) names the `origin` repository with `-R`.
 `gh`'s own default can be another remote, such as the upstream of a fork, whose `#12` is a
@@ -257,6 +293,7 @@ node scripts/ai-review-panel.mjs --base origin/main   # everything on this branc
 node scripts/ai-review-panel.mjs --range <base> <head>   # an exact range (full object names)
 node scripts/ai-review-panel.mjs --pr 123   # review a PR and post a rolling comment
 node scripts/ai-review-panel.mjs --pr 123 --no-post   # same review, printed only
+node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md   # offline replay with a saved ticket
 ```
 
 ## Run log and stats
@@ -264,14 +301,16 @@ node scripts/ai-review-panel.mjs --pr 123 --no-post   # same review, printed onl
 Every run appends one JSON line to `~/.cache/git-ai-review/runs.jsonl`: repository, mode, base
 and head, which reviewers ran, were skipped or failed, each reviewer's findings by severity, the
 de-duplicated totals, the outcome (`passed`, `blocked`, `not-reviewed`, `nothing-to-review`,
-`skipped`), model calls, token usage, cost in USD and wall time. The panel writes the row when it
+`skipped`), where the ticket came from (`ticketSource`: `issues`, `pr`, `branch-name`, `file`,
+`none`), the ticket table (`ticketFit`: base, commits, rows by status, confirmed contradictions),
+model calls, token usage, cost in USD and wall time. The panel writes the row when it
 finishes; the git runner writes one only when the panel never got to finish (blocked by the
 quality gate, or a panel that could not start, was killed or timed out). A `git push --no-verify`
 runs no hook, so it leaves no row: the log cannot count overrides.
 
 ```
 node scripts/stats.mjs                 # the last 30 days
-node scripts/stats.mjs --days 7        # per-outcome counts, cost/time/calls p50 and p95, a per-role table
+node scripts/stats.mjs --days 7        # per-outcome counts, cost/time/calls p50 and p95, the ticket tables, a per-role table
 node scripts/stats.mjs --days 7 --json
 ```
 
@@ -294,6 +333,8 @@ read-only home never fails a review.
 | `QK_PUSH_TIMEOUT_MS` | `1800000` | how long the gate waits for the quality gate (all pushed ranges together); past it the push is blocked as not verified |
 | `CLAUDE_BIN` | auto | explicit path to the `claude` binary |
 | `AI_REVIEW_TRIGGER` | set to `pre-push` by the gate | recorded in the run log as the run's trigger (`pre-push` or `cli`) |
+| `AI_REVIEW_PUSH_REF` | set by the gate per pushed ref | the ref being pushed (`refs/heads/<branch>`); names the branch whose PR carries the ticket |
+| `AI_REVIEW_ROLES` | all | comma-separated role keys to run (`security`, `correctness`, `reliability`, `performance`, `tests`, `maintainability`, `simplicity`, `ticket`); for replays and tests |
 
 `PREPUSH_REVIEW_SKIP` and `AI_REVIEW_SKIP` no longer skip a push: the gate removes them, and the
 guard blocks Claude commands that set them. They only affect the panel when it is run directly.

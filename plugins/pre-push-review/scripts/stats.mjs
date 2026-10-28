@@ -43,6 +43,9 @@ export function aggregate(rows) {
   const costs = of('costUsd');
   const times = reviewed.map((r) => Number(r.durationMs) || 0);
   const calls = of('calls');
+  // The ticket reviewer's table: how often it ran, what it contradicted and what was confirmed.
+  const fits = rows.map((r) => r.ticketFit).filter((f) => f && typeof f === 'object');
+  const sum = (pick) => fits.reduce((a, f) => a + (Number(pick(f)) || 0), 0);
   return {
     runs: rows.length,
     outcomes,
@@ -50,6 +53,12 @@ export function aggregate(rows) {
     costUsd: { total: costs.reduce((a, b) => a + b, 0), p50: percentile(costs, 0.5), p95: percentile(costs, 0.95) },
     durationMs: { p50: percentile(times, 0.5), p95: percentile(times, 0.95) },
     calls: { total: calls.reduce((a, b) => a + b, 0), p50: percentile(calls, 0.5), p95: percentile(calls, 0.95) },
+    ticketFit: {
+      runs: fits.length,
+      contradicted: sum((f) => f.rows?.contradicted),
+      confirmed: sum((f) => f.confirmed),
+      noCriteria: fits.filter((f) => f.noCriteria).length,
+    },
   };
 }
 
@@ -66,6 +75,10 @@ export function render(days, a) {
     `  time      p50 ${secs(a.durationMs.p50)} · p95 ${secs(a.durationMs.p95)} per run`,
     `  calls     ${a.calls.total} model call(s) · p50 ${a.calls.p50 ?? '-'} · p95 ${a.calls.p95 ?? '-'} per run`,
   ];
+  const t = a.ticketFit;
+  if (t?.runs) {
+    lines.push(`  ticket    ${t.runs} table(s) · ${t.contradicted} contradicted line(s), ${t.confirmed} confirmed · ${t.noCriteria} ticket(s) without acceptance criteria`);
+  }
   const keys = Object.keys(a.roles);
   if (keys.length) {
     lines.push('', `  ${'role'.padEnd(30)} ${'run'.padStart(5)} ${'skip'.padStart(5)} ${'fail'.padStart(5)} ${'crit'.padStart(5)} ${'high'.padStart(5)} ${'med'.padStart(5)} ${'low'.padStart(5)}`);

@@ -76,7 +76,7 @@ export function fakePlugin({ withPanel = true, qkGate = false, realPanel = false
     executable(
       join(root, 'scripts', 'ai-review-panel.mjs'),
       `import { appendFileSync } from 'node:fs';
-appendFileSync(process.env.FAKE_PANEL_LOG, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), required: process.env.AI_REVIEW_REQUIRED, skip: process.env.AI_REVIEW_SKIP, prepushSkip: process.env.PREPUSH_REVIEW_SKIP }) + '\\n');
+appendFileSync(process.env.FAKE_PANEL_LOG, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), required: process.env.AI_REVIEW_REQUIRED, skip: process.env.AI_REVIEW_SKIP, prepushSkip: process.env.PREPUSH_REVIEW_SKIP, pushRef: process.env.AI_REVIEW_PUSH_REF ?? null }) + '\\n');
 // FAKE_PANEL_FAIL_HEAD: report a critical issue only for the --range whose head is that sha.
 if (process.env.FAKE_PANEL_FAIL_HEAD && process.argv.slice(2).at(-1) === process.env.FAKE_PANEL_FAIL_HEAD) {
   process.stdout.write('[CRITICAL] x.js:1 - broken on this range\\n');
