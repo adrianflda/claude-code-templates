@@ -468,11 +468,12 @@ test('without an origin remote only bare #N references are fetched', () => {
 });
 
 test('references past the first 100,000 characters are not scanned', () => {
-  const repo = repoWithCommit(`fix: long message\n\n${'word '.repeat(20_001)}#9`);
-  const gh = fakeGh();
+  // `#7` sits inside the cap and must be fetched; `#9` starts just past it.
+  const repo = repoWithCommit(`fix: #7 long message\n\n${'word '.repeat(20_000)}#9`);
+  const gh = fakeGh({ issues: { '#7': { title: 'In range', body: 'b' } } });
   const claude = fakeClaude();
   const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
 
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(gh.calls(), []);
+  assert.deepEqual(gh.calls(), [['issue', 'view', '7', ...ISSUE_ARGS]]);
 });
