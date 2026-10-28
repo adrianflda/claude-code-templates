@@ -115,10 +115,25 @@ if (process.env.AI_REVIEW_SKIP === '1' || process.env.PREPUSH_REVIEW_SKIP === '1
   process.exit(0);
 }
 
+// `owner/repo` of the `origin` remote, from any URL shape including SSH host aliases
+// (`git@github-work:o/r`); '' when there is none. Every gh call names it with -R, because gh's
+// own default can be another remote (the upstream of a fork), which would read that repository's
+// PR or issue and post the review there.
+const ORIGIN_REPO = (run('git remote get-url origin').match(/[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/) || [])[1] || '';
+/** Run `gh <args> -R <origin>`; '' on any failure. */
+function ghOrigin(args) {
+  try {
+    return execFileSync('gh', [...args, '-R', ORIGIN_REPO], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch {
+    return '';
+  }
+}
+
 // In --pr mode, review the FULL PR diff against its base branch (prefer origin/<base>).
 let prInfo = null;
 if (prNumber) {
-  prInfo = parseJson(run(`gh pr view ${prNumber} --json baseRefName,headRefOid,title,body`));
+  if (!ORIGIN_REPO) console.warn('[pre-push-review] origin is not a GitHub repository: PR details are not fetched.');
+  else prInfo = parseJson(ghOrigin(['pr', 'view', prNumber, '--json', 'baseRefName,headRefOid,title,body']));
   const b = prInfo?.baseRefName;
   if (b && !baseBranch)
     baseBranch = run(`git rev-parse --verify --quiet origin/${b}`) ? `origin/${b}` : b;
@@ -390,14 +405,9 @@ const MAX_TICKET_REFS = 6;
 // The PR body and commit messages are scanned for references; nothing longer is needed.
 const MAX_REF_SCAN_CHARS = 100_000;
 
-/**
- * Owner of the `origin` remote, so `repo#N` can name a sibling repository. Reads the
- * `owner/repo` tail of any URL shape, including SSH host aliases (`git@github-work:o/r`).
- */
+/** Owner of the `origin` remote, so `repo#N` can name a sibling repository. */
 function originOwner() {
-  const url = run('git remote get-url origin');
-  const m = url.match(/[:/]([^/:]+)\/[^/:]+?(?:\.git)?\/?$/);
-  return m ? m[1] : '';
+  return ORIGIN_REPO.split('/')[0];
 }
 
 /**
@@ -432,8 +442,11 @@ function ghError(e) {
 
 /** Fetch one issue's title and body; never throws. */
 function fetchIssue(ref) {
-  const args = ['issue', 'view', ref.number, '--json', 'title,body,url'];
-  if (ref.repo) args.push('-R', ref.repo);
+  // A bare #N is origin's issue. Never leave the repository to gh: its default can be
+  // another remote, such as the upstream of a fork.
+  const repo = ref.repo || ORIGIN_REPO;
+  if (!repo) return { ok: false, label: `#${ref.number}`, error: 'origin is not a GitHub repository' };
+  const args = ['issue', 'view', ref.number, '--json', 'title,body,url', '-R', repo];
   try {
     const out = execFileSync('gh', args, { encoding: 'utf-8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'] });
     const issue = JSON.parse(out);
@@ -760,11 +773,12 @@ console.log(
 // Publish the review to the PR so it's visible (complements automated reviewers) and our
 // code is never merged without an exhaustive review on record.
 if (postToPr) {
-  const pr = prNumber || run('gh pr view --json number -q .number');
+  const branch = run('git branch --show-current');
+  const pr = !ORIGIN_REPO ? '' : prNumber || (branch && ghOrigin(['pr', 'view', branch, '--json', 'number', '-q', '.number']));
   if (pr) {
     try {
       // Edit our previous review in place (one rolling comment per PR, not one per push).
-      execSync(`gh pr comment ${pr} --edit-last --create-if-none --body-file -`, {
+      execFileSync('gh', ['pr', 'comment', pr, '--edit-last', '--create-if-none', '--body-file', '-', '-R', ORIGIN_REPO], {
         input: buildReviewMarkdown(results, findings, counts, description, diffLines, cut, ticket),
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
