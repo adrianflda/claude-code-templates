@@ -19,6 +19,7 @@ const version = JSON.parse(read('.claude-plugin/plugin.json')).version;
 // user's ANTHROPIC_DEFAULT_*_MODEL and break Bedrock/Vertex/gateway users — see README "Models").
 const EXPECTED_MODELS = {
   specifier: 'sonnet',
+  designer: 'opus',
   coder: 'sonnet',
   cleaner: 'sonnet',
   architect: 'opus',
@@ -62,7 +63,7 @@ test('newest released CHANGELOG entry is the plugin.json version', () => {
 
 const agentFiles = readdirSync(join(pluginRoot, 'agents')).filter((f) => f.endsWith('.md'));
 
-test('the agent set is exactly the six pipeline stages', () => {
+test('the agent set is exactly the seven pipeline stages', () => {
   assert.deepStrictEqual(agentFiles.map((f) => f.slice(0, -3)).sort(), Object.keys(EXPECTED_MODELS).sort());
 });
 
@@ -71,6 +72,11 @@ test('every agent file, known or not, declares a model alias (never a literal ID
     .map((f) => [f, frontmatterModel(read(`agents/${f}`), `agents/${f}`)])
     .filter(([, model]) => !ALLOWED_ALIASES.has(model));
   assert.deepStrictEqual(literal, []);
+});
+
+test('every agent is named in the /forge chain', () => {
+  const forge = read('commands/forge.md');
+  for (const agent of Object.keys(EXPECTED_MODELS)) assert.ok(forge.includes(`\`${agent}\``), `commands/forge.md does not name \`${agent}\``);
 });
 
 for (const [agent, expected] of Object.entries(EXPECTED_MODELS)) {

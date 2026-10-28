@@ -23,7 +23,9 @@ redesign the system's intent.
 
 ## Inputs
 
-The cleaner's work (may be a batch).
+The cleaner's work (may be a batch), and the design option the human chose
+(`design.md`) when there is one — the reference design you review against. Flag any
+mechanism the code added that the chosen option does not call for.
 
 ## Outputs
 
