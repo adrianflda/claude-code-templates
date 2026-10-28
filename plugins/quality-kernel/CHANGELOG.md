@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `python -m unittest` and `tofu test` / `terraform test` are recorded as verification runs.
 
 ### Added
-- `"runOnPush": true` in an org `tools.json` makes `pre-push-review` (1.3.0) run `qk-gate.mjs` on
+- `"runOnPush": true` in an org `tools.json` makes `pre-push-review` (1.4.0) run `qk-gate.mjs` on
   every pushed range before the panel, and block the push when the gate fails or cannot run.
   On push the memory guard's threshold defaults to pressure level 3 (`QK_MEM_MAX_PRESSURE_LEVEL`
   overrides it); a refusal still blocks.
