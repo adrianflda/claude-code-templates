@@ -11,6 +11,7 @@
  *   Unverified: `node --test | grep pass` -> exit 0 (exit code of the last command only (| or ||))
  *   Unproven: `pytest -q` -> exit 1
  *
+ * Rows the referee (qk-gate) writes to the same ledger carry no command and are skipped.
  * Only the latest run of each command counts. A command whose latest run failed, or whose
  * exit code is unknown (rows written before the ledger recorded exit codes), is Unproven.
  * An exit 0 is Proof only for an allowlisted command: plain words, quoted strings, simple
@@ -43,20 +44,28 @@ export function parseArgs(argv) {
   return args;
 }
 
+// The referee (qk-gate) writes its verdicts to the same ledger with source "referee" and no
+// `command`. They are not shell commands, so they are skipped (counted in `referee`) rather than
+// read as unreadable lines, which would fail every proof in a repo the gate has run in. A row with
+// a command is always read as a command row, whatever its source.
+const isRefereeRow = (row) => row.source === "referee" && row.command === undefined && Number.isFinite(row.ts);
+
 export function parseLedger(text) {
   const rows = [];
   let malformed = 0;
+  let referee = 0;
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const row = JSON.parse(line);
       if (row && typeof row.command === "string" && Number.isFinite(row.ts)) rows.push(row);
+      else if (row && isRefereeRow(row)) referee += 1;
       else malformed += 1;
     } catch {
       malformed += 1;
     }
   }
-  return { rows, malformed };
+  return { rows, malformed, referee };
 }
 
 // The hook stores at most this many characters of a command: `_MAX_COMMAND` in

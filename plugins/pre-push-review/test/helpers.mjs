@@ -56,9 +56,11 @@ export function runNode(script, { args = [], input = '', cwd, env = {} } = {}) {
  * what it saw and then behaves as told: FAKE_PANEL_EXIT is its exit code, FAKE_PANEL_OUT its
  * stdout, FAKE_PANEL_KILL makes it die from a signal, FAKE_PANEL_HANG makes it never finish.
  */
-export function fakePlugin({ withPanel = true } = {}) {
-  const root = tempDir('plugin');
-  mkdirSync(join(root, 'scripts'));
+export function fakePlugin({ withPanel = true, qkGate = false } = {}) {
+  // Laid out as in the plugins repo: <plugins>/pre-push-review next to <plugins>/quality-kernel.
+  const root = join(tempDir('plugins'), 'pre-push-review');
+  mkdirSync(join(root, 'scripts'), { recursive: true });
+  if (qkGate) fakeQkGate(join(root, '..', 'quality-kernel', 'scripts', 'qk-gate.mjs'));
   for (const f of ['git-pre-push.mjs', 'install-git-hook.mjs']) {
     copyFileSync(join(SCRIPTS, f), join(root, 'scripts', f));
   }
@@ -88,6 +90,27 @@ process.exit(Number(process.env.FAKE_PANEL_EXIT ?? 0));
   return root;
 }
 
+/**
+ * A fake quality-kernel gate. It records its cwd and args to FAKE_QK_LOG, prints a verdict JSON
+ * line on stdout and exits FAKE_QK_EXIT (default 0); FAKE_QK_REASON is the referee reason;
+ * FAKE_QK_HANG makes it never finish.
+ */
+export function fakeQkGate(path) {
+  mkdirSync(dirname(path), { recursive: true });
+  return executable(
+    path,
+    `import { appendFileSync } from 'node:fs';
+if (process.env.FAKE_QK_LOG) appendFileSync(process.env.FAKE_QK_LOG, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), memLevel: process.env.QK_MEM_MAX_PRESSURE_LEVEL ?? null }) + '\\n');
+if (process.env.FAKE_QK_HANG) await new Promise(() => setInterval(() => {}, 1000));\nif (process.env.FAKE_QK_SLEEP_MS) await new Promise((r) => setTimeout(r, Number(process.env.FAKE_QK_SLEEP_MS)));
+process.stderr.write('[fake-qk] running\\n');
+const head = process.argv[process.argv.indexOf('--head') + 1];\nconst code = process.env.FAKE_QK_FAIL_HEAD ? (head === process.env.FAKE_QK_FAIL_HEAD ? 1 : 0) : Number(process.env.FAKE_QK_EXIT ?? 0);
+const gate = { 0: 'pass', 1: 'fail', 2: 'indeterminate', 3: 'blocked-needs-breaker' }[code] ?? 'weird';
+process.stdout.write(JSON.stringify({ gate, referee: { reason: process.env.FAKE_QK_REASON ?? 'fake reason' }, notes: [] }) + '\\n');
+process.exit(code);
+`,
+  );
+}
+
 /** Install the plugin's gate into a fresh HOME (its ~/.gitconfig). */
 export function installGate(plugin, home = tempDir('home')) {
   const r = runNode(join(plugin, 'scripts', 'install-git-hook.mjs'), { env: { HOME: home } });
@@ -99,7 +122,7 @@ export function installGate(plugin, home = tempDir('home')) {
 function cleanEnv() {
   const env = { ...process.env };
   for (const name of Object.keys(env)) {
-    if (/^(AI_REVIEW_|PREPUSH_REVIEW_|GIT_CONFIG|CLAUDE_PLUGIN_ROOT$|CLAUDE_BIN$)/.test(name)) delete env[name];
+    if (/^(AI_REVIEW_|PREPUSH_REVIEW_|QK_|GIT_CONFIG|CLAUDE_PLUGIN_ROOT$|CLAUDE_BIN$)/.test(name)) delete env[name];
   }
   return env;
 }
