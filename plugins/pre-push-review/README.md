@@ -149,7 +149,7 @@ wrong thing. The "Fit to the ticket" reviewer gets the ticket text as well:
 - with `--pr <n>`: the PR title and body, plus the issues they reference;
 - otherwise (a push, `--branch`, `--base`): the issues referenced in the reviewed commits' messages.
 
-Recognised references: `#12` (this repository), `owner/repo#12`, `repo#12` (a repository of the
+Recognised references: `#12` (the `origin` repository), `owner/repo#12`, `repo#12` (a repository of the
 same owner as `origin`, for example `prodmgt#31` from a `PhoenixCare/...` checkout means
 `PhoenixCare/prodmgt#31`) and `https://github.com/owner/repo/issues/12`. Up to 6 are fetched with
 `gh issue view` (title and the first 4,000 characters of the body). Only issues of the same owner
@@ -158,6 +158,11 @@ uses your own `gh` login, so another owner's (possibly private) issue never reac
 a posted comment. Skipped references are listed in the output. If `gh` is missing or not
 logged in, or nothing is referenced, the output says so and that reviewer is skipped; the rest of
 the panel runs as usual. Staged changes have no commit messages, so they never get a ticket.
+
+Every `gh` call (issues, `gh pr view`, the PR comment) names the `origin` repository with `-R`.
+`gh`'s own default can be another remote, such as the upstream of a fork, whose `#12` is a
+different issue and whose PR must never get your review. When `origin` has no `owner/repo`
+(or there is no `origin`), nothing is fetched and nothing is posted.
 
 Only this reviewer receives the ticket text, marked as data, not instructions. The PR
 description is marked as the author's account, not as requirements: the requirements are the

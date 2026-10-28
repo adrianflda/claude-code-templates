@@ -314,7 +314,7 @@ test('commit-message references are fetched with gh and only the ticket reviewer
   const longBody = `Done when: X happens.${'.'.repeat(5000)}TAIL_PAST_THE_LIMIT`;
   const gh = fakeGh({
     issues: {
-      '#12': { title: 'Local issue', body: 'Done when: patients get the reminder.' },
+      'Acme/frontend#12': { title: 'Local issue', body: 'Done when: patients get the reminder.' },
       'Acme/prodmgt#31': { title: 'Product ticket', body: longBody },
       'acme/lib#7': { title: 'Library issue', body: 'Business reason: cut cost.' },
       'Other/private#8': { title: 'PRIVATE_FOREIGN_TITLE', body: 'must never be fetched' },
@@ -329,7 +329,7 @@ test('commit-message references are fetched with gh and only the ticket reviewer
 
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(gh.calls(), [
-    ['issue', 'view', '12', ...ISSUE_ARGS],
+    ['issue', 'view', '12', ...ISSUE_ARGS, '-R', 'Acme/frontend'],
     ['issue', 'view', '31', ...ISSUE_ARGS, '-R', 'Acme/prodmgt'],
     ['issue', 'view', '7', ...ISSUE_ARGS, '-R', 'acme/lib'],
   ], 'only origin\'s owner (any case) is fetched; text that is not a reference is ignored');
@@ -389,7 +389,7 @@ test('--pr gives the ticket reviewer the PR body and its issues; --no-post print
   const head = git(repo, 'rev-parse', 'HEAD');
   const gh = fakeGh({
     pr: { baseRefName: 'main', headRefOid: head, title: 'Add the rule', body: 'Closes #3\n\nWhy: nurses asked.' },
-    issues: { '#3': { title: 'The ticket', body: 'Done when: no exemptions are added.' } },
+    issues: { 'Acme/frontend#3': { title: 'The ticket', body: 'Done when: no exemptions are added.' } },
   });
   const claude = fakeClaude();
   const result = runNode(PANEL, {
@@ -418,7 +418,7 @@ test('--pr without --no-post posts the report, including the ticket status and t
 
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stderr, /HEAD is not the head of PR #7 \(ffffffffffff\)/);
-  assert.ok(gh.calls().some((a) => a.join(' ') === 'pr comment 7 --edit-last --create-if-none --body-file -'));
+  assert.ok(gh.calls().some((a) => a.join(' ') === 'pr comment 7 --edit-last --create-if-none --body-file - -R Acme/frontend'));
   assert.match(result.stdout, /Posted review to PR #7\./);
   const body = gh.posted();
   assert.match(body, /_Ticket context: PR description\._/);
@@ -456,7 +456,7 @@ test('only references to other owners: none is fetched and the ticket reviewer i
   assert.equal(roleOf(claude.calls(), 'checks the change against the ticket').length, 0);
 });
 
-test('without an origin remote only bare #N references are fetched', () => {
+test('without an origin remote nothing is fetched: gh would guess the repository', () => {
   const repo = repoWithCommit('fix: #4 and Acme/prodmgt#31');
   git(repo, 'remote', 'remove', 'origin');
   const gh = fakeGh({ issues: { '#4': { title: 'Local', body: 'Done when: x.' } } });
@@ -464,19 +464,61 @@ test('without an origin remote only bare #N references are fetched', () => {
   const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
 
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(gh.calls(), [['issue', 'view', '4', ...ISSUE_ARGS]]);
+  assert.deepEqual(gh.calls(), []);
+  assert.match(result.stdout, /Could not fetch #4 \(origin has no owner\/repo\)\./);
   assert.match(result.stdout, /Not fetched \(other owner\): Acme\/prodmgt#31\./);
+});
+
+test('--post without --pr finds the branch PR in origin and posts there', () => {
+  const repo = repoWithCommit('feat: no reference here');
+  git(repo, 'remote', 'add', 'upstream', 'https://github.com/Upstream/frontend.git');
+  const gh = fakeGh({ pr: 7 });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main', '--post'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(gh.calls(), [
+    ['pr', 'view', 'feature', '--json', 'number', '-q', '.number', '-R', 'Acme/frontend'],
+    ['pr', 'comment', '7', '--edit-last', '--create-if-none', '--body-file', '-', '-R', 'Acme/frontend'],
+  ]);
+  assert.match(result.stdout, /Posted review to PR #7\./);
+});
+
+test('with an upstream remote every gh call names origin, never the upstream', () => {
+  // A fork: gh's default repository can be the upstream, whose #12 is a different issue and
+  // whose PR #7 must never get our review comment.
+  const repo = repoWithCommit('fix: thing (#12, frontend#13)');
+  git(repo, 'remote', 'add', 'upstream', 'https://github.com/Upstream/frontend.git');
+  const head = git(repo, 'rev-parse', 'HEAD');
+  const gh = fakeGh({
+    pr: { baseRefName: 'main', headRefOid: head, title: 't', body: '' },
+    issues: {
+      'Acme/frontend#12': { title: 'Our issue', body: 'OUR_TICKET' },
+      'Acme/frontend#13': { title: 'Our other issue', body: 'b' },
+      '#12': { title: 'Upstream issue', body: 'UPSTREAM_TICKET' },
+    },
+  });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--pr', '7'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
+
+  assert.equal(result.code, 0, result.stderr);
+  const calls = gh.calls();
+  assert.deepEqual(calls.map((a) => a.slice(0, 2).join(' ')), ['pr view', 'issue view', 'issue view', 'pr comment']);
+  for (const a of calls) assert.deepEqual(a.slice(-2), ['-R', 'Acme/frontend'], a.join(' '));
+  const [fit] = roleOf(claude.calls(), 'checks the change against the ticket');
+  assert.match(fit.prompt, /OUR_TICKET/);
+  assert.doesNotMatch(fit.prompt, /UPSTREAM_TICKET/);
 });
 
 test('references past the first 100,000 characters are not scanned', () => {
   // `#7` sits inside the cap and must be fetched; `#9` starts just past it.
   const repo = repoWithCommit(`fix: #7 long message\n\n${'word '.repeat(20_000)}#9`);
-  const gh = fakeGh({ issues: { '#7': { title: 'In range', body: 'b' } } });
+  const gh = fakeGh({ issues: { 'Acme/frontend#7': { title: 'In range', body: 'b' } } });
   const claude = fakeClaude();
   const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
 
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(gh.calls(), [['issue', 'view', '7', ...ISSUE_ARGS]]);
+  assert.deepEqual(gh.calls(), [['issue', 'view', '7', ...ISSUE_ARGS, '-R', 'Acme/frontend']]);
 });
 
 /** `main` plus a feature branch that edits a small file and adds the given extra files. */
