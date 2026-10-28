@@ -422,25 +422,26 @@ test('--pr without --no-post posts the report, including the ticket status and t
   assert.match(result.stdout, /Posted review to PR #7\./);
   const body = gh.posted();
   assert.match(body, /_Ticket context: PR description\._/);
-  assert.match(body, /⚠ Diff truncated at 3000 of \d+ lines\. Cut inside `a-big\.js`\. Not reviewed: `z-left-out\.js`\./);
+  // Whole files are packed: the 3100-line file is left out, the small one is still reviewed.
+  assert.match(body, /⚠ Diff of \d+ lines is over the 3000-line \/ 400000-byte budget\. Not reviewed: `a-big\.js`\./);
 });
 
-test('a truncated diff names the file cut in the middle and every file left out', () => {
-  const big = Array.from({ length: 3500 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n';
+test('a diff over the budget names every file left out, in the output and the prompt', () => {
+  const lines = (n) => Array.from({ length: n }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n';
   const repo = repoWithCommit('feat: big', {
-    'a-big.js': big,
-    'b-left-out.js': 'export const b = 1;\n',
-    'c-left-out.js': 'export const c = 1;\n',
+    'a-big.js': lines(2900),
+    'b-left-out.js': lines(200),
+    'c-left-out.js': lines(200),
   });
   const claude = fakeClaude();
   const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
 
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /truncated to 3000: the review is PARTIAL/);
-  assert.match(result.stdout, /cut in the middle: a-big\.js/);
+  assert.match(result.stdout, /Diff is \d+ lines, over the 3000-line \/ 400000-byte budget: the review is PARTIAL/);
+  assert.doesNotMatch(result.stdout, /cut in the middle/, 'whole files are packed, none is cut');
   assert.match(result.stdout, /not reviewed \(2 file\(s\)\):\n {4}- b-left-out\.js\n {4}- c-left-out\.js/);
   assert.match(claude.prompts(), /These files are changed but NOT shown: b-left-out\.js, c-left-out\.js\. Do not report them as missing\./);
-  assert.doesNotMatch(claude.prompts(), /export const b = 1;/);
+  assert.match(claude.prompts(), /export const v2899 = 2899;/, 'the file that fits is sent whole');
 });
 
 test('only references to other owners: none is fetched and the ticket reviewer is skipped', () => {
@@ -476,4 +477,81 @@ test('references past the first 100,000 characters are not scanned', () => {
 
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(gh.calls(), [['issue', 'view', '7', ...ISSUE_ARGS]]);
+});
+
+/** `main` plus a feature branch that edits a small file and adds the given extra files. */
+function repoWithFiles(files) {
+  const repo = makeRepo('budget', { 'keep.js': 'export const keep = 1;\n' });
+  git(repo, 'checkout', '-q', '-b', 'feature');
+  write(repo, { 'keep.js': 'export const keep = 2;\n', ...files });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'feature');
+  return repo;
+}
+
+test('a file with a huge line (generated JSON) reaches the reviewers by name only', () => {
+  // One 1.2 MB line, like a regenerated catalog: under the line cap, far over any prompt.
+  const blob = JSON.stringify({ items: Array.from({ length: 60_000 }, (_, i) => `GENERATED_ITEM_${i}`) });
+  const repo = repoWithFiles({ 'catalog.json': `${blob}\n` });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /catalog\.json: content omitted/);
+  const prompts = claude.prompts();
+  assert.match(prompts, /b\/catalog\.json/, 'the file is named');
+  assert.match(prompts, /content omitted: \d+ bytes, longest line \d+ chars/);
+  assert.doesNotMatch(prompts, /GENERATED_ITEM_/, 'the blob is not sent');
+  assert.match(prompts, /export const keep = 2;/, 'other files are still reviewed');
+  const perReviewer = prompts.split('\n=====\n')[0];
+  assert.ok(Buffer.byteLength(perReviewer) < 64 * 1024, `prompt is ${Buffer.byteLength(perReviewer)} bytes`);
+});
+
+test('a diff over the byte budget is cut at a file boundary and the rest is listed by name', () => {
+  const big = (tag) => Array.from({ length: 200 }, (_, i) => `export const ${tag}_${i} = ${i};`).join('\n') + '\n';
+  const repo = repoWithFiles({ 'a-first.js': big('FIRST'), 'b-second.js': big('SECOND') });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, {
+    args: ['--branch', '--base', 'main'],
+    cwd: repo,
+    env: { CLAUDE_BIN: claude.bin, AI_REVIEW_MAX_DIFF_BYTES: '8000' },
+  });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /over the 8000-byte \/ 3000-line budget.*review is partial/);
+  const prompts = claude.prompts();
+  assert.match(prompts, /export const FIRST_0 = 0;/, 'files that fit are sent whole');
+  assert.doesNotMatch(prompts, /export const SECOND_0 = 0;/, 'files past the budget are not sent');
+  assert.match(prompts, /not reviewed \(over the diff budget\):[\s\S]*b-second\.js/);
+  assert.match(prompts, /export const keep = 2;/, 'packing continues past the file that did not fit');
+});
+
+test('a file is sent as header only when EITHER limit is hit: one long line, or many short lines', () => {
+  const longLine = `export const LONG_LINE_MARKER = "${'x'.repeat(5_000)}";\n`; // 5 KB: only the line limit
+  const manyLines = Array.from({ length: 6_000 }, (_, i) => `export const MANY_${i} = ${i}; // padding padding`).join('\n') + '\n'; // > 100 KB, short lines
+  const repo = repoWithFiles({ 'long-line.js': longLine, 'many-lines.js': manyLines });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /long-line\.js: content omitted \(\d+ bytes, longest line 5\d{3} chars\)/);
+  assert.match(result.stdout, /many-lines\.js: content omitted \(\d{6,} bytes, longest line \d{2} chars\)/);
+  const prompts = claude.prompts();
+  assert.doesNotMatch(prompts, /LONG_LINE_MARKER/);
+  assert.doesNotMatch(prompts, /MANY_0 = 0/);
+  assert.match(prompts, /export const keep = 2;/);
+});
+
+test('the line cap drops whole files and still lists them, instead of cutting the tail', () => {
+  const lines = (tag, n) => Array.from({ length: n }, (_, i) => `export const ${tag}_${i} = ${i};`).join('\n') + '\n';
+  const repo = repoWithFiles({ 'a-big.js': lines('BIG', 2_900), 'b-next.js': lines('NEXT', 400) });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /review is partial/);
+  const prompts = claude.prompts();
+  assert.match(prompts, /export const BIG_2899 = 2899;/, 'the file that fits is sent whole');
+  assert.doesNotMatch(prompts, /export const NEXT_0 = 0;/, 'the file over the line cap is not half-sent');
+  assert.match(prompts, /not reviewed \(over the diff budget\):[\s\S]*b-next\.js/, 'and it is listed by name');
 });

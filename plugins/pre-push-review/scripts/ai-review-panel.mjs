@@ -29,6 +29,9 @@
  *   AI_REVIEW_REQUIRED    1 = fail (exit 2) if no reviewer could run (default: 0 = warn+pass;
  *                         the PreToolUse gate sets 1 unless told otherwise)
  *   AI_REVIEW_SKIP        1 = skip review entirely (escape hatch)
+ *   AI_REVIEW_MAX_DIFF_BYTES  diff budget sent to each reviewer (default: 400000)
+ *   AI_REVIEW_MAX_FILE_BYTES  a file's diff larger than this is sent as its header only (default: 100000)
+ *   AI_REVIEW_MAX_LINE_CHARS  a file with a longer line is sent as its header only (default: 2000)
  *
  * Deleted files reach the reviewers as a header only (`git diff --irreversible-delete`): the
  * panel sees WHAT was removed and can look for leftovers, without the removed content
@@ -46,8 +49,14 @@ import { execFileSync, execSync, spawn } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { homedir } from 'os';
+import { packDiff, MAX_DIFF_LINES, MAX_DIFF_BYTES, MAX_FILE_BYTES, MAX_LINE_CHARS } from './diff-budget.mjs';
 
-const MAX_DIFF_LINES = 3000;
+// Lines alone do not bound the prompt: one regenerated catalog line can be megabytes, and a
+// prompt over the context window makes every reviewer fail at once. So the diff also gets a
+// byte budget, and any file that looks generated or minified is sent as its header only.
+// (MAX_DIFF_LINES/MAX_DIFF_BYTES/MAX_FILE_BYTES/MAX_LINE_CHARS and the packing logic itself now live
+// in diff-budget.mjs, OG-17/OG-19/INV-OG-13 — extracted so it is importable and unit-testable without
+// this script's real git/agent side effects running at import time.)
 // Cap per-child captured output — mirrors the execSync maxBuffer used elsewhere in this
 // file. runAgent runs once per reviewer on every push, so uncapped `out += d` on a runaway
 // `claude -p` (huge output, debug spew, CLI bug) could grow unbounded across all children.
@@ -478,7 +487,7 @@ function diffHeaderPath(line) {
 }
 
 /**
- * Keep the first `max` lines of the diff, as before, and name what the cut removed: the file
+ * Safety net after packDiff: keep the first `max` lines and name what the cut removed: the file
  * cut in the middle (if any) and every file left out entirely.
  */
 function truncateDiff(diff, max) {
@@ -506,7 +515,7 @@ function buildReviewMarkdown(results, findings, counts, desc, lines, cut, ticket
   out.push(`Reviewed: **${desc}** (${lines} lines).`);
   if (cut.omitted.length || cut.partial) {
     out.push('');
-    out.push(`⚠ Diff truncated at ${MAX_DIFF_LINES} of ${cut.total} lines.` +
+    out.push(`⚠ Diff of ${cut.total} lines is over the ${MAX_DIFF_LINES}-line / ${MAX_DIFF_BYTES}-byte budget.` +
       (cut.partial ? ` Cut inside \`${cut.partial}\`.` : '') +
       (cut.omitted.length ? ` Not reviewed: ${cut.omitted.map((f) => `\`${f}\``).join(', ')}.` : ''));
   }
@@ -611,12 +620,18 @@ if (deletedFiles) {
   );
 }
 
-const cut = truncateDiff(diff, MAX_DIFF_LINES);
-diff = cut.diff;
-const diffLines = cut.lines;
+// Whole files are packed into the byte/line budget first (diff-budget.mjs). The line cut after it
+// is a defense-in-depth safety net (OG-17/F23) that should not normally fire anymore; the files
+// either step leaves out are reported together.
+const totalLines = diff.split('\n').length;
+const packed = packDiff(diff, { log: console.log });
+const lineCut = truncateDiff(packed.diff, MAX_DIFF_LINES);
+diff = lineCut.diff;
+const diffLines = lineCut.lines;
+const cut = { total: totalLines, partial: lineCut.partial, omitted: [...packed.skipped, ...lineCut.omitted] };
 if (cut.omitted.length || cut.partial) {
   console.log(
-    `[pre-push-review] Diff is ${cut.total} lines, truncated to ${MAX_DIFF_LINES}: the review is PARTIAL.`,
+    `[pre-push-review] Diff is ${cut.total} lines, over the ${MAX_DIFF_LINES}-line / ${MAX_DIFF_BYTES}-byte budget: the review is PARTIAL.`,
   );
   if (cut.partial) console.log(`[pre-push-review]   cut in the middle: ${cut.partial}`);
   if (cut.omitted.length)
@@ -647,7 +662,7 @@ Output ONLY a JSON object — no prose, no markdown fences — of exactly this s
 {"findings":[{"severity":"critical|high|medium|low","file":"path","line":0,"issue":"what & why","suggestion":"fix"}],"summary":"one sentence"}
 Rules: report only issues within your focus area; cite file:line from the diff; do NOT invent issues; report only real defects within your focus area, never speculative hardening, optional abstractions, or "could be more robust" suggestions; reserve "critical" for defects that must block a release (data loss, security/privacy breach, broken core behavior). If nothing in your area, return {"findings":[],"summary":"LGTM"}.
 
-${cut.omitted.length || cut.partial ? `## Truncated diff\nThe diff was cut at ${MAX_DIFF_LINES} of ${cut.total} lines.${cut.partial ? ` \`${cut.partial}\` is cut in the middle.` : ''}${cut.omitted.length ? ` These files are changed but NOT shown: ${cut.omitted.join(', ')}.` : ''} Do not report them as missing.\n\n` : ''}${deletedFiles ? `## Deleted files\n${deletedFiles} file(s) are deleted in this diff. Each appears as a "deleted file mode" header with no content. Within your focus area, check whether anything else in the diff still depends on them.\n\n` : ''}## Diff
+${cut.omitted.length || cut.partial ? `## Truncated diff\nThe ${cut.total}-line diff is over the ${MAX_DIFF_LINES}-line / ${MAX_DIFF_BYTES}-byte budget.${cut.partial ? ` \`${cut.partial}\` is cut in the middle.` : ''}${cut.omitted.length ? ` These files are changed but NOT shown: ${cut.omitted.join(', ')}.` : ''} Do not report them as missing.\n\n` : ''}${deletedFiles ? `## Deleted files\n${deletedFiles} file(s) are deleted in this diff. Each appears as a "deleted file mode" header with no content. Within your focus area, check whether anything else in the diff still depends on them.\n\n` : ''}## Diff
 \`\`\`diff
 ${diff}
 \`\`\``;

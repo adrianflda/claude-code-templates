@@ -29,3 +29,11 @@ Steps:
    `{ "verify": "<test cmd, e.g. npm test / pytest -q / node --test>", "productionGlobs": ["src/**"], "acceptance": null }`
    plus a committed `.quality-kernel/critical-surface.json` (copy the example and author its globs
    from the repo's own past incidents). Both are read from the base ref, so they must be committed.
+   Alternative (org mode, explicit): if the repo sits in an org folder with an org guide
+   (`<org>/.claude/org-workspace/guide.json`, from the org-workspace plugin) that lists it, put the
+   two files in `<org>/.quality-kernel/repos/<repo-name>/` instead — no change to the product repo —
+   and add `--org "<org>"` to the qk-gate command (it wins over the repo's own config). For a
+   feature that spans repos (same branch name in each), run
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/qk-org-gate.mjs" --org <org> --branch <branch>`.
+   Tell the user plainly: this protects against the change under review, not against whoever can
+   write the org folder.

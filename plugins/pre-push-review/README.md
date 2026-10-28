@@ -142,9 +142,11 @@ issues.
 
 ### Large diffs
 
-The reviewers get at most 3,000 diff lines. When a diff is longer, the output (and the PR
-comment) names the file cut in the middle and lists every file that was not reviewed, and the
-reviewers are told those files exist so they do not report them as missing.
+The reviewers get at most 3,000 diff lines and 400 KB (`AI_REVIEW_MAX_DIFF_BYTES`). Files are
+packed whole, in diff order, while they fit; a generated, minified or data file (a line over
+2,000 chars or a diff over 100 KB) is sent as its header only. When the diff does not fit, the
+output (and the PR comment) lists every file that was not reviewed, and the reviewers are told
+those files exist so they do not report them as missing.
 
 ### Reviewers have no tools
 

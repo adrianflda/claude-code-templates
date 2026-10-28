@@ -11,7 +11,7 @@
       "name": "pre-push-review",
       "source": "./plugins/pre-push-review",
       "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "category": "quality-gates",
       "keywords": ["code-review", "pre-push", "git", "quality-gate", "hooks", "security", "multi-agent"]
     },
@@ -19,9 +19,17 @@
       "name": "quality-kernel",
       "source": "./plugins/quality-kernel",
       "description": "A quality-assurance kernel for agentic development: a six-agent SwarmForge-style engine (specifier -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-      "version": "0.6.0",
+      "version": "0.11.0",
       "category": "quality-gates",
       "keywords": ["quality-gate", "multi-agent", "spec-driven-development", "tdd", "mutation-testing", "verification", "swarmforge", "agents"]
+    },
+    {
+      "name": "org-workspace",
+      "source": "./plugins/org-workspace",
+      "description": "A light global guide for an org folder of many repos: /org-init maps who calls whom and writes a short managed block into the root CLAUDE.md saying where the truth of each thing lives; /org-learn updates it from a conversation.",
+      "version": "0.2.0",
+      "category": "productivity",
+      "keywords": ["claude-md", "multi-repo", "org", "system-map", "integrations"]
     },
     {
       "name": "spa-kit",

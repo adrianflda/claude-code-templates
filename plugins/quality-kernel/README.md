@@ -6,7 +6,7 @@ declared residual: a six-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.6.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.11.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
 > It now anchors verification to committed history and an inverted trusted tree. The six agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -49,8 +49,8 @@ the agent's word** — it re-runs your tests itself, against committed history, 
   `tools.json`, human-approved, distinct from the coder's tests — Constitution P3) runs against the
   base-immutable tree — and the gate **refuses (indeterminate)** if the `acceptance` command executes
   a file under `productionGlobs` (which head could overlay), keeping the oracle independent.
-  Fail-closed on any uncertainty (missing/ambiguous contract, symlink, stripped tests, an undeclared
-  changed path, a harness mutation, a case-collision, a command that can't run).
+  Fail-closed on any uncertainty (missing/ambiguous contract, symlink, a `filter` attribute, an
+  undeclared changed path, a harness mutation, a case-collision, a command that can't run).
 - **Composed gate** (`scripts/qk-gate.mjs`) — `route` + `referee` in one verdict. Exit `0` pass ·
   `1` fail · `2` indeterminate · `3` green-but-critical-needs-breaker.
 - **Invoker** (`hooks/pre-push.sample`) — a git pre-push hook that gates the exact **pushed sha**
@@ -60,8 +60,19 @@ Every red-team attack the panel used to break v1 — forged pass, weakened `tool
 neutered / renamed-away test, in-place test-neuter, non-`.sh` runner swap, golden re-goldening,
 committed symlink (incl. an arbitrary write outside the repo), non-ASCII path, worktree/HEAD
 divergence, co-located test overlay, bug outside `productionGlobs`, export-ignore-stripped tests,
-untracked config/tools fallback, pushed-sha-vs-worktree, forged base ref — is now a permanent
-regression test (`scripts/attacks.test.mjs`, `route.test.mjs`, `pre-push.test.mjs`).
+untracked config/tools fallback, pushed-sha-vs-worktree, forged base ref, a local smudge filter or
+`.git/info/attributes` rewriting the harness — is now a permanent regression test
+(`scripts/attacks.test.mjs`, `referee.test.mjs`, `route.test.mjs`, `pre-push.test.mjs`).
+
+**Committed bytes, not a checkout.** Since 0.6.0 the base and head trees are written from raw blobs
+(`git cat-file`), so no checkout-time conversion runs: not the user's or the repo's local git config
+(`core.autocrlf`, filter drivers, `.git/info/attributes`), and not the committed `.gitattributes`
+either (`export-ignore`/`export-subst`, `eol`, `ident`, `working-tree-encoding` are not applied);
+exec bits come from the tree mode. Every blob is re-hashed against its committed id, and git runs with
+replace refs and fsmonitor disabled. Refused as indeterminate: a path with a `filter` attribute
+(committed, or set in `.git/info/attributes`) such as Git LFS, whose committed bytes are a
+placeholder; tree entries git itself would not check out (`..`, `.`, `.git`, duplicates). Requires
+**git >= 2.40** (`check-attr --source`); older git is refused up front.
 
 ### Honest limits (what `qk-gate` does NOT cover — the live breaker's job)
 The referee is an **in-process test oracle** that re-executes the committed change. It cannot, by
@@ -80,6 +91,14 @@ mechanism alone, defend against the change's own code **executing and being trus
   developer can `git push --no-verify`; the "human review" is a workflow, not a mechanical lock. Real
   enforcement is server-side (a protected branch / required check), which is out of this local-first
   tool's scope. Read "gated" as "surfaced for review," not "impossible to bypass."
+- **The local object store is trusted for trees and commits.** Blobs are re-hashed, but a tree or
+  commit object rewritten directly in `.git/objects` (same id, other content) is not detected: git
+  does not verify objects on read. Anyone who can do that already controls the repository; verify
+  from a fresh clone, or server-side, when that matters. (Grafts only rewrite ancestry, which the
+  gate never reads — it compares two explicit trees.)
+- **Killing the gate mid-verify** (SIGINT/SIGTERM) leaves its temp tree behind and the verify command
+  running as an orphan: verify runs through a blocking `spawnSync`, so no signal handler can act until
+  it returns. Normal exits (0/1/2) clean up. Tracked as a follow-up (async spawn + process group).
 
 Closing the first three in general needs a **black-box probe in an environment indistinguishable from
 production** — the live breaker, which `breaker-gate.mjs` enforces and `gstack-*.mjs` instruments.
@@ -103,7 +122,7 @@ Then:
 - Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
 
 **Process safety (referee).** Each command (`verifySetup`, `verify`, `acceptance`) runs in its own
-process group with a timeout: `timeoutSeconds` in `tools.json` (integer 1–3600, default 300, read from
+process group with a timeout: `timeoutSeconds` in `tools.json` (integer 1–14400, default 300, read from
 the base ref; anything else is indeterminate). On timeout the whole group gets SIGTERM, then SIGKILL
 after 5 s; after every command the group and every process carrying the run's `QK_RUN_ID` marker are
 killed, so nothing outlives a gate run. Before any temp tree exists the referee checks, in order:
@@ -121,10 +140,11 @@ through `proc-forward.mjs` (enforced, with no import cycles, by `scripts/import-
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
 Property tests are a separate command: `node --test scripts/*.prop.mjs` (dependency-free kit in
 `scripts/prop-kit.mjs`; seeded, a failure prints its seed — replay it with `QK_PROP_SEED=<seed>`).
-Tests that spawn git import `scripts/hermetic-git.mjs` first, so your global/system git config
-(excludesfile, XDG ignore, hooksPath) cannot change their result — do the same in new ones.
-`scripts/manifest-consistency.test.mjs` fails the suite if versions (plugin.json, marketplace.json,
-README, CHANGELOG) disagree or an agent declares a literal model ID instead of its alias.
+Tests that reach git import `scripts/hermetic-git.mjs` first, so your git setup (global/system
+config and attributes, XDG ignore, hooksPath, an outer `git -c`, or any inherited `GIT_*` variable
+such as `GIT_DIR`) cannot change their result; repo-local config is left alone.
+`scripts/test-hygiene.test.mjs` fails the suite if a git-using test forgets that import. `scripts/manifest-consistency.test.mjs` fails it if versions (plugin.json,
+marketplace.json, README, CHANGELOG) disagree or an agent declares a literal model ID.
 
 ## M2 — plan-with-teeth + agentic QA (P2·P4·P5)
 
@@ -245,7 +265,7 @@ Automatic, always on (no invocation needed):
   `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
   model as context. Recording only; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.6.0)
+## Gate status — teeth vs. prose (v0.11.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
@@ -275,6 +295,58 @@ Copy the examples into your repo's `.quality-kernel/`:
 - **`config/critical-surface.example.json`** → the globs that trigger the
   blast-radius override. If absent, `/forge` treats anything outside
   docs/tests/styling/tooling as critical (fail-safe).
+
+### Org orientation lives in `org-workspace`
+
+Discovering an org folder's repos, mapping who calls whom (`SYSTEM-MAP.md`) and keeping a short
+guide in the org-root `CLAUDE.md` moved to the **org-workspace** plugin (`/org-init`, `/org-learn`)
+in 0.10.0. quality-kernel keeps what verifies work: `/gate`, org mode below, and the referee's
+opt-in **RED canary** (`--canary`): after a green run the verify command is re-run on head with every
+JS/TS/Python test file raising on load and must fail — it shows the command reacts to broken test
+files, not which tests it executes (a lint command that parses them also passes). Gate configs
+(`tools.json`) are written by hand.
+
+### Org mode (several repos in one org folder — the system as a whole)
+
+An org folder holds its repos side by side. The **org-workspace** plugin keeps its guide: a short
+block in `<org>/CLAUDE.md` (for agents) and the same data in `<org>/.claude/org-workspace/guide.json`
+(for tools). quality-kernel reads the guide for WHICH repos form the system, and keeps their gate
+config outside every product repo:
+
+```
+<org>/
+├── CLAUDE.md                                  # the org guide block (org-workspace)
+├── SYSTEM-MAP.md                              # who calls whom, cited (org-workspace)
+├── .claude/org-workspace/guide.json           # repos, roles, base branches, harnesses, forbidden
+├── .quality-kernel/repos/<name>/tools.json    # and critical-surface.json — written by hand
+├── <name>/
+└── ...
+```
+
+- **Explicit only:** pass `--org <dir>` to `route` / `referee` / `qk-gate` (`qk-org-gate` always
+  does). Without it nothing changes — there is no auto-discovery.
+- With it, a listed app's `tools.json` / `critical-surface.json` come from
+  `<org>/.quality-kernel/repos/<name>/` and **win over the repo's own** (used only when the org has
+  none; the fallback is per file). An org that cannot serve the repo (not listed, forbidden, not
+  `role: "app"`, not directly under the org folder, no guide, an empty `--org`) is indeterminate,
+  never a silent fallback. Symlinks anywhere in the config are refused.
+- The config is pinned **by content**: `qk-gate` hashes the guide and every config file once
+  (`orgPin`), passes that pin to route and referee (each re-hashes and refuses a mismatch), reports
+  `org: { dir, pin }` and re-checks the pin after the run — a change during the run is indeterminate.
+- Gate a feature across every listed app that has its branch:
+  `node scripts/qk-org-gate.mjs --org <org> --branch feature/<name>`
+  (exit 1 > 2 > 3 > 0; anything listed that cannot be verified = 2; harness entries are not gated,
+  a missing harness branch is a note). It resolves every repo's refs before running any gate and
+  re-checks them and the pin after, so one repo's executed code cannot drop another from the feature.
+- **Working as one system:** `/forge` and `/develop` run inside an org folder use the guide and the
+  `SYSTEM-MAP.md` sections of the repos they touch to find who consumes what they change; those
+  consumers become acceptance criteria, and QA closes with `qk-org-gate` on the feature branch.
+- **Trust limit:** a repo's own change under review cannot touch its config (it lives outside every
+  repo). Whoever can write the org folder owns every listed repo's contract. Code the gate executes
+  runs with your rights (see "Honest limits"): dirs shared through `linkPaths` (e.g. `node_modules`),
+  git objects and the plugin's own scripts are writable, so code run while gating one repo can change
+  what a LATER repo of the same run reads — the pin catches config changes, not those. Isolation per
+  repo is the real fix for that class.
 
 ## Tools
 

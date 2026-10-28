@@ -31,6 +31,13 @@ Rules:
 
 State the chosen tier and the reason in one line before proceeding.
 
+**System view (only inside an org folder with an org guide** — the `org-workspace` block of the
+org-root `CLAUDE.md`, data in `<org>/.claude/org-workspace/guide.json`): name the repos the task
+touches and read only their sections of `<org>/SYSTEM-MAP.md`. A change to something another repo
+consumes (an endpoint, a payload field, a shared bucket) is cross-repo blast radius: raise the tier
+to at least T1 and pass the consumers, with their citations, to the specifier. Use one branch name in
+every touched repo, and close with `qk-org-gate --org <org> --branch <branch>`.
+
 ## Step 1 — Run the chain for the tier
 
 Dispatch each role as a subagent (`specifier`, `coder`, `cleaner`, `architect`,

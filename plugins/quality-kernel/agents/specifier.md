@@ -30,6 +30,8 @@ Your job is to make the desired behavior unambiguous and falsifiable.
 - User intent: a GitHub issue, a board card, or an informal description.
 - The project's constitution / existing specs (read them for domain language and
   non-negotiables) if present.
+- Inside an org folder: the org guide (where each source of truth lives) and the
+  `SYSTEM-MAP.md` sections of the repos the change touches — who consumes what you change.
 
 ## Outputs (the contract)
 
@@ -76,7 +78,8 @@ Produce, in the feature's spec location:
    configured tool.
 4. Move repeated setup into `Background`.
 5. Write the end-to-end QA procedure (UI-only), the External Observable Invariants
-   table and the glossary.
+   table and the glossary. If another repo consumes what changes (from `SYSTEM-MAP.md`), add an
+   EARS criterion per consumer that keeps it working, citing the consumer's `path:line`.
 6. Commit and hand off to the **coder**.
 
 ## You do NOT

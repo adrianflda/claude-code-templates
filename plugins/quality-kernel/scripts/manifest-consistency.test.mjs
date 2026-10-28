@@ -5,10 +5,13 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 
 const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-const marketplacePath = join(pluginRoot, '..', '..', '.claude-plugin', 'marketplace.json');
+const repoRoot = join(pluginRoot, '..', '..');
+const marketplacePath = join(repoRoot, '.claude-plugin', 'marketplace.json');
+// An installed copy (plugin cache) has no marketplace above it; the source repo must.
+const inSourceRepo = existsSync(join(repoRoot, '.git'));
 const read = (p) => readFileSync(join(pluginRoot, p), 'utf8');
 const version = JSON.parse(read('.claude-plugin/plugin.json')).version;
 
@@ -22,14 +25,15 @@ const EXPECTED_MODELS = {
   hardener: 'opus',
   qa: 'opus',
 };
+// Claude Code's model aliases; any agent file, known or not, must use one of them.
 const ALLOWED_ALIASES = new Set(['sonnet', 'opus', 'haiku', 'inherit']);
 
 function frontmatterModel(md, file) {
-  const m = md.match(/^---\n([\s\S]*?)\n---/);
+  const m = md.replace(/\r\n/g, '\n').match(/^---\n([\s\S]*?)\n---/);
   assert.ok(m, `${file}: no YAML frontmatter`);
   const models = m[1].split('\n').filter((l) => /^model:/.test(l));
   assert.strictEqual(models.length, 1, `${file}: expected exactly one model: key`);
-  return models[0].replace(/^model:\s*/, '').replace(/\s+#.*$/, '').trim();
+  return models[0].replace(/^model:\s*/, '').replace(/\s+#.*$/, '').trim().replace(/^(['"])(.*)\1$/, '$2');
 }
 
 test('plugin.json version is SemVer', () => {
@@ -37,8 +41,9 @@ test('plugin.json version is SemVer', () => {
 });
 
 test('marketplace.json quality-kernel entry version equals plugin.json version', {
-  skip: !existsSync(marketplacePath) && 'marketplace.json not present (installed copy, not the source repo)',
+  skip: !inSourceRepo && 'installed copy: no source repo, so no marketplace.json to compare',
 }, () => {
+  assert.ok(existsSync(marketplacePath), `source repo without ${relative(repoRoot, marketplacePath)}`);
   const entries = JSON.parse(readFileSync(marketplacePath, 'utf8')).plugins.filter((p) => p.name === 'quality-kernel');
   assert.strictEqual(entries.length, 1, 'exactly one quality-kernel entry in marketplace.json');
   assert.strictEqual(entries[0].version, version);
@@ -55,16 +60,22 @@ test('newest released CHANGELOG entry is the plugin.json version', () => {
   assert.strictEqual(top, version);
 });
 
+const agentFiles = readdirSync(join(pluginRoot, 'agents')).filter((f) => f.endsWith('.md'));
+
 test('the agent set is exactly the six pipeline stages', () => {
-  const agents = readdirSync(join(pluginRoot, 'agents')).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3)).sort();
-  assert.deepStrictEqual(agents, Object.keys(EXPECTED_MODELS).sort());
+  assert.deepStrictEqual(agentFiles.map((f) => f.slice(0, -3)).sort(), Object.keys(EXPECTED_MODELS).sort());
+});
+
+test('every agent file, known or not, declares a model alias (never a literal ID)', () => {
+  const literal = agentFiles
+    .map((f) => [f, frontmatterModel(read(`agents/${f}`), `agents/${f}`)])
+    .filter(([, model]) => !ALLOWED_ALIASES.has(model));
+  assert.deepStrictEqual(literal, []);
 });
 
 for (const [agent, expected] of Object.entries(EXPECTED_MODELS)) {
   test(`agent ${agent} declares model alias ${expected}`, () => {
     const file = `agents/${agent}.md`;
-    const model = frontmatterModel(read(file), file);
-    assert.ok(ALLOWED_ALIASES.has(model), `${file}: "${model}" is not an alias (literal model IDs are not allowed)`);
-    assert.strictEqual(model, expected);
+    assert.strictEqual(frontmatterModel(read(file), file), expected);
   });
 }

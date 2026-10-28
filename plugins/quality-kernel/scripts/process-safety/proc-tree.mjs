@@ -13,10 +13,10 @@ export { KILL_GRACE_MS, createRunner } from './proc-runner.mjs';
 export { killRecorded, snapshotTable, startTimeOf } from './proc-descendants.mjs';
 
 export const DEFAULT_TIMEOUT_SECONDS = 300;
-const MIN_TIMEOUT_SECONDS = 1, MAX_TIMEOUT_SECONDS = 3600;
+const MIN_TIMEOUT_SECONDS = 1, MAX_TIMEOUT_SECONDS = 14400; // 4 h: a full Django suite run twice per gate exceeds 1 h
 export const TERMINATION_SIGNALS = [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]; // 128 + signal number
 
-// PT-B1..B3: absent -> 300; present (even null) must be an integer 1..3600; never clamped or defaulted.
+// PT-B1..B3: absent -> 300; present (even null) must be an integer 1..14400; never clamped or defaulted.
 export function resolveTimeoutSeconds(tools) {
   if (!Object.hasOwn(tools, 'timeoutSeconds')) return { seconds: DEFAULT_TIMEOUT_SECONDS };
   const v = tools.timeoutSeconds;

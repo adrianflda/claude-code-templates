@@ -28,11 +28,11 @@ test('PT-B1 — absent timeoutSeconds resolves to the 300 s default', () => {
   assert.strictEqual(DEFAULT_TIMEOUT_SECONDS, 300);
   assert.deepStrictEqual(resolveTimeoutSeconds({ verify: 'x' }), { seconds: 300 });
 });
-test('PT-B2 — an integer from 1 to 3600 is applied unchanged', () => {
-  for (const v of [1, 2, 300, 3599, 3600]) assert.deepStrictEqual(resolveTimeoutSeconds({ timeoutSeconds: v }), { seconds: v });
+test('PT-B2 — an integer from 1 to 14400 is applied unchanged', () => {
+  for (const v of [1, 2, 300, 3600, 4100, 14399, 14400]) assert.deepStrictEqual(resolveTimeoutSeconds({ timeoutSeconds: v }), { seconds: v });
 });
 test('PT-B3 — present but invalid timeoutSeconds is an error naming the field, never clamped or defaulted', () => {
-  for (const v of [null, 0, -1, 1.5, '5', true, false, 3601, 99999, [], {}, Number.MAX_SAFE_INTEGER]) {
+  for (const v of [null, 0, -1, 1.5, '5', true, false, 14401, 99999, [], {}, Number.MAX_SAFE_INTEGER]) {
     const r = resolveTimeoutSeconds({ timeoutSeconds: v });
     assert.match(r.error, /timeoutSeconds/, `value ${JSON.stringify(v)}`);
     assert.strictEqual(r.seconds, undefined, `value ${JSON.stringify(v)} must not resolve to a number`);

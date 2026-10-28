@@ -16,9 +16,11 @@
 //  - Requires --base; a git failure or unverifiable ref is an operational error (fail-closed).
 //
 // Usage: route.mjs --repo <dir> --base <ref> [--head <ref>] [--changed a,b] [--deleted c] [--proposed tier]
+//                  [--org <dir>] [--org-pin <hash>]
 // Exit:  0 = classified (incl. critical) · 2 = operational error (fail-closed critical)
 
-import { spawnSync } from 'node:child_process';
+import { git, readVerifiedBlob } from './safe-git.mjs';
+import { findOrg, showOrgFile, orgSource, repoSource } from './org.mjs';
 import { isMain } from './is-main.mjs';
 
 const TIERS = { trivial: 0, standard: 1, critical: 2 };
@@ -128,7 +130,7 @@ export function classify(changed, config, proposed, deleted = []) {
 
 // Read a file at a committed ref, or null if absent/unreadable. Never touches the worktree.
 export function showAtRef(repo, ref, path) {
-  const r = spawnSync('git', ['-C', repo, 'show', `${ref}:${path}`], { encoding: 'utf8' });
+  const r = git(repo, ['show', `${ref}:${path}`]);
   return r.status === 0 ? r.stdout : null;
 }
 
@@ -164,9 +166,11 @@ export function parseDiffZ(buf) {
 // --- CLI ---
 if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
-  let repo = null, base = null, head = 'HEAD', changedArg = null, deletedArg = null, proposed = null;
+  let repo = null, base = null, head = 'HEAD', changedArg = null, deletedArg = null, proposed = null, orgDir, orgPinArg;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--repo') repo = args[++i];
+    else if (args[i] === '--org') orgDir = args[++i] ?? ''; // present without a value = empty -> fails closed
+    else if (args[i] === '--org-pin') orgPinArg = args[++i];
     else if (args[i] === '--base') base = args[++i];
     else if (args[i] === '--head') head = args[++i];
     else if (args[i] === '--changed') changedArg = args[++i];
@@ -185,11 +189,11 @@ if (isMain(import.meta.url)) {
     if (!base) opError('need --base <ref> for a git-derived changeset (or pass --changed explicitly)');
     // Both endpoints must be verifiable committed refs — never the worktree.
     for (const ref of [base, head]) {
-      if (spawnSync('git', ['-C', repo, 'rev-parse', '--verify', `${ref}^{commit}`], { encoding: 'utf8' }).status !== 0) {
+      if (git(repo, ['rev-parse', '--verify', `${ref}^{commit}`]).status !== 0) {
         opError(`unverifiable ref "${ref}" in ${repo} (need committed base..head)`);
       }
     }
-    const d = spawnSync('git', ['-C', repo, 'diff', '-z', '--name-status', '-M', `${base}..${head}`], { encoding: 'utf8' });
+    const d = git(repo, ['diff', '-z', '--name-status', '-M', `${base}..${head}`]);
     if (d.status !== 0) opError(`git diff failed in ${repo}: ${(d.stderr || '').trim() || 'non-zero exit'}`);
     ({ changed, deleted } = parseDiffZ(d.stdout));
   }
@@ -198,19 +202,35 @@ if (isMain(import.meta.url)) {
   changed = changed.filter((p) => !isLedger(p));
   deleted = deleted.filter((p) => !isLedger(p));
 
-  // critical-surface.json comes from the BASE REF (immutable), never the worktree or env.
+  // critical-surface.json comes from the BASE REF (immutable), never the worktree or env. With an
+  // explicit --org the org's file (outside every repo, pinned by content) wins, the repo's own is
+  // used only when the org has none, and an org that cannot serve the repo fails closed (same
+  // precedence as the referee — see org.mjs).
   let config = null;
+  let configSource = null;
   if (base && repo) {
-    const raw = showAtRef(repo, base, '.quality-kernel/critical-surface.json');
+    const ws = findOrg(repo, { org: orgDir, pin: orgPinArg });
+    if (ws && ws.error) opError(`org mode: ${ws.error}`);
+    let raw = null;
+    let where = null;
+    if (ws) {
+      try { raw = showOrgFile(ws, 'critical-surface.json'); } catch (e) { opError(e.message); }
+      if (raw !== null) { where = `org ${ws.dir} (pin ${ws.pin.slice(0, 12)})`; configSource = orgSource(ws); }
+    }
+    if (raw === null) {
+      const own = readVerifiedBlob(repo, base, '.quality-kernel/critical-surface.json');
+      if (own.error) opError(`critical-surface integrity: ${own.error}`);
+      if (!own.absent) { raw = own.text; where = `base ${base}`; configSource = repoSource(base); }
+    }
     if (raw !== null) {
       try { config = JSON.parse(raw); }
-      catch (e) { opError(`unreadable critical-surface.json at base ${base}: ${e.message}`); }
+      catch (e) { opError(`unreadable critical-surface.json at ${where}: ${e.message}`); }
       // Parseable is not valid: a wrong-typed criticalGlobs/safeGlobs would silently stop matching.
       const bad = configError(config);
-      if (bad) opError(`invalid critical-surface.json at base ${base}: ${bad}`);
+      if (bad) opError(`invalid critical-surface.json at ${where}: ${bad}`);
     }
   }
 
-  emit(classify(changed, config, proposed, deleted));
+  emit({ ...classify(changed, config, proposed, deleted), configSource });
   process.exit(0);
 }

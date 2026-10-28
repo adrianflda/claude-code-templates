@@ -285,7 +285,7 @@ scenario('SIGKILL of the gate is detected by the referee through parent death', 
 
 // ---------- B. Configurable timeout ----------
 
-for (const value of ['0', '-1', '1.5', '"5"', 'true', 'null', '3601', '99999']) {
+for (const value of ['0', '-1', '1.5', '"5"', 'true', 'null', '14401', '99999']) {
   scenario(`an invalid timeoutSeconds is INDETERMINATE and runs nothing [${value}]`, async () => {
     const witness = join(sideDir(), 'witness');
     const raw = `{"verify":"touch ${witness}","productionGlobs":["src/**"],"timeoutSeconds":${value}}`;
@@ -299,7 +299,7 @@ for (const value of ['0', '-1', '1.5', '"5"', 'true', 'null', '3601', '99999']) 
   });
 }
 
-for (const value of [1, 3600]) {
+for (const value of [1, 14400]) {
   scenario(`boundary values are accepted unchanged [${value}]`, async () => {
     const fx = fixture({ tools: { verify: 'exit 0', timeoutSeconds: value } });
     assert.strictEqual((await run(REFEREE, fx)).code, 0);
@@ -308,7 +308,7 @@ for (const value of [1, 3600]) {
 
 scenario('the working tree and head cannot change the timeout', async () => {
   const fx = fixture({ tools: { verify: 'sleep 10', timeoutSeconds: 2 } });
-  writeFileSync(join(fx.repo, '.quality-kernel', 'tools.json'), JSON.stringify({ verify: 'sleep 10', productionGlobs: ['src/**'], timeoutSeconds: 3600 }));
+  writeFileSync(join(fx.repo, '.quality-kernel', 'tools.json'), JSON.stringify({ verify: 'sleep 10', productionGlobs: ['src/**'], timeoutSeconds: 14400 }));
   const r = await run(REFEREE, fx);
   assert.match(r.verdict.reason, /timed out after 2s/);
 });
@@ -404,10 +404,13 @@ for (const [variable, value] of [['QK_MEM_MAX_PRESSURE_LEVEL', '1'], ['QK_MEM_MI
     assert.ok(dirEmpty(fx.tmp)); assert.ok(dirEmpty(fx.locks));
   });
 }
-for (const [variable, value] of [['QK_MEM_MAX_PRESSURE_LEVEL', '5'], ['QK_MEM_MIN_LEVEL_PCT', '0']]) {
+// Each case sets BOTH knobs permissive: leaving the other at its default made the case depend on the
+// machine's live pressure (a laptop at pressure level 2 refused the QK_MEM_MIN_LEVEL_PCT=0 case).
+const PERMISSIVE = { QK_MEM_MAX_PRESSURE_LEVEL: '5', QK_MEM_MIN_LEVEL_PCT: '0' };
+for (const [variable, value] of Object.entries(PERMISSIVE)) {
   test(`thresholds the machine does not breach let the run proceed [${variable}=${value}]`, { ...T, ...MAC }, async () => {
     const fx = fixture();
-    const r = await run(REFEREE, fx, { env: envFor(fx, { QK_MEM_GUARD: undefined, [variable]: value }) });
+    const r = await run(REFEREE, fx, { env: envFor(fx, { QK_MEM_GUARD: undefined, ...PERMISSIVE }) });
     assert.strictEqual(r.code, 0, r.stdout);
   });
 }
@@ -466,7 +469,7 @@ for (const [status, refExit] of [[0, 0], [5, 1]]) {
     assert.strictEqual(r.code, refExit);
     assert.strictEqual(r.stdout.trim().split('\n').length, 1, 'exactly one verdict line');
     assert.deepStrictEqual(Object.keys(r.verdict).sort(), ['evidence', 'pass', 'reason']);
-    assert.deepStrictEqual(Object.keys(r.verdict.evidence).sort(), ['acceptance', 'acceptanceExit', 'base', 'head', 'headExit', 'overlaidTests', 'trustedExit', 'verify']);
+    assert.deepStrictEqual(Object.keys(r.verdict.evidence).sort(), ['acceptance', 'acceptanceExit', 'base', 'head', 'headExit', 'overlaidTests', 'toolsSource', 'trustedExit', 'verify']);
   });
 }
 

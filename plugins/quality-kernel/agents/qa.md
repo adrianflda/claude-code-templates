@@ -38,7 +38,8 @@ Invariants table.
    UI commands to expose hard-to-test logic — always at the user-interface level.
 2. Run **CRAP** and **DRY** (`scripts/crap.mjs`, `scripts/dry-gate.mjs`) before the
    final verification.
-3. Run the end-to-end suite.
+3. Run the end-to-end suite. When the change spans repos of an org folder, close with
+   `qk-org-gate --org <org> --branch <branch>` so every touched repo is verified as one system.
 4. Run `scripts/proof.mjs` (evidence since the last commit). Put its `Proof:` lines in
    the commit message as trailers. Any `Unproven:` line, or no `Proof:` line, means the
    change is not verified: re-run the failing command, or report it as residual risk.
