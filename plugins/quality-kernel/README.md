@@ -2,13 +2,13 @@
 
 A quality-assurance **kernel** for agentic development. It does not replace your
 pipeline — it wraps it with the parts that turn "I think it's good" into a
-declared residual: a six-agent engine, deterministic quality tools, a blind
+declared residual: a seven-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.6.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.7.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
-> It now anchors verification to committed history and an inverted trusted tree. The six agents, the
+> It now anchors verification to committed history and an inverted trusted tree. The agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
 > design.
 >
@@ -180,13 +180,14 @@ closes those seams with three principles:
 3. **Rigor ∝ blast-radius** — maximum rigor where it can hurt; the trivial path
    stays fast, so the gates never get bypassed.
 
-## The engine — six agents (a SwarmForge-style chain)
+## The engine — seven agents (a SwarmForge-style chain)
 
-`specifier → coder → cleaner → architect → hardener → qa`
+`specifier → designer → coder → cleaner → architect → hardener → qa`
 
 | Agent | Owns | Deterministic tool |
 |-------|------|--------------------|
 | **specifier** | EARS criteria + Gherkin + e2e QA + external invariants | Gherkin DRY check |
+| **designer** | fit of the contract to the ticket + 2–3 options (always the simplest) + recommendation; no code | none (its output goes to the human) |
 | **coder** | implementation + unit tests (genuine RED) + accept. harness | TDD, oracle-signal check |
 | **cleaner** | structure-preserving cleanup | CRAP ≤ 6, jscpd, mutation-site count |
 | **architect** | module boundaries, dependency direction | dependency-cruiser / import-linter |
@@ -194,8 +195,8 @@ closes those seams with three principles:
 | **qa** | final independent verification, UI-only | the QA script **is the breaker's probe** |
 
 **Models.** Agents declare model *aliases*, never literal IDs, so each user's provider decides
-which model runs: specifier, coder and cleaner use `sonnet`; architect, hardener and qa use
-`opus` (hardener and qa moved up from `sonnet` in 0.5.0 — mutation triage and the breaker's
+which model runs: specifier, coder and cleaner use `sonnet`; designer, architect, hardener and
+qa use `opus` (hardener and qa moved up from `sonnet` in 0.5.0 — mutation triage and the breaker's
 probe benefit most from the stronger tier, at a higher per-run cost). Aliases resolve through
 `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_OPUS_MODEL`; on Bedrock, Vertex or a
 gateway, set those to the IDs your provider accepts. To pin the tier on the first-party API:
@@ -223,9 +224,32 @@ not establish completeness"). Roles are fixed; **domain expertise is injected**
   **never lower** it below what blast-radius requires;
 - runs the chain for that tier, passing **artifacts + context** (not chat) with
   a PM-router and **voting** (not debate) where a judgment is needed;
+- for T1+, runs the **designer** before the intention gate, so the human approves the
+  contract and picks how it is built in that one stop (see *Design before code* below);
 - enforces the gates: **intention (human)**, genuine RED, mutation (async),
   **blind breaker (live oracle, default-deny)**, evidence-gate, and the
   `pre-push-review` panel.
+
+## Design before code
+
+The specifier may not prescribe implementation and the architect reviews code that already
+exists, so without a design stage nobody compares the contract to the ticket and nobody
+chooses the "how" before the coder does. The **designer** (T1+, between the specifier and the
+intention gate) writes `design.md` beside the contract:
+
+1. **Fit to the ticket** — where the contract contradicts the ticket, goes beyond its
+   "Done when" or business reason, or carries a rule from elsewhere the ticket does not ask for.
+2. **2–3 options** — always including the simplest one that meets the ticket — each with
+   effort, risk and what it leaves out.
+3. **One recommendation** with the reason.
+
+The intention gate presents contract + review report + `design.md` together; the human approves
+the contract and picks the option there (no extra stop). The chosen option is a constraint for
+the coder and the reference design for the architect.
+
+`/develop` runs the designer once at system level (architecture, stack, subproject split) and
+presents it in its approval gate. It marks each feature `design: settled` or `design: open` in
+the plan; settled features run `/forge --design-settled`, which skips the designer.
 
 ## Gates & hooks
 
@@ -245,7 +269,7 @@ Automatic, always on (no invocation needed):
   `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
   model as context. Recording only; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.6.0)
+## Gate status — teeth vs. prose (v0.7.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
@@ -263,6 +287,7 @@ installing the plugin does not imply the full guarantee.
 | Adversarial critic (Opus) | **by-reference** | invokes the host's `adversarial-critic` |
 | Blind contract review | **script (teeth when run)** | `scripts/contract-review.mjs`: two isolated, tool-less reviewers (comprehension, critic) see only the contract; strict JSON findings; exit 1 on any blocker, 2 when a reviewer cannot be read |
 | Intention gate (G0) | **prose** | instruction to the orchestrator in `/forge`; forcing function is v1 |
+| Design fit + options | **prose** | the `designer` agent before G0 (T1+); the human picks the option at G0 |
 | Tier router | **wired (teeth)** | `scripts/route.mjs`, deterministic classifier; LLM may raise, never lower the floor |
 | Mutation as CI gate | **script only** | `crap.mjs` / mutation ship; wiring into CI is v1 (F3) |
 

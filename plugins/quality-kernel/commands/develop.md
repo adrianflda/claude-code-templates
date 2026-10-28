@@ -30,17 +30,27 @@ the build. If the description already answers a question, don't ask it.
    end-to-end QA procedure. Scaffold `.quality-kernel/tools.json` (`verify`, `productionGlobs`,
    `acceptance`, `testGlobs`), `.quality-kernel/critical-surface.json`, and add
    `.quality-kernel/*.jsonl` to `.gitignore`.
+4. **Design options** — run the `designer` agent ONCE, at system level, with the description,
+   the Phase 0 answers and the plan. Its `design.md` (beside the contracts) checks the plan
+   and contracts against what was asked, and gives 2–3 options for the architecture, stack and
+   subproject split (always including the simplest one that meets the description) with a
+   recommendation. In the plan, mark each feature `design: settled` when the chosen option
+   decides how it is built, or `design: open` when it leaves a real choice for that feature.
 
 ## Phase 2 — APPROVAL GATE (stop here)
-Present, concisely: the scope + non-goals, the stack, the subproject split, the Contract's must-have
-invariants (what "working" will mean), and a rough cost/effort expectation. Then **STOP and ask the
+Present, concisely: the scope + non-goals, the designer's fit findings and options with its
+recommendation, the stack, the subproject split, the Contract's must-have invariants (what "working"
+will mean), and a rough cost/effort expectation. The human picks the option in this same gate;
+record the choice in `design.md`. Then **STOP and ask the
 human to approve, adjust, or reject** (use `ExitPlanMode` or a direct approve/adjust question). **Do
 NOT write any implementation code before approval.** This is the one required checkpoint.
 
 ## Phase 3 — Build autonomously (after approval)
 - Scaffold the project (e.g. `create-next-app`, Prisma/DB, auth) and commit a baseline.
 - Decompose and build: for multi-subproject work use `/orchestrate-project` (one PM per subproject,
-  each running SDD → TDD build → review loop), else drive `/forge` per feature. Tests are authored
+  each running SDD → TDD build → review loop), else drive `/forge` per feature. Pass
+  `--design-settled` for a `design: settled` feature so forge skips its designer; a `design: open`
+  feature runs forge's designer, and its options go to the human at forge's intention gate. Tests are authored
   **anchored to the Contract** (exact values), following the qa-paradigms decision rule (P2 static +
   P4 contract-anchored + P5 independent validation); a broken selector/test must FAIL, never auto-heal.
 - Bounded loops: cap retries per task; on cap, escalate (stop + report), never loop forever.

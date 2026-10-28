@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-27
+
+### Added
+- **`designer` agent** (opus), between the specifier and the human intention gate in `/forge`
+  for T1 and T2 (T0 skips it). Given the ticket text (fetched with `gh` when an issue is
+  referenced) and the contract, it writes `design.md` beside the contract: where the contract
+  contradicts or goes beyond the ticket's "Done when" and business reason, or carries a rule
+  from elsewhere; 2–3 implementation options, always including the simplest one that meets the
+  ticket, each with effort, risk and what it leaves out; and one recommendation. No code. The
+  intention gate now shows contract + review + `design.md` together, and the human approves the
+  contract and picks the option in that single stop. The chosen option is a constraint for the
+  coder and the reference design for the architect. Motivated by a real run where the contract
+  kept a rule from an older design that contradicted the ticket's business need, and the coder
+  picked a complex design on its own because nobody chose the "how" before coding.
+- `/develop` runs the designer once at system level in Phase 1 (architecture, stack, subproject
+  split) and presents it in the Phase 2 approval gate; the plan marks each feature
+  `design: settled` / `design: open`, and settled features run `/forge --design-settled`.
+
 ## [0.6.0] - 2026-10-26
 
 ### Changed
