@@ -35,15 +35,19 @@ the build. If the description already answers a question, don't ask it.
    and contracts checked against what was asked, and 2–3 options for the architecture, stack and
    subproject split (always including the simplest one that meets the description) with a
    recommendation. Then list every feature whose "how" that does not decide, and run the
-   designer for each of them too, on its contract (`<id>.design.md` beside it). All of this
-   happens now, so the one approval below settles every design.
+   designer for each of them too, on its contract (`<id>.design.md` beside it). In the plan,
+   write next to each feature the design file that decides it. All of this happens now, so the
+   one approval below settles every design. If many features need their own file, group
+   features that share one decision into one file rather than one file each.
 
 ## Phase 2 — APPROVAL GATE (stop here)
 Present, concisely: the scope + non-goals, the designer's fit findings and options with its
 recommendation, the stack, the subproject split, the Contract's must-have invariants (what "working"
 will mean), and a rough cost/effort expectation. Show the per-feature design files with the
 system one, all together. The human picks an option for each in this same gate; write each pick
-under `## Chosen option` in its file and mark every feature `design: settled` in the plan. Then **STOP and ask the
+under `## Chosen option` in its file. Before building, check that every feature's design file
+exists and has a filled `## Chosen option`; a missing or empty one is not approved: go back to
+the human, do not start. Then **STOP and ask the
 human to approve, adjust, or reject** (use `ExitPlanMode` or a direct approve/adjust question). **Do
 NOT write any implementation code before approval.** This is the one required checkpoint.
 
@@ -55,8 +59,11 @@ NOT write any implementation code before approval.** This is the one required ch
   file>` (the feature's own, or `system.design.md` when the system design decides it), so forge
   runs no designer and does not stop for a design choice. Forge stops only if a new design decision
   appears during the build that the approved plan could not have foreseen; this should be rare.
-  When it happens, tell the human which decision, why the plan did not settle it, and the
-  options, and wait for the pick before that feature continues. Tests are authored
+  When it happens, that feature pauses and the others carry on (a subproject PM reports the stop
+  in its structured report; it does not wait silently). Tell the human which decision, why the
+  plan did not settle it, and the options. Add the pick to that feature's design file under
+  `## Chosen option`, with the date and the reason, then call forge again with
+  `--design-settled` on that file. Tests are authored
   **anchored to the Contract** (exact values), following the qa-paradigms decision rule (P2 static +
   P4 contract-anchored + P5 independent validation); a broken selector/test must FAIL, never auto-heal.
 - Bounded loops: cap retries per task; on cap, escalate (stop + report), never loop forever.
