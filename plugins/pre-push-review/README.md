@@ -192,10 +192,12 @@ unrequested) and `low` (partial) for the role, and `ticketFit` records the rows,
 contradictions and the base.
 
 For an offline replay, `--ticket-file <path>` uses a saved ticket instead of `gh` (no PR or issue
-is looked up), and `AI_REVIEW_ROLES=ticket` runs that reviewer alone:
+is looked up), and `AI_REVIEW_ROLES=ticket` runs that reviewer alone. Without `gh` the base of
+the whole-branch view comes from the clone (`origin/HEAD`, then `dev`/`develop`/`main`/`master`),
+and a clone's `origin/HEAD` can be stale, so pin it with `--base <ref>`:
 
 ```
-AI_REVIEW_ROLES=ticket node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md
+AI_REVIEW_ROLES=ticket node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md --base origin/dev
 ```
 
 Every `gh` call (issues, `gh pr view`, the PR comment) names the `origin` repository with `-R`.
@@ -325,6 +327,7 @@ node scripts/ai-review-panel.mjs --range <base> <head>   # an exact range (full 
 node scripts/ai-review-panel.mjs --pr 123   # review a PR and post a rolling comment
 node scripts/ai-review-panel.mjs --pr 123 --no-post   # same review, printed only
 node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md   # offline replay with a saved ticket
+node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md --base origin/dev   # same, with the whole-branch base pinned
 ```
 
 ## Run log and stats

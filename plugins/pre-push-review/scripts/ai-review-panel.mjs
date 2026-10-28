@@ -122,9 +122,10 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--branch') reviewMode = 'branch';
   else if (args[i] === '--base' && args[i + 1]) {
     // A base only means something for committed changes: `--base main` alone used to stay
-    // in staged mode and review nothing.
+    // in staged mode and review nothing. With --range it only pins the ticket reviewer's base
+    // (a replay), whichever flag comes first.
     baseBranch = args[++i];
-    reviewMode = 'branch';
+    if (reviewMode !== 'range') reviewMode = 'branch';
   }
   else if (args[i] === '--range' && args[i + 1] && args[i + 2]) {
     // Exact commits being pushed, as computed by the git pre-push runner from git's own ref

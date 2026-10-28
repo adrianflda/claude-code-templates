@@ -461,3 +461,17 @@ test('stats sums the ticket tables', () => {
   assert.match(render(7, a), /ticket {4}2 table\(s\) · 2 contradicted line\(s\), 1 confirmed · 1 ticket\(s\) without acceptance criteria/);
   assert.doesNotMatch(render(7, aggregate([rows[2]])), /table\(s\)/, 'no line when the ticket reviewer never ran');
 });
+
+test('a replay can pin the base of the whole-branch view with --base, before or after --range', () => {
+  const { repo, first, second } = flagsRepo();
+  for (const args of [['--base', 'dev', '--range', first, second], ['--range', first, second, '--base', 'dev']]) {
+    const home = tempDir('home');
+    const claude = fakeClaude(ROWS);
+    const r = runNode(PANEL, { args: [...args, '--ticket-file', FIXTURE], cwd: repo, env: { HOME: home, CLAUDE_BIN: claude.bin, AI_REVIEW_VERIFY: '0' } });
+    assert.equal(r.code, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /Reviewing 1 commit\(s\) being pushed/, 'the push diff is still the range');
+    assert.match(r.stdout, /"Fit to the ticket" covers the whole branch: 2 commit\(s\) vs dev/);
+    assert.equal(rowsIn(home)[0].mode, 'range');
+    assert.equal(rowsIn(home)[0].ticketFit.base, 'dev');
+  }
+});
