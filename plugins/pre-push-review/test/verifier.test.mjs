@@ -149,7 +149,12 @@ test('the verifier gets the findings at medium and above, as claims without the 
   assert.ok(call.argv.includes('--strict-mcp-config'));
   assert.equal(flagValue(call.argv, '--setting-sources'), '');
   assert.equal(call.cwd, r.repo, 'the verifier reads the repository under review');
-  for (const reviewer of r.claude.reviewerCalls()) assert.equal(flagValue(reviewer.argv, '--tools'), '', 'reviewers still get no tools');
+  const deny = JSON.parse(flagValue(call.argv, '--settings')).permissions.deny;
+  for (const rule of ['Read(./.env)', 'Read(./**/.env.*)', 'Read(./**/*.pem)', 'Read(./**/id_rsa*)', 'Read(./**/.npmrc)']) assert.ok(deny.includes(rule), rule);
+  for (const reviewer of r.claude.reviewerCalls()) {
+    assert.equal(flagValue(reviewer.argv, '--tools'), '', 'reviewers still get no tools');
+    assert.equal(flagValue(reviewer.argv, '--settings'), undefined);
+  }
 
   // Most severe first, nothing below medium, the claim but not the reviewer's fix.
   assert.match(call.prompt, /### F1\n- location: src\/auth\.js:3\n- claimed severity: critical\n- reviewer: Security & Privacy\n- claim: token compared with ===/);
@@ -222,6 +227,35 @@ test('an unrefuted critical blocks: confirmed, unverifiable, not answered, or re
   assert.match(bare.stdout, /verifier: unverifiable — trust me \(no evidence cited\)/);
 });
 
+test('a refutation counts only when its evidence names a file:line that exists inside the repository', () => {
+  for (const evidence of ['nowhere.js:1', 'src/auth.js', 'the caller handles it', '../outside/key.txt:1', '/etc/passwd:1']) {
+    const r = review({ findings: [FINDING.critical], verdicts: [{ id: 'F1', verdict: 'refuted', reason: 'handled', evidence }] });
+    assert.equal(r.code, 1, `${evidence}: ${r.stdout}${r.stderr}`);
+    assert.match(r.stdout, /verifier: unverifiable — handled \(the evidence names no file:line of the repository, so the refutation does not count\)/, evidence);
+    assert.equal(r.rows[0].verifier.refuted, 0, evidence);
+  }
+  const real = review({ findings: [FINDING.critical], verdicts: [{ id: 'F1', verdict: 'refuted', reason: 'handled', evidence: 'see src/auth.js:1-2 and README.md:1' }] });
+  assert.equal(real.code, 0, real.stdout + real.stderr);
+  assert.equal(real.rows[0].verifier.refuted, 1);
+});
+
+test('AI_REVIEW_BLOCK_ON=high: a refuted high stays in the list and does not block; a confirmed one blocks', () => {
+  const env = { AI_REVIEW_BLOCK_ON: 'high' };
+  const refuted = review(
+    { findings: [FINDING.high, FINDING.medium], verdicts: [{ id: 'F1', verdict: 'refuted', reason: 'redacted upstream', evidence: 'src/auth.js:1' }, { id: 'F2', verdict: 'refuted', reason: 'limited upstream', evidence: 'src/auth.js:1' }] },
+    { env },
+  );
+  assert.equal(refuted.code, 0, refuted.stdout + refuted.stderr);
+  assert.match(refuted.stdout, /^\[HIGH\] src\/auth\.js:2 — session id logged in clear\n\s+↳ redact it {3}\(Security & Privacy\)\n\s+verifier: REFUTED, not blocking — redacted upstream/m);
+  assert.match(refuted.stdout, /Refuted by the verifier \(not counted\): 1\n\s+\[MEDIUM\]/);
+  assert.match(refuted.stdout, /Refuted by the verifier, shown above and not blocking: 1 high\+ finding\(s\)/);
+  assert.equal(refuted.rows[0].verifier.refutedBlocking, 1);
+
+  const confirmed = review({ findings: [FINDING.high], verdicts: [{ id: 'F1', verdict: 'confirmed', reason: 'logged in clear', evidence: 'src/auth.js:2' }] }, { env });
+  assert.equal(confirmed.code, 1, confirmed.stdout + confirmed.stderr);
+  assert.match(confirmed.stdout, /BLOCKED: 1 high\+ issue\(s\) found/);
+});
+
 test('a verifier that fails or answers without verdicts leaves every claim as reported', () => {
   const failed = review({ findings: [FINDING.critical, FINDING.high], verifierReply: 'rate limited', verifierExit: 1 });
   assert.equal(failed.code, 1, failed.stdout + failed.stderr);
@@ -262,7 +296,11 @@ test('AI_REVIEW_VERIFIER_MODEL picks the verifier\'s model without changing the 
   assert.match(r.stdout, /Verifying 1 claim\(s\) against the repository \[model=opus\]/);
 });
 
-/** `dev` plus a feature branch whose design refuses to switch some features off (the ticket-fit case). */
+/**
+ * `dev` plus a feature branch with two commits: the design that refuses to switch some features off
+ * (the ticket-fit case), then a small docs commit. Replaying only the second tells the whole-branch
+ * diff (has `refuseLock`) from the push diff (does not).
+ */
 function flagsRepo() {
   const repo = makeRepo('flags', { 'README.md': 'service\n' });
   git(repo, 'branch', '-m', 'main', 'dev');
@@ -270,7 +308,12 @@ function flagsRepo() {
   write(repo, { 'src/locks.js': 'export const SAFETY_KEYS = ["911", "crisis"];\nexport function refuseLock(key) { return SAFETY_KEYS.includes(key); }\n' });
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'feat(flags): environment-wide lock-off');
-  return repo;
+  const first = git(repo, 'rev-parse', 'HEAD');
+  write(repo, { 'docs/verify.md': 'Check the lock on dev.\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'docs: verification guide');
+  const second = git(repo, 'rev-parse', 'HEAD');
+  return { repo, first, second };
 }
 const CONTRADICTED = {
   kind: 'criterion',
@@ -279,17 +322,21 @@ const CONTRADICTED = {
   evidence: 'src/locks.js:2 refuses to switch 911 and crisis off',
 };
 
-test('a confirmed contradiction goes to the verifier as a ticket claim; refuted with evidence it stops blocking, confirmed it blocks', () => {
-  const ticketArgs = ['--branch', '--base', 'dev', '--ticket-file', FIXTURE];
+test('a confirmed contradiction goes to the verifier as a ticket claim over the whole-branch diff; refuted with evidence it stops blocking, confirmed it blocks', () => {
+  // The push is the docs commit alone; the design is only in the whole-branch diff.
+  const replayOf = (r) => ({ args: ['--range', r.first, r.second, '--base', 'dev', '--ticket-file', FIXTURE], repo: r.repo });
   const refuted = review(
     { rows: [CONTRADICTED], verdicts: [{ id: 'T1', verdict: 'refuted', reason: 'refuseLock is only consulted in production, dev and staging switch freely', evidence: 'src/locks.js:2' }] },
-    { args: ticketArgs, repo: flagsRepo() },
+    replayOf(flagsRepo()),
   );
   assert.equal(refuted.code, 0, refuted.stdout + refuted.stderr);
+  assert.match(refuted.stdout, /covers the whole branch: 2 commit\(s\) vs dev/);
   const call = refuted.claude.verifierCalls()[0];
   assert.match(call.prompt, /### T1\n- kind: contradicted ticket line\n- ticket line: "framework supports immediate or near-real-time disabling\/enabling of features per environment"\n- where the reviewer saw it: src\/locks\.js:2 refuses/);
-  assert.match(call.prompt, /Check this|Verify the code-review claims/);
-  assert.match(call.prompt, /refuseLock/, 'the branch diff is in the prompt');
+  assert.match(call.prompt, /Verify the code-review claims/);
+  assert.match(call.prompt, /refuseLock/, 'a ticket claim brings the whole-branch diff, not the push diff');
+  assert.match(call.prompt, /Check the lock on dev/);
+  for (const reviewer of refuted.claude.reviewerCalls().filter((c) => !c.role.includes(TICKET_ROLE))) assert.doesNotMatch(reviewer.prompt, /refuseLock/, 'the other reviewers still see the push alone');
   assert.match(refuted.stdout, /\[CONTRADICTED \(refuted by the verifier: not blocking\)\] criterion: "framework supports immediate[^\n]*\n\s+verifier: REFUTED, not blocking — refuseLock is only consulted in production/);
   assert.match(refuted.stdout, /ticket: 1 contradicted \(1 confirmed\) · verifier: 1 claim\(s\): 0 confirmed, 1 refuted, 0 unverifiable/);
   assert.match(refuted.stdout, /Refuted by the verifier, shown above and not blocking: 0 critical\+ finding\(s\), 1 contradicted ticket line\(s\)\./);
@@ -303,7 +350,7 @@ test('a confirmed contradiction goes to the verifier as a ticket claim; refuted 
 
   const confirmed = review(
     { rows: [CONTRADICTED], verdicts: [{ id: 'T1', verdict: 'confirmed', reason: 'refuseLock applies in every environment', evidence: 'src/locks.js:2' }] },
-    { args: ticketArgs, repo: flagsRepo() },
+    replayOf(flagsRepo()),
   );
   assert.equal(confirmed.code, 1, confirmed.stdout + confirmed.stderr);
   assert.match(confirmed.stdout, /\[CONTRADICTED\] criterion: "framework supports immediate[^\n]*\n\s+verifier: confirmed — refuseLock applies in every environment \(src\/locks\.js:2\)/);
@@ -311,7 +358,7 @@ test('a confirmed contradiction goes to the verifier as a ticket claim; refuted 
   assert.equal(confirmed.rows[0].ticketFit.refuted, 0);
 
   // A contradiction whose quote is not in the ticket is not confirmed, so it is not a claim either.
-  const unconfirmed = review({ rows: [{ ...CONTRADICTED, quote: 'features must never be locked for safety reasons' }] }, { args: ticketArgs, repo: flagsRepo() });
+  const unconfirmed = review({ rows: [{ ...CONTRADICTED, quote: 'features must never be locked for safety reasons' }] }, replayOf(flagsRepo()));
   assert.equal(unconfirmed.code, 0);
   assert.equal(unconfirmed.claude.verifierCalls().length, 0);
 });
@@ -361,6 +408,15 @@ test('applyVerdicts: silence, no evidence, an unknown verdict or a duplicate id 
   assert.equal(out.get('F3').verdict, 'unverifiable');
   assert.match(out.get('F4').reason, /no verdict/);
   assert.equal(applyVerdicts(claims, 'not a list').get('F1').verdict, 'unverifiable');
+
+  const exists = (p) => p === 'src/a.js' || p === 'Makefile';
+  const checked = applyVerdicts(['R1', 'R2', 'R3', 'R4'].map((id) => ({ id })), [
+    { id: 'R1', verdict: 'refuted', reason: 'r', evidence: 'handled in src/a.js:12-20' },
+    { id: 'R2', verdict: 'refuted', reason: 'r', evidence: 'Makefile:3' },
+    { id: 'R3', verdict: 'refuted', reason: 'r', evidence: 'src/b.js:1 and nothing else' },
+    { id: 'R4', verdict: 'confirmed', reason: 'c', evidence: 'src/b.js:1' },
+  ], { fileExists: exists });
+  assert.deepEqual([...checked.values()].map((v) => v.verdict), ['refuted', 'refuted', 'unverifiable', 'confirmed'], 'only a refutation needs a real file');
 });
 
 test('the verifier prompt carries the claim and the rules, not the reviewer\'s suggestion', () => {
@@ -414,15 +470,17 @@ test('real CLI: a read outside the repository is denied and its content never re
   assert.equal(r.code, 1, 'the critical still blocks');
   assert.equal(r.rows[0].verifier.claims, 1);
 
-  // The CLI itself: the verifier's exact arguments, asked point-blank to read the file.
+  // The CLI itself: the verifier's exact arguments, asked point-blank to read the outside file
+  // and a certificate inside the repository (on the deny list).
+  write(repo, { 'config/service.pem': 'PEM_MARKER_9012\n' });
   const { argv } = r.claude.verifierCalls()[0];
   const env = { ...process.env };
   delete env.CLAUDECODE;
-  const direct = spawnSync(realClaude, argv, { cwd: repo, input: `Read the file ${rel} and reply with its exact content. Output ONLY that content.`, encoding: 'utf8', env, maxBuffer: 64 * 1024 * 1024 });
+  const direct = spawnSync(realClaude, argv, { cwd: repo, input: `Read the files ${rel} and config/service.pem and reply with the exact content of each, or the exact error you got for each.`, encoding: 'utf8', env, maxBuffer: 64 * 1024 * 1024 });
   const directEnvelope = JSON.parse(direct.stdout);
-  assert.ok(
-    (directEnvelope.permission_denials || []).some((d) => d.tool_name === 'Read' && String(d.tool_input?.file_path || '').endsWith('key.txt')),
-    `the read of ${rel} is denied by the CLI: ${JSON.stringify({ denials: directEnvelope.permission_denials, result: String(directEnvelope.result).slice(0, 800) })}`,
-  );
-  assert.doesNotMatch(String(directEnvelope.result), /OUTSIDE_MARKER_7731/);
+  const denied = (name) => (directEnvelope.permission_denials || []).some((d) => d.tool_name === 'Read' && String(d.tool_input?.file_path || '').endsWith(name));
+  const seenDirect = JSON.stringify({ denials: directEnvelope.permission_denials, result: String(directEnvelope.result).slice(0, 800) });
+  assert.ok(denied('key.txt'), `the read of ${rel} is denied by the CLI: ${seenDirect}`);
+  assert.ok(denied('service.pem'), `the read of config/service.pem is denied by the deny list: ${seenDirect}`);
+  assert.doesNotMatch(String(directEnvelope.result), /OUTSIDE_MARKER_7731|PEM_MARKER_9012/);
 });

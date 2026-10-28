@@ -79,7 +79,7 @@ import { homedir } from 'os';
 import { packDiff, MAX_DIFF_LINES, MAX_DIFF_BYTES, MAX_FILE_BYTES, MAX_LINE_CHARS } from './diff-budget.mjs';
 import { addUsage, emptyCounts, recordRun, usageOf } from './run-log.mjs';
 import { ROLES } from './roles.mjs';
-import { BATCH_SIZE, VERIFIER_ROLE, VERIFIER_TOOLS, applyVerdicts, batches, buildVerifierPrompt, isRefuted, selectClaims } from './verify.mjs';
+import { BATCH_SIZE, VERIFIER_ROLE, VERIFIER_TOOLS, applyVerdicts, batches, buildVerifierPrompt, isRefuted, selectClaims, verifierSettings } from './verify.mjs';
 
 // Lines alone do not bound the prompt: one regenerated catalog line can be megabytes, and a
 // prompt over the context window makes every reviewer fail at once. So the diff also gets a
@@ -291,7 +291,7 @@ function parseFindings(text) {
  * Run one agent headlessly; resolves to a result (never rejects). Reviewers get no tools; the
  * verifier gets `tools` (read-only) and runs in `cwd`, the repository.
  */
-function runAgent(bin, role, userPrompt, { tools = '', model = MODEL, cwd } = {}) {
+function runAgent(bin, role, userPrompt, { tools = '', model = MODEL, cwd, settings = '' } = {}) {
   return new Promise((done) => {
     const env = { ...process.env };
     delete env.CLAUDECODE; // allow nested invocation from within Claude Code
@@ -311,6 +311,8 @@ function runAgent(bin, role, userPrompt, { tools = '', model = MODEL, cwd } = {}
     //                              verifier gets Read,Grep,Glob, and under dontAsk a read outside
     //                              the working directory is denied (verified on CLI 2.1.312: the
     //                              envelope lists it under permission_denials)
+    //   --settings <json>          the verifier's deny rules for credential files (verify.mjs);
+    //                              they apply even with --setting-sources ''
     //   --permission-mode dontAsk  never auto mode: anything not pre-approved is denied
     //   --permission-prompts none  nothing waits for, or receives, an approval
     //   --strict-mcp-config        no MCP servers
@@ -319,6 +321,7 @@ function runAgent(bin, role, userPrompt, { tools = '', model = MODEL, cwd } = {}
       [
         '-p',
         '--setting-sources', '',
+        ...(settings ? ['--settings', settings] : []),
         '--tools', tools,
         '--permission-mode', 'dontAsk',
         '--permission-prompts', 'none',
@@ -980,12 +983,19 @@ if (claims.length) {
       tools: VERIFIER_TOOLS,
       model: VERIFIER_MODEL,
       cwd: runRow.repo,
+      settings: verifierSettings(),
     }),
   );
   const tally = { confirmed: 0, refuted: 0, unverifiable: 0, unverified: 0 };
+  // A refutation must cite a file that exists inside the repository, not next to it.
+  const repoRoot = resolve(runRow.repo);
+  const fileExists = (p) => {
+    const full = resolve(repoRoot, p);
+    return (full === repoRoot || full.startsWith(repoRoot + '/')) && existsSync(full);
+  };
   groups.forEach((group, i) => {
     const res = runs[i];
-    const verdicts = res.ok && res.verdicts ? applyVerdicts(group, res.verdicts) : null;
+    const verdicts = res.ok && res.verdicts ? applyVerdicts(group, res.verdicts, { fileExists }) : null;
     for (const c of group) {
       // A batch the verifier could not finish leaves its claims as reported: not checked is not refuted.
       c.target.verification = verdicts

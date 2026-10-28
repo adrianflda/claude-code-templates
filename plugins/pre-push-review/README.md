@@ -249,8 +249,14 @@ and cannot run commands, edit files or fetch anything from inside the push hook.
 The verifier runs the same way with `--tools Read,Grep,Glob`, in the repository as its working
 directory. Under `dontAsk` a read outside that directory is denied by the CLI (the result lists
 it under `permission_denials`), so a claim that points at a file next to the repository can only
-come back `unverifiable`. `test/verifier.test.mjs` has a test against the real CLI for this,
-run with `AI_REVIEW_REAL_CLI=1`.
+come back `unverifiable`. Inside the repository, credential and key files (`.env*`, `*.pem`,
+`*.key`, `id_rsa*`, `.npmrc`, `*.tfstate`, the list is `VERIFIER_DENY` in `scripts/verify.mjs`)
+are denied through `--settings` deny rules, which apply even with `--setting-sources ''`; the
+prompt also forbids quoting any secret-looking value. A refutation counts only when its evidence
+names a `file:line` that exists inside the repository. What remains: `Grep` can still match a
+line of any file, and the verifier's `reason`/`evidence` (400/300 characters) are printed and,
+with `--post`, put in the PR comment. `test/verifier.test.mjs` has a test against the real CLI
+for the two denials, run with `AI_REVIEW_REAL_CLI=1`.
 
 ## Install
 
