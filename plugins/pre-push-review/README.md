@@ -143,6 +143,9 @@ The panel is up to 8 independent specialist reviewers, each constrained to one b
 Each reviewer ingests the repo's own guidance (`CLAUDE.md` / `.github/copilot-instructions.md`
 / `AGENTS.md` / `.cursorrules`), so the generic panel auto-adapts per project.
 
+Then **one verifier** tries to refute what they reported before anything blocks (see
+[The verifier](#the-verifier)).
+
 ### Ticket context
 
 The other reviewers only see the diff, so they cannot tell when a well-written change does the
@@ -189,10 +192,12 @@ unrequested) and `low` (partial) for the role, and `ticketFit` records the rows,
 contradictions and the base.
 
 For an offline replay, `--ticket-file <path>` uses a saved ticket instead of `gh` (no PR or issue
-is looked up), and `AI_REVIEW_ROLES=ticket` runs that reviewer alone:
+is looked up), and `AI_REVIEW_ROLES=ticket` runs that reviewer alone. Without `gh` the base of
+the whole-branch view comes from the clone (`origin/HEAD`, then `dev`/`develop`/`main`/`master`),
+and a clone's `origin/HEAD` can be stale, so pin it with `--base <ref>`:
 
 ```
-AI_REVIEW_ROLES=ticket node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md
+AI_REVIEW_ROLES=ticket node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md --base origin/dev
 ```
 
 Every `gh` call (issues, `gh pr view`, the PR comment) names the `origin` repository with `-R`.
@@ -212,12 +217,46 @@ packed whole, in diff order, while they fit; a generated, minified or data file 
 output (and the PR comment) lists every file that was not reviewed, and the reviewers are told
 those files exist so they do not report them as missing.
 
-### Reviewers have no tools
+### The verifier
+
+A reviewer that reports everything it suspects is cheap to run and expensive to live with, so
+nothing blocks on a reviewer's word alone. After the panel, every finding at `medium` or above
+(the first 15, most severe first) and every confirmed `contradicted` ticket line goes to one more
+agent (`scripts/verify.mjs`) that **reads the repository** and answers one verdict per claim:
+
+| Verdict | Meaning | Effect |
+|---|---|---|
+| `confirmed` | the code it read proves the defect, in this change, at the cited place | blocks as before |
+| `refuted` | the code shows the claim is wrong, with `file:line` evidence | **no longer blocks**; still shown, marked `REFUTED` |
+| `unverifiable` | it could establish neither, or it answered without evidence or not at all | blocks as before |
+
+A claim the verifier never judged (it failed, timed out, or the claim was not sent) is `not
+verified` and counts as reported. So a critical is never dropped: a refuted critical (or high,
+when that blocks) stays in the list with the verifier's reason; a refuted `medium` or `low` is
+folded under the list as "Refuted by the verifier (not counted)". The verifier gets the claim
+(where, what, claimed severity) and the diff, not the reviewer's suggestion, so it has to
+establish the facts from the code rather than agree with an argument. The run log records what
+it was sent, each verdict, what it refuted at the blocking severity, and what it added in time
+and cost. `AI_REVIEW_VERIFY=0` turns it off.
+
+### Reviewers have no tools; the verifier can only read
 
 The diff is untrusted input: it can contain text written to steer a model. Each reviewer runs
 as `claude -p` with `--tools ''` (no built-in tools), `--permission-mode dontAsk`,
 `--permission-prompts none` and `--strict-mcp-config`, so it only reads the diff it is given
 and cannot run commands, edit files or fetch anything from inside the push hook.
+
+The verifier runs the same way with `--tools Read,Grep,Glob`, in the repository as its working
+directory. Under `dontAsk` a read outside that directory is denied by the CLI (the result lists
+it under `permission_denials`), so a claim that points at a file next to the repository can only
+come back `unverifiable`. Inside the repository, credential and key files (`.env*`, `*.pem`,
+`*.key`, `id_rsa*`, `.npmrc`, `*.tfstate`, the list is `VERIFIER_DENY` in `scripts/verify.mjs`)
+are denied through `--settings` deny rules, which apply even with `--setting-sources ''`; the
+prompt also forbids quoting any secret-looking value. A refutation counts only when its evidence
+names a `file:line` that exists inside the repository. What remains: `Grep` can still match a
+line of any file, and the verifier's `reason`/`evidence` (400/300 characters) are printed and,
+with `--post`, put in the PR comment. `test/verifier.test.mjs` has a test against the real CLI
+for the two denials, run with `AI_REVIEW_REAL_CLI=1`.
 
 ## Install
 
@@ -294,6 +333,7 @@ node scripts/ai-review-panel.mjs --range <base> <head>   # an exact range (full 
 node scripts/ai-review-panel.mjs --pr 123   # review a PR and post a rolling comment
 node scripts/ai-review-panel.mjs --pr 123 --no-post   # same review, printed only
 node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md   # offline replay with a saved ticket
+node scripts/ai-review-panel.mjs --range <base> <head> --ticket-file ticket.md --base origin/dev   # same, with the whole-branch base pinned
 ```
 
 ## Run log and stats
@@ -302,15 +342,17 @@ Every run appends one JSON line to `~/.cache/git-ai-review/runs.jsonl`: reposito
 and head, which reviewers ran, were skipped or failed, each reviewer's findings by severity, the
 de-duplicated totals, the outcome (`passed`, `blocked`, `not-reviewed`, `nothing-to-review`,
 `skipped`), where the ticket came from (`ticketSource`: `issues`, `pr`, `branch-name`, `file`,
-`none`), the ticket table (`ticketFit`: base, commits, rows by status, confirmed contradictions),
-model calls, token usage, cost in USD and wall time. The panel writes the row when it
+`none`), the ticket table (`ticketFit`: base, commits, rows by status, confirmed and refuted
+contradictions), the verifier (`verifier`: model, claims sent, verdicts, what it refuted at the
+blocking severity, its calls, cost and time; `null` when nothing was sent), model calls, token
+usage, cost in USD and wall time. The panel writes the row when it
 finishes; the git runner writes one only when the panel never got to finish (blocked by the
 quality gate, or a panel that could not start, was killed or timed out). A `git push --no-verify`
 runs no hook, so it leaves no row: the log cannot count overrides.
 
 ```
 node scripts/stats.mjs                 # the last 30 days
-node scripts/stats.mjs --days 7        # per-outcome counts, cost/time/calls p50 and p95, the ticket tables, a per-role table
+node scripts/stats.mjs --days 7        # per-outcome counts, cost/time/calls p50 and p95, the ticket tables, the verifier's verdicts and added time, a per-role table
 node scripts/stats.mjs --days 7 --json
 ```
 
@@ -335,6 +377,8 @@ read-only home never fails a review.
 | `AI_REVIEW_TRIGGER` | set to `pre-push` by the gate | recorded in the run log as the run's trigger (`pre-push` or `cli`) |
 | `AI_REVIEW_PUSH_REF` | set by the gate per pushed ref | the ref being pushed (`refs/heads/<branch>`); names the branch whose PR carries the ticket |
 | `AI_REVIEW_ROLES` | all | comma-separated role keys to run (`security`, `correctness`, `reliability`, `performance`, `tests`, `maintainability`, `simplicity`, `ticket`); for replays and tests |
+| `AI_REVIEW_VERIFY` | `1` | `0` = no verifier: every finding counts as reported |
+| `AI_REVIEW_VERIFIER_MODEL` | `AI_REVIEW_MODEL` | model for the verifier |
 
 `PREPUSH_REVIEW_SKIP` and `AI_REVIEW_SKIP` no longer skip a push: the gate removes them, and the
 guard blocks Claude commands that set them. They only affect the panel when it is run directly.

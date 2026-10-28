@@ -70,7 +70,7 @@ export function fakePlugin({ withPanel = true, qkGate = false, realPanel = false
   }
   if (realPanel) {
     // The real panel (with its modules); the test supplies a `claude` stand-in through CLAUDE_BIN.
-    for (const f of ['ai-review-panel.mjs', 'diff-budget.mjs', 'roles.mjs']) {
+    for (const f of ['ai-review-panel.mjs', 'diff-budget.mjs', 'roles.mjs', 'verify.mjs']) {
       copyFileSync(join(SCRIPTS, f), join(root, 'scripts', f));
     }
   } else if (withPanel) {

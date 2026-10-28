@@ -35,6 +35,8 @@
  *   AI_REVIEW_PUSH_REF    the ref being pushed (refs/heads/<branch>), set by the git runner; names
  *                         the branch whose PR carries the ticket
  *   AI_REVIEW_ROLES       comma-separated role keys to run (default: all); for replays and tests
+ *   AI_REVIEW_VERIFY      0 = do not run the verifier over the findings (default: 1)
+ *   AI_REVIEW_VERIFIER_MODEL  model for the verifier (default: AI_REVIEW_MODEL)
  *   AI_REVIEW_MAX_FILE_BYTES  a file's diff larger than this is sent as its header only (default: 100000)
  *   AI_REVIEW_MAX_LINE_CHARS  a file with a longer line is sent as its header only (default: 2000)
  *
@@ -61,6 +63,12 @@
  * quote is found verbatim in the ticket BLOCKS the push; one whose quote is not found is shown as a
  * warning (a model's quote that cannot be checked is not a confirmed contradiction).
  *
+ * Verifier (./verify.mjs): every finding at "medium" or above (the first 15, most severe first)
+ * and every confirmed contradiction then goes to one more agent, which reads the repository
+ * (Read, Grep, Glob only; a read outside it is denied) and answers confirmed / refuted /
+ * unverifiable with file:line evidence. A refuted claim no longer blocks but is still shown;
+ * anything the verifier could not judge blocks as before. AI_REVIEW_VERIFY=0 turns it off.
+ *
  * Exit codes: 0 = ok / advisory, 1 = blocking issues found, 2 = no reviewer ran & required.
  */
 
@@ -71,6 +79,7 @@ import { homedir } from 'os';
 import { packDiff, MAX_DIFF_LINES, MAX_DIFF_BYTES, MAX_FILE_BYTES, MAX_LINE_CHARS } from './diff-budget.mjs';
 import { addUsage, emptyCounts, recordRun, usageOf } from './run-log.mjs';
 import { ROLES } from './roles.mjs';
+import { BATCH_SIZE, VERIFIER_ROLE, VERIFIER_TOOLS, applyVerdicts, batches, buildVerifierPrompt, isRefuted, repoFileChecker, selectClaims, verifierSettings } from './verify.mjs';
 
 // Lines alone do not bound the prompt: one regenerated catalog line can be megabytes, and a
 // prompt over the context window makes every reviewer fail at once. So the diff also gets a
@@ -88,6 +97,8 @@ const BLOCK_ON = (process.env.AI_REVIEW_BLOCK_ON || 'critical').toLowerCase();
 const REQUIRED = process.env.AI_REVIEW_REQUIRED === '1';
 const TRIGGER = process.env.AI_REVIEW_TRIGGER === 'pre-push' ? 'pre-push' : 'cli';
 const ROLE_FILTER = (process.env.AI_REVIEW_ROLES || '').split(',').map((s) => s.trim()).filter(Boolean);
+const VERIFY = process.env.AI_REVIEW_VERIFY !== '0';
+const VERIFIER_MODEL = process.env.AI_REVIEW_VERIFIER_MODEL || MODEL;
 const startedAt = Date.now();
 
 // Everything the run log needs that is known before the panel runs; the rest is added at the end.
@@ -111,9 +122,10 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--branch') reviewMode = 'branch';
   else if (args[i] === '--base' && args[i + 1]) {
     // A base only means something for committed changes: `--base main` alone used to stay
-    // in staged mode and review nothing.
+    // in staged mode and review nothing. With --range it only pins the ticket reviewer's base
+    // (a replay), whichever flag comes first.
     baseBranch = args[++i];
-    reviewMode = 'branch';
+    if (reviewMode !== 'range') reviewMode = 'branch';
   }
   else if (args[i] === '--range' && args[i + 1] && args[i + 2]) {
     // Exact commits being pushed, as computed by the git pre-push runner from git's own ref
@@ -275,8 +287,11 @@ function parseFindings(text) {
   }
 }
 
-/** Run one reviewer agent headlessly; resolves to a result (never rejects). */
-function runAgent(bin, role, userPrompt) {
+/**
+ * Run one agent headlessly; resolves to a result (never rejects). Reviewers get no tools; the
+ * verifier gets `tools` (read-only) and runs in `cwd`, the repository.
+ */
+function runAgent(bin, role, userPrompt, { tools = '', model = MODEL, cwd, settings = '' } = {}) {
   return new Promise((done) => {
     const env = { ...process.env };
     delete env.CLAUDECODE; // allow nested invocation from within Claude Code
@@ -292,7 +307,12 @@ function runAgent(bin, role, userPrompt) {
     // anything from inside the pre-push hook. Without this the child gets the full default set
     // (Bash, Edit, Write, Task, ...), and `-p` can start in auto mode, which approves tool
     // calls on its own.
-    //   --tools ''                 no built-in tools (the init event lists `tools: []`)
+    //   --tools ''                 no built-in tools (the init event lists `tools: []`); the
+    //                              verifier gets Read,Grep,Glob, and under dontAsk a read outside
+    //                              the working directory is denied (verified on CLI 2.1.312: the
+    //                              envelope lists it under permission_denials)
+    //   --settings <json>          the verifier's deny rules for credential files (verify.mjs);
+    //                              they apply even with --setting-sources ''
     //   --permission-mode dontAsk  never auto mode: anything not pre-approved is denied
     //   --permission-prompts none  nothing waits for, or receives, an approval
     //   --strict-mcp-config        no MCP servers
@@ -301,16 +321,17 @@ function runAgent(bin, role, userPrompt) {
       [
         '-p',
         '--setting-sources', '',
-        '--tools', '',
+        ...(settings ? ['--settings', settings] : []),
+        '--tools', tools,
         '--permission-mode', 'dontAsk',
         '--permission-prompts', 'none',
         '--strict-mcp-config',
-        '--model', MODEL,
+        '--model', model,
         // The JSON envelope carries the reply plus what it cost (tokens, USD, time) for the run log.
         '--output-format', 'json',
         '--append-system-prompt', role.system,
       ],
-      { env },
+      { env, cwd },
     );
     let out = '';
     let err = '';
@@ -364,8 +385,10 @@ function runAgent(bin, role, userPrompt) {
           role,
           ok: true,
           findings: Array.isArray(parsed.findings) ? parsed.findings : [],
-          // The ticket reviewer answers with rows (see ticketFitFromRows), not findings.
+          // The ticket reviewer answers with rows (see ticketFitFromRows), not findings; the
+          // verifier with verdicts (see verify.mjs).
           rows: Array.isArray(parsed.rows) ? parsed.rows : null,
+          verdicts: Array.isArray(parsed.verdicts) ? parsed.verdicts : null,
           summary: parsed.summary || '',
           ...cost,
         });
@@ -536,7 +559,26 @@ function ticketFitFromRows(rawRows, ticketText) {
 /** One line per row, for the terminal and the PR comment. */
 function fitLabel(row) {
   if (row.status !== 'contradicted') return row.status.toUpperCase();
-  return row.confirmed ? 'CONTRADICTED' : 'CONTRADICTED? (quote not found in the ticket: not blocking)';
+  if (!row.confirmed) return 'CONTRADICTED? (quote not found in the ticket: not blocking)';
+  return isRefuted(row) ? 'CONTRADICTED (refuted by the verifier: not blocking)' : 'CONTRADICTED';
+}
+
+/** The verifier's verdict on a finding or row, for the terminal and the PR comment. */
+function verdictLine(item) {
+  const v = item.verification;
+  const cite = v.evidence ? ` (${v.evidence})` : '';
+  if (v.verdict === 'refuted') return `verifier: REFUTED, not blocking — ${v.reason}${cite}`;
+  if (v.verdict === 'unverified') return `verifier: not run — ${v.reason}`;
+  return `verifier: ${v.verdict} — ${v.reason}${cite}`;
+}
+
+/** The verifier's part of the SUMMARY line; '' when it did not run. */
+function verifierSuffix(verifier) {
+  if (!verifier) return '';
+  return (
+    ` · verifier: ${verifier.claims} claim(s): ${verifier.confirmed} confirmed, ${verifier.refuted} refuted, ${verifier.unverifiable} unverifiable` +
+    (verifier.unverified ? `, ${verifier.unverified} not verified` : '')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -576,12 +618,14 @@ function fitMarkdown(fit, ticketView) {
   if (!fit.rows.length) return out.concat('_No rows reported._').join('\n');
   out.push('| Status | Kind | Ticket line | Evidence |', '|---|---|---|---|');
   const cell = (s) => String(s).replace(/\|/g, '\\|');
-  for (const r of fit.rows) out.push(`| ${fitLabel(r)} | ${r.kind} | ${cell(r.quote) || '—'} | ${cell(r.evidence)} |`);
+  for (const r of fit.rows) {
+    out.push(`| ${fitLabel(r)} | ${r.kind} | ${cell(r.quote) || '—'} | ${cell(r.evidence)}${r.verification ? `<br>${cell(verdictLine(r))}` : ''} |`);
+  }
   return out.join('\n');
 }
 
 /** Render the panel result as a Markdown PR comment. */
-function buildReviewMarkdown(results, findings, counts, desc, lines, cut, ticket, fit, ticketView) {
+function buildReviewMarkdown(results, findings, counts, desc, lines, cut, ticket, fit, ticketView, verifier) {
   const out = [];
   out.push(`## 🤖 pre-push-review — expert panel (${results.length} agents · model=${MODEL})`);
   out.push('');
@@ -610,14 +654,16 @@ function buildReviewMarkdown(results, findings, counts, desc, lines, cut, ticket
       out.push(
         `- **[${f.severity.toUpperCase()}]** \`${f.file || '?'}:${f.line ?? '?'}\` — ${f.issue}` +
           (f.suggestion ? `\n  - ↳ ${f.suggestion}` : '') +
-          ` _(${f.agent})_`,
+          ` _(${f.agent})_` +
+          (f.verification ? `\n  - ${verdictLine(f)}` : ''),
       );
     }
   }
   out.push('');
   out.push(
     `**SUMMARY:** ${counts.critical} critical · ${counts.high} high · ${counts.medium} medium · ${counts.low} low` +
-      (fit ? ` · ticket: ${fit.counts.contradicted} contradicted (${fit.confirmed} confirmed)` : ''),
+      (fit ? ` · ticket: ${fit.counts.contradicted} contradicted (${fit.confirmed} confirmed)` : '') +
+      verifierSuffix(verifier),
   );
   const fail = results.filter((r) => !r.ok).length;
   if (fail) out.push(`\n_⚠ ${fail}/${results.length} agent(s) failed — review is partial._`);
@@ -856,13 +902,13 @@ console.log(
 // nested requests can trip a momentary rate/concurrency limit → the child exits non-zero
 // with empty output; a single retry after a short backoff recovers it). A real "LGTM" or
 // findings short-circuits.
-async function runAgentResilient(bin, role, userPrompt) {
-  let res = await runAgent(bin, role, userPrompt);
+async function runAgentResilient(bin, role, userPrompt, opts = {}) {
+  let res = await runAgent(bin, role, userPrompt, opts);
   let calls = 1;
   if (!res.ok && !String(res.error || '').includes('timeout')) {
     await new Promise((r) => setTimeout(r, 1500 + Math.floor(role.title.length * 50)));
     const first = res;
-    res = await runAgent(bin, role, userPrompt);
+    res = await runAgent(bin, role, userPrompt, opts);
     calls = 2;
     // A failed attempt was still billed.
     res = { ...res, usage: addUsage(first.usage, res.usage), costUsd: first.costUsd + res.costUsd };
@@ -921,6 +967,64 @@ const findings = all
 const counts = emptyCounts();
 for (const f of findings) counts[f.severity]++;
 
+// ---------------------------------------------------------------------------
+// Verify: an independent agent reads the repository and tries to refute what was reported
+// ---------------------------------------------------------------------------
+const claims = VERIFY ? selectClaims({ findings, rows: fit ? fit.rows.filter((r) => r.confirmed) : [] }) : [];
+let verifier = null;
+if (claims.length) {
+  const started = Date.now();
+  // A ticket claim is about the whole branch, so the verifier gets that diff when there is one.
+  const view = claims.some((c) => c.kind === 'ticket') ? ticketView : pushView;
+  const groups = batches(claims, BATCH_SIZE);
+  console.log(`[pre-push-review] Verifying ${claims.length} claim(s) against the repository [model=${VERIFIER_MODEL}]...`);
+  const runs = await runPool(groups, 2, (group) =>
+    runAgentResilient(bin, VERIFIER_ROLE, buildVerifierPrompt({ claims: group, diff: diffBlock(view) }), {
+      tools: VERIFIER_TOOLS,
+      model: VERIFIER_MODEL,
+      cwd: runRow.repo,
+      settings: verifierSettings(),
+    }),
+  );
+  const tally = { confirmed: 0, refuted: 0, unverifiable: 0, unverified: 0 };
+  // A refutation must cite a file that exists inside the repository, not next to it.
+  const fileExists = repoFileChecker(runRow.repo);
+  groups.forEach((group, i) => {
+    const res = runs[i];
+    const verdicts = res.ok && res.verdicts ? applyVerdicts(group, res.verdicts, { fileExists }) : null;
+    for (const c of group) {
+      // A batch the verifier could not finish leaves its claims as reported: not checked is not refuted.
+      c.target.verification = verdicts
+        ? verdicts.get(c.id)
+        : { verdict: 'unverified', reason: `the verifier did not run: ${res.ok ? 'it answered without verdicts' : res.error}`, evidence: '' };
+      tally[c.target.verification.verdict]++;
+    }
+  });
+  verifier = {
+    model: VERIFIER_MODEL,
+    claims: claims.length,
+    findings: claims.filter((c) => c.kind === 'finding').length,
+    ticket: claims.filter((c) => c.kind === 'ticket').length,
+    ...tally,
+    failed: runs.filter((r) => !r.ok).length,
+    calls: runs.reduce((a, r) => a + (r.calls || 0), 0),
+    costUsd: runs.reduce((a, r) => a + (r.costUsd || 0), 0),
+    usage: runs.reduce((a, r) => addUsage(a, r.usage), null),
+    durationMs: Date.now() - started,
+  };
+  if (verifier.failed)
+    console.warn(`[pre-push-review] Verifier failed on ${verifier.failed}/${runs.length} batch(es): those claims stay as reported.`);
+}
+
+// What blocks: findings at the blocking severity and confirmed contradictions of a ticket line,
+// except those the verifier refuted. A refuted finding is still shown; it just does not block.
+const blockingSeverities = BLOCK_ON === 'high' ? ['critical', 'high'] : ['critical'];
+const atBlocking = findings.filter((f) => blockingSeverities.includes(f.severity));
+const refutedBlocking = atBlocking.filter(isRefuted).length;
+const severityBlocking = atBlocking.length - refutedBlocking;
+const ticketRefuted = fit ? fit.rows.filter((r) => r.confirmed && isRefuted(r)).length : 0;
+const ticketBlocking = fit ? fit.confirmed - ticketRefuted : 0;
+
 // For the run log: what each reviewer reported (before de-duplication), and what the run cost.
 const perRole = {};
 let usage = null;
@@ -937,6 +1041,11 @@ for (const r of results) {
   costUsd += r.costUsd || 0;
   calls += r.calls || 0;
 }
+if (verifier) {
+  usage = addUsage(usage, verifier.usage);
+  costUsd += verifier.costUsd;
+  calls += verifier.calls;
+}
 runRow.roles.failed = results.filter((r) => !r.ok).map((r) => r.role.key);
 Object.assign(runRow, {
   findings: perRole,
@@ -944,9 +1053,16 @@ Object.assign(runRow, {
   usage,
   costUsd: Math.round(costUsd * 1e6) / 1e6,
   calls,
-  verifier: null,
+  verifier: verifier ? { ...verifier, costUsd: Math.round(verifier.costUsd * 1e6) / 1e6, refutedBlocking, ticketRefuted } : null,
   ticketFit: fit
-    ? { base: scope?.ref || '', commits: scope ? Number(scope.commits) || 0 : 0, rows: fit.counts, confirmed: fit.confirmed, noCriteria: fit.noCriteria }
+    ? {
+        base: scope?.ref || '',
+        commits: scope ? Number(scope.commits) || 0 : 0,
+        rows: fit.counts,
+        confirmed: fit.confirmed,
+        refuted: ticketRefuted,
+        noCriteria: fit.noCriteria,
+      }
     : null,
 });
 
@@ -963,23 +1079,33 @@ for (const r of results) {
   );
 }
 console.log('');
+// A refuted finding below the blocking severity is folded under the list; a refuted critical (or
+// high, when that blocks) stays in the list, marked: the verifier never makes one disappear.
+const folded = findings.filter((f) => isRefuted(f) && !blockingSeverities.includes(f.severity));
 for (const f of findings) {
+  if (folded.includes(f)) continue;
   console.log(
     `[${f.severity.toUpperCase()}] ${f.file || '?'}:${f.line ?? '?'} — ${f.issue}` +
       (f.suggestion ? `\n        ↳ ${f.suggestion}` : '') +
-      `   (${f.agent})`,
+      `   (${f.agent})` +
+      (f.verification ? `\n        ${verdictLine(f)}` : ''),
   );
 }
 if (findings.length === 0) console.log('  No issues reported by any agent. LGTM.');
+if (folded.length) {
+  console.log(`\nRefuted by the verifier (not counted): ${folded.length}`);
+  for (const f of folded) console.log(`  [${f.severity.toUpperCase()}] ${f.file || '?'}:${f.line ?? '?'} — ${f.issue} · ${verdictLine(f)}`);
+}
 if (fit) {
   console.log(`\nFit to the ticket (${ticketView.description}):`);
   if (fit.noCriteria) console.log('  ticket has no acceptance criteria');
-  for (const r of fit.rows) console.log(`  [${fitLabel(r)}] ${r.kind}: "${r.quote}" — ${r.evidence}`);
+  for (const r of fit.rows) console.log(`  [${fitLabel(r)}] ${r.kind}: "${r.quote}" — ${r.evidence}` + (r.verification ? `\n        ${verdictLine(r)}` : ''));
   if (!fit.rows.length) console.log('  No rows reported.');
 }
 console.log(
   `\nSUMMARY: ${counts.critical} critical, ${counts.high} high, ${counts.medium} medium, ${counts.low} low` +
-    (fit ? ` · ticket: ${fit.counts.contradicted} contradicted (${fit.confirmed} confirmed)` : ''),
+    (fit ? ` · ticket: ${fit.counts.contradicted} contradicted (${fit.confirmed} confirmed)` : '') +
+    verifierSuffix(verifier),
 );
 
 // Publish the review to the PR so it's visible (complements automated reviewers) and our
@@ -993,7 +1119,7 @@ if (postToPr) {
     try {
       // Edit our previous review in place (one rolling comment per PR, not one per push).
       execFileSync('gh', ['pr', 'comment', prToPost, '--edit-last', '--create-if-none', '--body-file', '-', '-R', ORIGIN_REPO], {
-        input: buildReviewMarkdown(results, findings, counts, description, diffLines, cut, ticket, fit, ticketView),
+        input: buildReviewMarkdown(results, findings, counts, description, diffLines, cut, ticket, fit, ticketView, verifier),
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
       });
@@ -1021,10 +1147,12 @@ if (failed.length > 0) {
   console.warn(`[pre-push-review] Note: ${failed.length}/${results.length} agent(s) failed; review is partial.`);
 }
 
-// What blocks: findings at the blocking severity, plus every confirmed contradiction of a ticket line.
-const severityBlocking = BLOCK_ON === 'high' ? counts.critical + counts.high : counts.critical;
-const ticketBlocking = fit ? fit.confirmed : 0;
 const blocking = severityBlocking + ticketBlocking;
+if (refutedBlocking || ticketRefuted) {
+  console.log(
+    `\n[pre-push-review] Refuted by the verifier, shown above and not blocking: ${refutedBlocking} ${BLOCK_ON}+ finding(s), ${ticketRefuted} contradicted ticket line(s).`,
+  );
+}
 if (blocking > 0) {
   const why = [
     severityBlocking ? `${severityBlocking} ${BLOCK_ON}+ issue(s) found` : '',

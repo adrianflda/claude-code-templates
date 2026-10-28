@@ -109,7 +109,8 @@ function replay(rows, { env = {}, args = [] } = {}) {
   const r = runNode(PANEL, {
     args: ['--range', first, second, '--ticket-file', FIXTURE, ...args],
     cwd: repo,
-    env: { HOME: home, CLAUDE_BIN: claude.bin, ...env },
+    // The verifier has its own tests (verifier.test.mjs); here the table alone decides.
+    env: { HOME: home, CLAUDE_BIN: claude.bin, AI_REVIEW_VERIFY: '0', ...env },
   });
   return { ...r, repo, claude, rows: rowsIn(home) };
 }
@@ -160,7 +161,7 @@ test('offline replay: the design pushed earlier contradicts a ticket line, and a
   assert.equal(row.blocking, 1);
   assert.equal(row.ticket, 'found');
   assert.equal(row.ticketSource, 'file');
-  assert.deepEqual(row.ticketFit, { base: 'dev', commits: 2, rows: { met: 1, partial: 1, missing: 1, contradicted: 1, unrequested: 1 }, confirmed: 1, noCriteria: false });
+  assert.deepEqual(row.ticketFit, { base: 'dev', commits: 2, rows: { met: 1, partial: 1, missing: 1, contradicted: 1, unrequested: 1 }, confirmed: 1, refuted: 0, noCriteria: false });
   assert.deepEqual(row.findings.ticket, { critical: 0, high: 1, medium: 2, low: 1 }, 'rows count by severity in the per-role totals');
   assert.deepEqual(row.counts, { critical: 0, high: 0, medium: 0, low: 0 }, 'rows are not findings');
 });
@@ -388,7 +389,7 @@ test('when the pushed head is the base itself, the ticket reviewer sees the push
   assert.doesNotMatch(r.stdout, /covers the whole branch/);
   assert.match(claude.ticketCall().prompt, /Check this git diff \(1 commit\(s\) being pushed\) against the ticket below/);
   assert.match(r.stdout, /Fit to the ticket \(1 commit\(s\) being pushed\):/);
-  assert.deepEqual(rowsIn(home)[0].ticketFit, { base: '', commits: 0, rows: { met: 0, partial: 0, missing: 1, contradicted: 0, unrequested: 0 }, confirmed: 0, noCriteria: false });
+  assert.deepEqual(rowsIn(home)[0].ticketFit, { base: '', commits: 0, rows: { met: 0, partial: 0, missing: 1, contradicted: 0, unrequested: 0 }, confirmed: 0, refuted: 0, noCriteria: false });
 });
 
 test('a ticket reviewer that answers with findings, or fails, cannot block on a ticket line', () => {
@@ -410,7 +411,7 @@ process.stdin.on('end', () => {
   );
   const { repo, first, second } = flagsRepo();
   const home = tempDir('home');
-  const r = runNode(PANEL, { args: ['--range', first, second, '--ticket-file', FIXTURE], cwd: repo, env: { HOME: home, CLAUDE_BIN: bin } });
+  const r = runNode(PANEL, { args: ['--range', first, second, '--ticket-file', FIXTURE], cwd: repo, env: { HOME: home, CLAUDE_BIN: bin, AI_REVIEW_VERIFY: '0' } });
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /\[MEDIUM\] src\/locks\.js:1 — old-style reply\n\s+↳ x {3}\(Fit to the ticket\)/, 'findings are handled as ordinary findings');
   assert.match(r.stdout, /SUMMARY: 0 critical, 0 high, 1 medium, 0 low\n/, 'no ticket summary without rows');
@@ -459,4 +460,18 @@ test('stats sums the ticket tables', () => {
   assert.deepEqual(a.ticketFit, { runs: 2, contradicted: 2, confirmed: 1, noCriteria: 1 });
   assert.match(render(7, a), /ticket {4}2 table\(s\) · 2 contradicted line\(s\), 1 confirmed · 1 ticket\(s\) without acceptance criteria/);
   assert.doesNotMatch(render(7, aggregate([rows[2]])), /table\(s\)/, 'no line when the ticket reviewer never ran');
+});
+
+test('a replay can pin the base of the whole-branch view with --base, before or after --range', () => {
+  const { repo, first, second } = flagsRepo();
+  for (const args of [['--base', 'dev', '--range', first, second], ['--range', first, second, '--base', 'dev']]) {
+    const home = tempDir('home');
+    const claude = fakeClaude(ROWS);
+    const r = runNode(PANEL, { args: [...args, '--ticket-file', FIXTURE], cwd: repo, env: { HOME: home, CLAUDE_BIN: claude.bin, AI_REVIEW_VERIFY: '0' } });
+    assert.equal(r.code, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /Reviewing 1 commit\(s\) being pushed/, 'the push diff is still the range');
+    assert.match(r.stdout, /"Fit to the ticket" covers the whole branch: 2 commit\(s\) vs dev/);
+    assert.equal(rowsIn(home)[0].mode, 'range');
+    assert.equal(rowsIn(home)[0].ticketFit.base, 'dev');
+  }
 });
