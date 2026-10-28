@@ -116,14 +116,14 @@ if (process.env.AI_REVIEW_SKIP === '1' || process.env.PREPUSH_REVIEW_SKIP === '1
 }
 
 // `owner/repo` of the `origin` remote, from any URL shape including SSH host aliases
-// (`git@github-work:o/r`); '' when there is none. Every gh call names it with -R, because gh's
+// (`git@github-work:o/r`); '' when there is none. The host is not checked: gh resolves it. Every gh call names it with -R, because gh's
 // own default can be another remote (the upstream of a fork), which would read that repository's
 // PR or issue and post the review there.
 const ORIGIN_REPO = (run('git remote get-url origin').match(/[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/) || [])[1] || '';
 /** Run `gh <args> -R <origin>`; '' on any failure. */
 function ghOrigin(args) {
   try {
-    return execFileSync('gh', [...args, '-R', ORIGIN_REPO], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    return execFileSync('gh', [...args, '-R', ORIGIN_REPO], { encoding: 'utf-8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   } catch {
     return '';
   }
@@ -132,7 +132,7 @@ function ghOrigin(args) {
 // In --pr mode, review the FULL PR diff against its base branch (prefer origin/<base>).
 let prInfo = null;
 if (prNumber) {
-  if (!ORIGIN_REPO) console.warn('[pre-push-review] origin is not a GitHub repository: PR details are not fetched.');
+  if (!ORIGIN_REPO) console.warn('[pre-push-review] origin has no owner/repo: PR details are not fetched.');
   else prInfo = parseJson(ghOrigin(['pr', 'view', prNumber, '--json', 'baseRefName,headRefOid,title,body']));
   const b = prInfo?.baseRefName;
   if (b && !baseBranch)
@@ -445,7 +445,7 @@ function fetchIssue(ref) {
   // A bare #N is origin's issue. Never leave the repository to gh: its default can be
   // another remote, such as the upstream of a fork.
   const repo = ref.repo || ORIGIN_REPO;
-  if (!repo) return { ok: false, label: `#${ref.number}`, error: 'origin is not a GitHub repository' };
+  if (!repo) return { ok: false, label: `#${ref.number}`, error: 'origin has no owner/repo' };
   const args = ['issue', 'view', ref.number, '--json', 'title,body,url', '-R', repo];
   try {
     const out = execFileSync('gh', args, { encoding: 'utf-8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'] });

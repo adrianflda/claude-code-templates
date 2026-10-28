@@ -465,8 +465,23 @@ test('without an origin remote nothing is fetched: gh would guess the repository
 
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(gh.calls(), []);
-  assert.match(result.stdout, /Could not fetch #4 \(origin is not a GitHub repository\)\./);
+  assert.match(result.stdout, /Could not fetch #4 \(origin has no owner\/repo\)\./);
   assert.match(result.stdout, /Not fetched \(other owner\): Acme\/prodmgt#31\./);
+});
+
+test('--post without --pr finds the branch PR in origin and posts there', () => {
+  const repo = repoWithCommit('feat: no reference here');
+  git(repo, 'remote', 'add', 'upstream', 'https://github.com/Upstream/frontend.git');
+  const gh = fakeGh({ pr: 7 });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main', '--post'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(gh.calls(), [
+    ['pr', 'view', 'feature', '--json', 'number', '-q', '.number', '-R', 'Acme/frontend'],
+    ['pr', 'comment', '7', '--edit-last', '--create-if-none', '--body-file', '-', '-R', 'Acme/frontend'],
+  ]);
+  assert.match(result.stdout, /Posted review to PR #7\./);
 });
 
 test('with an upstream remote every gh call names origin, never the upstream', () => {

@@ -161,8 +161,8 @@ the panel runs as usual. Staged changes have no commit messages, so they never g
 
 Every `gh` call (issues, `gh pr view`, the PR comment) names the `origin` repository with `-R`.
 `gh`'s own default can be another remote, such as the upstream of a fork, whose `#12` is a
-different issue and whose PR must never get your review. Without a GitHub `origin`, nothing is
-fetched and nothing is posted.
+different issue and whose PR must never get your review. When `origin` has no `owner/repo`
+(or there is no `origin`), nothing is fetched and nothing is posted.
 
 Only this reviewer receives the ticket text, marked as data, not instructions. The PR
 description is marked as the author's account, not as requirements: the requirements are the
