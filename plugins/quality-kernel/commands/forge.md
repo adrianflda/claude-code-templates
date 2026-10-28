@@ -69,19 +69,19 @@ Communication model:
    produces the contract (EARS + Gherkin + External Observable Invariants), run
    `node <plugin>/scripts/contract-review.mjs --contract <spec.md> --out <spec>.review.md`
    (T1+). Two isolated, tool-less reviewers that see only the contract text report
-   gaps as `blocker` / `major` / `nit`. Send each blocker back to the specifier. Then
-   (T1+, unless `--design-settled`) dispatch the **designer** with the ticket text and the
-   contract; it writes `design.md` in the same folder as the contract: where the contract
-   does not fit the ticket, 2–3 options including the simplest one that meets the ticket,
-   and a recommendation. If the designer reports it could not read the ticket, or
-   `design.md` is missing, that is not "no findings": re-run it or ask the human. Then
-   pause, once, for the human with the contract, the review report and `design.md`
-   together: the human approves (or edits) the contract against the fit findings **and
-   picks the option** (with `--design-settled`, only the contract and review, the settled
-   design beside them), before any code is written. If the contract changed, re-run the
-   blind review on the new text. Write the pick into `design.md` under
-   `## Chosen option`; pass that file to the coder as a constraint and to the architect as
-   the reference design. A blocker left in the contract must be waived
+   gaps as `blocker` / `major` / `nit`. Send each blocker back to the specifier.
+   - **Design** (T1+; skipped as in Step 0 when the design is settled): dispatch the
+     **designer** with the ticket text and the contract; it writes a fresh `design.md` in
+     the contract's folder. A design file without fit findings, options and an empty
+     `## Chosen option`, or a designer that could not read the ticket, is not
+     "no findings": re-run it or ask the human.
+   - **Intention gate** — pause once, before any code, with the contract, the review
+     report and the design file together. The human approves (or edits) the contract
+     against the fit findings and picks the option. If the contract changed, re-run the
+     blind review and the designer on the new text before continuing. Write the pick
+     under `## Chosen option`; that file is the coder's constraint and the architect's
+     reference design.
+   - A blocker left in the contract must be waived
    by the human explicitly, never by an agent. Exit 2 (a reviewer could not run or
    answered off-format) means not reviewed: re-run, do not proceed as if it passed.
    *(Optional, per-project:)* if GitHub Project integration is enabled, create one issue
