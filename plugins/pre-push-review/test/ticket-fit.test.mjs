@@ -246,8 +246,8 @@ test('the ticket is found in the pushed branch\'s PR (named by AI_REVIEW_PUSH_RE
   });
 
   assert.equal(r.code, 1, r.stdout + r.stderr);
-  // (`gh repo view` for the default branch is asked in between; the PR's base wins since it exists.)
-  assert.deepEqual(gh.calls().filter((a) => a[0] !== 'repo'), [
+  // The PR's base exists locally, so the default branch is never asked for (`gh repo view`).
+  assert.deepEqual(gh.calls(), [
     ['pr', 'view', 'feat/76-feature-flags', '--json', 'number,baseRefName,title,body', '-R', 'Acme/backend'],
     ['issue', 'view', '76', '--json', 'title,body,url', '-R', 'Acme/prodmgt'],
   ]);
@@ -327,6 +327,101 @@ test('a --pr review posts the ticket table in the PR comment', () => {
   assert.match(body, /\| CONTRADICTED \| criterion \| Framework supports IMMEDIATE or near-real-time disabling\/enabling of features per environment \| src\/locks\.js:2/);
   assert.match(body, /\| UNREQUESTED \| extra \| — \| src\/locks\.js:1/);
   assert.match(body, /\*\*SUMMARY:\*\* 0 critical · 0 high · 0 medium · 0 low · ticket: 1 contradicted \(1 confirmed\)/);
+});
+
+test('--ticket-file makes no gh call, even with an origin and a PR', () => {
+  const { repo, first, second } = flagsRepo();
+  git(repo, 'remote', 'add', 'origin', 'https://github.com/Acme/backend.git');
+  const gh = fakeGh({ pr: { number: 1, baseRefName: 'dev', title: 't', body: 'Closes #5' } });
+  const claude = fakeClaude([]);
+  const r = runNode(PANEL, { args: ['--range', first, second, '--ticket-file', FIXTURE], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.deepEqual(gh.calls(), []);
+  assert.match(r.stdout, /covers the whole branch: 2 commit\(s\) vs dev/);
+});
+
+test('the default branch is asked from gh only when the PR did not settle the base', () => {
+  const { repo, first, second } = flagsRepo({ messages: ['feat: the design', 'docs: guide'] });
+  git(repo, 'remote', 'add', 'origin', 'https://github.com/Acme/backend.git');
+  git(repo, 'branch', 'trunk', 'dev'); // the default branch has a name the panel would not guess
+  git(repo, 'branch', '-D', 'dev');
+  const dir = tempDir('gh');
+  const log = join(dir, 'gh.jsonl');
+  executable(
+    join(dir, 'gh'),
+    `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
+if (args[0] === 'repo' && args[1] === 'view') { process.stdout.write('trunk\\n'); process.exit(0); }
+process.exit(1);
+`,
+  );
+  const claude = fakeClaude([]);
+  const r = runNode(PANEL, { args: ['--range', first, second, '--ticket-file', FIXTURE, '--no-post'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: `${dir}:${process.env.PATH}` } });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  // --ticket-file: no gh at all, so the branch cannot be told apart from the base and the push diff is used.
+  assert.ok(!existsSync(log), 'gh was never called');
+  assert.doesNotMatch(r.stdout, /covers the whole branch/);
+
+  // Without --ticket-file (a gh-less ticket is then found nowhere), the default branch is asked and used.
+  const claude2 = fakeClaude([]);
+  const r2 = runNode(PANEL, { args: ['--range', first, second], cwd: repo, env: { CLAUDE_BIN: claude2.bin, PATH: `${dir}:${process.env.PATH}` } });
+  assert.equal(r2.code, 0, r2.stdout + r2.stderr);
+  const calls = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(calls.some((a) => a.join(' ') === 'repo view Acme/backend --json defaultBranchRef -q .defaultBranchRef.name'));
+});
+
+test('when the pushed head is the base itself, the ticket reviewer sees the push diff', () => {
+  // Pushing `dev` itself: the only base candidate is the branch being pushed.
+  const repo = makeRepo('trunk', { 'README.md': 'service\n' });
+  git(repo, 'branch', '-m', 'main', 'dev');
+  const first = git(repo, 'rev-parse', 'HEAD');
+  write(repo, { 'src/a.js': 'export const a = 1;\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'feat: a');
+  const second = git(repo, 'rev-parse', 'HEAD');
+  const home = tempDir('home');
+  const claude = fakeClaude([{ kind: 'criterion', quote: 'CTO approves of the framework', status: 'missing', evidence: 'nothing' }]);
+  const r = runNode(PANEL, { args: ['--range', first, second, '--ticket-file', FIXTURE], cwd: repo, env: { HOME: home, CLAUDE_BIN: claude.bin } });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /covers the whole branch/);
+  assert.match(claude.ticketCall().prompt, /Check this git diff \(1 commit\(s\) being pushed\) against the ticket below/);
+  assert.match(r.stdout, /Fit to the ticket \(1 commit\(s\) being pushed\):/);
+  assert.deepEqual(rowsIn(home)[0].ticketFit, { base: '', commits: 0, rows: { met: 0, partial: 0, missing: 1, contradicted: 0, unrequested: 0 }, confirmed: 0, noCriteria: false });
+});
+
+test('a ticket reviewer that answers with findings, or fails, cannot block on a ticket line', () => {
+  const dir = tempDir('claude');
+  const findings = '{"findings":[{"severity":"medium","file":"src/locks.js","line":1,"issue":"old-style reply","suggestion":"x"}],"summary":"x"}';
+  const bin = executable(
+    join(dir, 'claude'),
+    `#!/usr/bin/env node
+process.stdin.resume();
+process.stdin.on('end', () => {
+  const argv = process.argv.slice(2);
+  const role = argv[argv.indexOf('--append-system-prompt') + 1];
+  if (!role.includes(${JSON.stringify(TICKET_ROLE)})) { process.stdout.write(${JSON.stringify(LGTM)}); process.exit(0); }
+  if (process.env.TICKET_REPLY === 'garbage') { process.stdout.write('not json'); process.exit(1); }
+  process.stdout.write(${JSON.stringify(findings)});
+  process.exit(0);
+});
+`,
+  );
+  const { repo, first, second } = flagsRepo();
+  const home = tempDir('home');
+  const r = runNode(PANEL, { args: ['--range', first, second, '--ticket-file', FIXTURE], cwd: repo, env: { HOME: home, CLAUDE_BIN: bin } });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /\[MEDIUM\] src\/locks\.js:1 — old-style reply\n\s+↳ x {3}\(Fit to the ticket\)/, 'findings are handled as ordinary findings');
+  assert.match(r.stdout, /SUMMARY: 0 critical, 0 high, 1 medium, 0 low\n/, 'no ticket summary without rows');
+  assert.equal(rowsIn(home)[0].ticketFit, null);
+
+  const home2 = tempDir('home');
+  const failed = runNode(PANEL, { args: ['--range', first, second, '--ticket-file', FIXTURE], cwd: repo, env: { HOME: home2, CLAUDE_BIN: bin, TICKET_REPLY: 'garbage' } });
+  assert.equal(failed.code, 0, failed.stdout + failed.stderr);
+  assert.match(failed.stdout, /Fit to the ticket {12}FAILED:/);
+  assert.deepEqual(rowsIn(home2)[0].roles.failed, ['ticket']);
+  assert.equal(rowsIn(home2)[0].ticketFit, null);
 });
 
 test('--ticket-file that does not exist is an error', () => {

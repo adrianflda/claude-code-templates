@@ -340,6 +340,8 @@ async function qualityGate() {
 
 let code = 0;
 let failure = '';
+// The ranges whose panel run ended on its own (and so wrote its own run-log row).
+const finished = new Set();
 const qkBlock = await qualityGate();
 for (const run of qkBlock ? [] : runs) {
   const r = await runPanel(run);
@@ -349,6 +351,7 @@ for (const run of qkBlock ? [] : runs) {
     code = null;
     break;
   }
+  finished.add(run);
   // Keep the worst outcome: 1 (blocking findings) is reported, any other non-zero is "not reviewed".
   if (r.code !== 0 && (code === 0 || r.code !== 1)) code = r.code;
   if (code !== 0 && code !== 1) break;
@@ -371,9 +374,10 @@ try {
   /* the log is best-effort */
 }
 
-// The panel writes its own row when it finishes; these are the pushes where it did not.
+// The panel writes its own row when it finishes; these are the ranges where it did not: the one
+// that failed and the ones after it (with several refs, an earlier range may already have its row).
 const unreviewed = (outcome, reason) => {
-  for (const run of runs) {
+  for (const run of runs.filter((run) => !finished.has(run))) {
     recordRun({ trigger: 'pre-push', repo: root, mode: run.base ? 'range' : 'branch', base: run.base || '', head: run.head, outcome, reason, exit: 1, durationMs: Date.now() - startedAt });
   }
 };

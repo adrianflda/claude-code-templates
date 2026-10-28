@@ -57,7 +57,8 @@ export function runNode(script, { args = [], input = '', cwd, env = {} } = {}) {
 /**
  * A plugin root with the real runner and installer next to a fake panel. The panel records
  * what it saw and then behaves as told: FAKE_PANEL_EXIT is its exit code, FAKE_PANEL_OUT its
- * stdout, FAKE_PANEL_KILL makes it die from a signal, FAKE_PANEL_HANG makes it never finish.
+ * stdout, FAKE_PANEL_KILL makes it die from a signal (FAKE_PANEL_KILL_HEAD: only for that range's
+ * head), FAKE_PANEL_HANG makes it never finish.
  */
 export function fakePlugin({ withPanel = true, qkGate = false, realPanel = false } = {}) {
   // Laid out as in the plugins repo: <plugins>/pre-push-review next to <plugins>/quality-kernel.
@@ -88,7 +89,8 @@ if (process.env.FAKE_PANEL_GRANDCHILD) {
   const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' });
   writeFileSync(process.env.FAKE_PANEL_LOG + '.child', String(c.pid));
 }
-if (process.env.FAKE_PANEL_KILL) process.kill(process.pid, 'SIGKILL');
+// FAKE_PANEL_KILL_HEAD: die from a signal only for the --range whose head is that sha.
+if (process.env.FAKE_PANEL_KILL || (process.env.FAKE_PANEL_KILL_HEAD && process.argv.slice(2).at(-1) === process.env.FAKE_PANEL_KILL_HEAD)) process.kill(process.pid, 'SIGKILL');
 if (process.env.FAKE_PANEL_HANG) await new Promise(() => setInterval(() => {}, 1000));
 process.stdout.write(process.env.FAKE_PANEL_OUT ?? 'SUMMARY: 0 critical\\n[pre-push-review] Passed. No blocking issues.\\n');
 process.exit(Number(process.env.FAKE_PANEL_EXIT ?? 0));

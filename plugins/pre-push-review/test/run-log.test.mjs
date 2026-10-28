@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { aggregate, percentile, render } from '../scripts/stats.mjs';
@@ -129,11 +129,37 @@ test('a run with nothing to review still leaves a row', () => {
 test('the run log is private (0600 in a 0700 directory)', () => {
   const r = runPanel();
   const dir = join(r.home, '.cache', 'git-ai-review');
-  const mode = (p) => spawnSync('stat', ['-f', '%Lp', p], { encoding: 'utf8' }).stdout.trim();
-  if (process.platform === 'darwin') {
+  const mode = (p) => (statSync(p).mode & 0o777).toString(8);
+  if (process.platform !== 'win32') {
     assert.equal(mode(dir), '700');
     assert.equal(mode(join(dir, 'runs.jsonl')), '600');
   }
+});
+
+test('real git push of two refs: a range the panel finished keeps its own row when a later one is killed', () => {
+  const plugin = fakePlugin({ realPanel: false });
+  const home = installGate(plugin);
+  const remote = tempDir('remote');
+  git(remote, 'init', '-q', '--bare', '-b', 'main');
+  const repo = makeRepo('work', { 'a.js': 'export const a = 1;\n' });
+  git(repo, 'remote', 'add', 'origin', remote);
+  git(repo, 'checkout', '-q', '-b', 'feature');
+  write(repo, { 'b.js': 'export const b = 1;\n' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'feature');
+  const featureSha = git(repo, 'rev-parse', 'HEAD');
+  const push = spawnSync('git', ['push', 'origin', 'main', 'feature'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, FAKE_PANEL_LOG: join(home, 'calls'), FAKE_PANEL_KILL_HEAD: featureSha },
+  });
+  assert.notEqual(push.status, 0);
+  // The fake panel writes no rows, so the runner's are the only ones: one for the killed range, none
+  // for the range that finished (the real panel would have written that one itself).
+  const rows = rowsIn(home);
+  assert.equal(rows.length, 1, JSON.stringify(rows));
+  assert.equal(rows[0].head, featureSha);
+  assert.equal(rows[0].outcome, 'not-reviewed');
 });
 
 // --- through git push ------------------------------------------------------------------------

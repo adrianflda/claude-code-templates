@@ -727,10 +727,17 @@ if (cut.omitted.length || cut.partial) {
  */
 function ticketBaseRef() {
   if (baseBranch) return baseBranch;
-  const names = [branchPr?.baseRefName];
-  if (ORIGIN_REPO) names.push(gh(['repo', 'view', ORIGIN_REPO, '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name']));
-  names.push(run('git symbolic-ref --quiet --short refs/remotes/origin/HEAD').replace(/^origin\//, ''), 'dev', 'develop', 'main', 'master');
-  for (const name of names.filter((n) => n && REF_NAME.test(n))) {
+  // Candidates are produced lazily: `gh repo view` is a network call, only made when the PR's base
+  // did not settle it, and never for an offline replay (--ticket-file).
+  const candidates = [
+    () => branchPr?.baseRefName,
+    () => (ORIGIN_REPO && !ticketFile ? gh(['repo', 'view', ORIGIN_REPO, '--json', 'defaultBranchRef', '-q', '.defaultBranchRef.name']) : ''),
+    () => run('git symbolic-ref --quiet --short refs/remotes/origin/HEAD').replace(/^origin\//, ''),
+    ...['dev', 'develop', 'main', 'master'].map((n) => () => n),
+  ];
+  for (const candidate of candidates) {
+    const name = candidate();
+    if (!name || !REF_NAME.test(name)) continue;
     for (const ref of [`origin/${name}`, name]) if (run(`git rev-parse --verify --quiet ${ref}^{commit}`)) return ref;
   }
   return '';
