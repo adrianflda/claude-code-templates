@@ -10,10 +10,15 @@ Steps:
    - `branch` → review the commits being pushed (`--branch`)
    - `pr <n>` → review PR `<n>` (full diff vs its base, plus the PR description and the issues it references) and post the report as a rolling PR comment (`--pr <n>`); run it from a checkout of the PR head
    - `pr <n> --no-post` → the same review, printed only (`--pr <n> --no-post`)
+   - `stats [days]` → no review; print what the run log says for the last `days` days (default 30):
+     ```bash
+     node "${CLAUDE_PLUGIN_ROOT}/scripts/stats.mjs" --days <days>
+     ```
+     Relay the output as is and stop.
 2. Execute the panel:
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/scripts/ai-review-panel.mjs" <flags>
    ```
-3. Summarize the panel's output for the user: the per-agent finding counts, every critical/high issue with its `file:line`, and the final `SUMMARY:` line. Do not re-review yourself — just relay and, if asked, help fix the reported issues.
+3. Summarize the panel's output for the user: the per-agent finding counts, every critical/high issue with its `file:line`, the "Fit to the ticket" table when there is one (every `CONTRADICTED`, `MISSING` and `UNREQUESTED` row with its quoted ticket line), and the final `SUMMARY:` line. Do not re-review yourself — just relay and, if asked, help fix the reported issues.
 
 Note: this is the same panel that the global git pre-push hook (`scripts/git-pre-push.mjs`) runs automatically on every `git push`. Use this command to review without pushing, and run `pr <n>` before merging: the push gate only ever sees one push's commits and rarely the ticket.
