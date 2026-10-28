@@ -442,3 +442,37 @@ test('a truncated diff names the file cut in the middle and every file left out'
   assert.match(claude.prompts(), /These files are changed but NOT shown: b-left-out\.js, c-left-out\.js\. Do not report them as missing\./);
   assert.doesNotMatch(claude.prompts(), /export const b = 1;/);
 });
+
+test('only references to other owners: none is fetched and the ticket reviewer is skipped', () => {
+  const repo = repoWithCommit('fix: see Other/private#8');
+  const gh = fakeGh({ issues: { 'Other/private#8': { title: 'secret', body: 'secret' } } });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(gh.calls(), []);
+  assert.match(result.stdout, /Not fetched \(other owner\): Other\/private#8\. "Fit to the ticket" is skipped\./);
+  assert.equal(roleOf(claude.calls(), 'checks the change against the ticket').length, 0);
+});
+
+test('without an origin remote only bare #N references are fetched', () => {
+  const repo = repoWithCommit('fix: #4 and Acme/prodmgt#31');
+  git(repo, 'remote', 'remove', 'origin');
+  const gh = fakeGh({ issues: { '#4': { title: 'Local', body: 'Done when: x.' } } });
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(gh.calls(), [['issue', 'view', '4', ...ISSUE_ARGS]]);
+  assert.match(result.stdout, /Not fetched \(other owner\): Acme\/prodmgt#31\./);
+});
+
+test('references past the first 100,000 characters are not scanned', () => {
+  const repo = repoWithCommit(`fix: long message\n\n${'word '.repeat(20_001)}#9`);
+  const gh = fakeGh();
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin, PATH: gh.path } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(gh.calls(), []);
+});
