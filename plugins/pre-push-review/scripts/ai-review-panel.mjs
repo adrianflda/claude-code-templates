@@ -109,7 +109,7 @@ if (process.env.AI_REVIEW_SKIP === '1' || process.env.PREPUSH_REVIEW_SKIP === '1
 // In --pr mode, review the FULL PR diff against its base branch (prefer origin/<base>).
 let prInfo = null;
 if (prNumber) {
-  prInfo = parseFindings(run(`gh pr view ${prNumber} --json baseRefName,headRefOid,title,body`));
+  prInfo = parseJson(run(`gh pr view ${prNumber} --json baseRefName,headRefOid,title,body`));
   const b = prInfo?.baseRefName;
   if (b && !baseBranch)
     baseBranch = run(`git rev-parse --verify --quiet origin/${b}`) ? `origin/${b}` : b;
@@ -262,6 +262,15 @@ function loadProjectContext() {
   return '';
 }
 
+/** JSON from a CLI's output, or null. */
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 /** Extract a JSON object from a model reply that may include prose or code fences. */
 function parseFindings(text) {
   if (!text) return null;
@@ -369,6 +378,8 @@ function runAgent(bin, role, userPrompt) {
 // ---------------------------------------------------------------------------
 const MAX_TICKET_CHARS = 4000;
 const MAX_TICKET_REFS = 6;
+// The PR body and commit messages are scanned for references; nothing longer is needed.
+const MAX_REF_SCAN_CHARS = 100_000;
 
 /**
  * Owner of the `origin` remote, so `repo#N` can name a sibling repository. Reads the
@@ -384,7 +395,8 @@ function originOwner() {
  * Issue references in free text, as gh `-R` targets: `#12` (this repository), `owner/repo#12`,
  * `repo#12` (same owner as origin) and github.com issue/pull URLs. Deduplicated, in order.
  */
-function findIssueRefs(text, owner = '') {
+function findIssueRefs(fullText, owner = '') {
+  const text = fullText.slice(0, MAX_REF_SCAN_CHARS);
   const refs = [];
   const add = (repo, number) => {
     const ref = { repo, number };
@@ -393,7 +405,7 @@ function findIssueRefs(text, owner = '') {
   for (const m of text.matchAll(/https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)/g))
     add(m[1], m[2]);
   const withoutUrls = text.replace(/https?:\/\/\S+/g, ' ');
-  for (const m of withoutUrls.matchAll(/(?<![\w/#&])(?:([\w.-]+)\/)?([\w.-]+)?#(\d+)\b/g)) {
+  for (const m of withoutUrls.matchAll(/(?<![\w/#&.-])(?:([\w.-]+)\/)?([\w.-]+)?#(\d+)\b/g)) {
     const [, o, repo, number] = m;
     if (o && repo) add(`${o}/${repo}`, number);
     else if (repo) {
@@ -425,11 +437,19 @@ function fetchIssue(ref) {
 /**
  * The ticket text for the "Fit to the ticket" reviewer, plus a one-line status for the output.
  * `sourceText` is the PR body (--pr) or the reviewed commits' messages.
+ *
+ * Only issues of origin's owner are fetched: the references come from text anyone opening a PR
+ * can write, and the fetch uses the reviewer's own gh login, so a reference to another owner's
+ * private repository must not end up in the prompt or in a posted PR comment.
  */
 function collectTicket({ prBody = '', sourceText = '' }) {
   const sections = [];
   if (prBody.trim()) sections.push(`### Pull request description (the author's account, not requirements)\n${prBody.slice(0, MAX_TICKET_CHARS)}`);
-  const refs = findIssueRefs(`${prBody}\n${sourceText}`, originOwner()).slice(0, MAX_TICKET_REFS);
+  const owner = originOwner();
+  const allRefs = findIssueRefs(`${prBody}\n${sourceText}`, owner);
+  const sameOwner = (r) => !r.repo || (owner && r.repo.split('/')[0].toLowerCase() === owner.toLowerCase());
+  const foreign = allRefs.filter((r) => !sameOwner(r));
+  const refs = allRefs.filter(sameOwner).slice(0, MAX_TICKET_REFS);
   const fetched = refs.map(fetchIssue);
   for (const t of fetched.filter((f) => f.ok)) sections.push(`### Issue ${t.label}: ${t.title}\n${t.body}`);
 
@@ -441,7 +461,9 @@ function collectTicket({ prBody = '', sourceText = '' }) {
   let status = parts.length ? `Ticket context: ${parts.join(' + ')}.` : '';
   if (failed.length)
     status += `${status ? ' ' : ''}Could not fetch ${failed.map((f) => f.label).join(', ')} (${failed[0].error}).`;
-  if (!refs.length && !prBody.trim()) status = 'No ticket references found in the commit messages.';
+  if (foreign.length)
+    status += `${status ? ' ' : ''}Not fetched (other owner): ${foreign.map((r) => `${r.repo}#${r.number}`).join(', ')}.`;
+  if (!allRefs.length && !prBody.trim()) status = 'No ticket references found in the commit messages.';
   if (!sections.length) status += ' "Fit to the ticket" is skipped.';
   return { text: sections.join('\n\n'), status };
 }
@@ -477,7 +499,7 @@ function truncateDiff(diff, max) {
 }
 
 /** Render the panel result as a Markdown PR comment. */
-function buildReviewMarkdown(results, findings, counts, desc, lines) {
+function buildReviewMarkdown(results, findings, counts, desc, lines, cut, ticket) {
   const out = [];
   out.push(`## 🤖 pre-push-review — expert panel (${results.length} agents · model=${MODEL})`);
   out.push('');
@@ -728,7 +750,7 @@ if (postToPr) {
     try {
       // Edit our previous review in place (one rolling comment per PR, not one per push).
       execSync(`gh pr comment ${pr} --edit-last --create-if-none --body-file -`, {
-        input: buildReviewMarkdown(results, findings, counts, description, diffLines),
+        input: buildReviewMarkdown(results, findings, counts, description, diffLines, cut, ticket),
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
       });
