@@ -24,7 +24,8 @@ to approve the contract and choose *how* it is built, in one stop.
 
 ## Output
 
-Write `design.md` in the same folder as the contract, short, in plain words, in three parts:
+Write `design.md` (or the file name the orchestrator gives you) in the same folder as the
+contract, short, in plain words, in three parts:
 
 1. **Fit to the ticket.** Each place the contract contradicts the ticket, goes beyond its
    "Done when" or its stated business reason, or carries a rule from somewhere else (an

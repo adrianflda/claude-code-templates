@@ -22,8 +22,10 @@ files / subprojects, and whether it is new behavior vs. a fix.
 The designer runs for T1 and T2 only. Skip it when `--design-settled <path>` is passed (the
 caller, e.g. `/develop`, already had the human approve the design for this feature); the
 `design.md` at that path, with its `## Chosen option` filled in, is then the reference for the
-coder and architect. A path that is missing or has no chosen option means not settled: run the
-designer.
+coder and architect, and forge does not stop for a design choice. A path that is missing or has
+no chosen option means not settled: run the designer. The one exception: if a new design decision
+appears during the build that the settled design could not have foreseen (rare), stop and report
+it to the caller with the reason and the options; do not pick one yourself.
 
 Rules:
 - The human MAY propose a tier (e.g. `--tier T1`). The system may **raise** the tier but

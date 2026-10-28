@@ -26,10 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plausible criterion and kept it in the simplest option; with the added rule (test every
   exemption against the ticket's business reason) it flagged it as a contradiction to resolve
   before approval and named emergency detection and the alarm as the blocked items.
-- `/develop` runs the designer once at system level in Phase 1 (architecture, stack, subproject
-  split) and presents it in the Phase 2 approval gate; the plan marks each feature
-  `design: settled` / `design: open` (no marker = open), and settled features run
-  `/forge --design-settled <path to design.md>`.
+- `/develop` keeps one approval: in Phase 1 it runs the designer for the system (architecture,
+  stack, subproject split) and for every feature whose design the system one leaves open, and the
+  Phase 2 gate shows all options together for the human to pick. After approval every feature is
+  settled and develop calls `/forge --design-settled <design file>`. Forge stops for a design
+  choice only on a new decision the plan could not have foreseen (rare); develop tells the human
+  which decision and why.
 
 ## [0.6.0] - 2026-10-26
 

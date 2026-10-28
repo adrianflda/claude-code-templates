@@ -247,10 +247,14 @@ The intention gate presents contract + review report + `design.md` together; the
 the contract and picks the option there (no extra stop). The chosen option is a constraint for
 the coder and the reference design for the architect.
 
-`/develop` runs the designer once at system level (architecture, stack, subproject split) and
-presents it in its approval gate. It marks each feature `design: settled` or `design: open` in
-the plan; settled features run `/forge --design-settled <path to design.md>`, which skips the designer
-(a missing file or an empty `## Chosen option` counts as not settled).
+`/develop` keeps its single approval. In Phase 1 it runs the designer for the system
+(architecture, stack, subproject split) and for every feature whose "how" the system design leaves
+open, and shows all of those options together in its one approval gate, where the human picks each.
+After approval every feature is `design: settled`, and develop calls
+`/forge --design-settled <design file>`, which skips the designer (a missing file or an empty
+`## Chosen option` counts as not settled). Forge stops for a design choice only when a new decision
+appears during the build that the plan could not have foreseen, which should be rare; develop then
+tells the human which decision and why.
 
 ## Gates & hooks
 
