@@ -46,7 +46,10 @@ could not run.
 
 - No code, no pseudo-code, no invented labels or codes; name things by what they do.
 - A safeguard the ticket does not ask for is a fit finding, not a given — the human
-  decides whether to keep it.
+  decides whether to keep it. Test every exemption, exception or "never" rule against
+  the ticket's business reason: if it keeps something out of reach of what the ticket
+  exists to do, it contradicts the ticket, however sensible it looks. Name which items
+  it blocks. The simplest option does not carry it.
 - Complexity needs a reason found in the ticket. If you cannot point to the ticket line
   that requires a mechanism (a cache, a lock, a retry, a stale-state rule), it does not
   belong in the simplest option.

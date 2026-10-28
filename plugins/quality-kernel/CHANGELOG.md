@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   coder and the reference design for the architect. Motivated by a real run where the contract
   kept a rule from an older design that contradicted the ticket's business need, and the coder
   picked a complex design on its own because nobody chose the "how" before coding.
+  Live-checked blind (isolated tool-less `claude -p`, opus, ticket title + body only, no comments)
+  on that case: the first prompt listed the "never switchable" rule only as an unstated but
+  plausible criterion and kept it in the simplest option; with the added rule (test every
+  exemption against the ticket's business reason) it flagged it as a contradiction to resolve
+  before approval and named emergency detection and the alarm as the blocked items.
 - `/develop` runs the designer once at system level in Phase 1 (architecture, stack, subproject
   split) and presents it in the Phase 2 approval gate; the plan marks each feature
   `design: settled` / `design: open` (no marker = open), and settled features run
