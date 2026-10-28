@@ -46,6 +46,11 @@ export function aggregate(rows) {
   // The ticket reviewer's table: how often it ran, what it contradicted and what was confirmed.
   const fits = rows.map((r) => r.ticketFit).filter((f) => f && typeof f === 'object');
   const sum = (pick) => fits.reduce((a, f) => a + (Number(pick(f)) || 0), 0);
+  // The verifier: what it was asked, what it refuted (and how much of that would have blocked),
+  // and what it adds to a push in time and money.
+  const verifiers = rows.map((r) => r.verifier).filter((v) => v && typeof v === 'object');
+  const vsum = (field) => verifiers.reduce((a, v) => a + (Number(v[field]) || 0), 0);
+  const vtimes = verifiers.map((v) => Number(v.durationMs) || 0);
   return {
     runs: rows.length,
     outcomes,
@@ -58,6 +63,18 @@ export function aggregate(rows) {
       contradicted: sum((f) => f.rows?.contradicted),
       confirmed: sum((f) => f.confirmed),
       noCriteria: fits.filter((f) => f.noCriteria).length,
+    },
+    verifier: {
+      runs: verifiers.length,
+      claims: vsum('claims'),
+      confirmed: vsum('confirmed'),
+      refuted: vsum('refuted'),
+      refutedBlocking: vsum('refutedBlocking') + vsum('ticketRefuted'),
+      unverifiable: vsum('unverifiable'),
+      unverified: vsum('unverified'),
+      failed: verifiers.filter((v) => v.failed).length,
+      durationMs: { p50: percentile(vtimes, 0.5), p95: percentile(vtimes, 0.95) },
+      costUsd: vsum('costUsd'),
     },
   };
 }
@@ -78,6 +95,12 @@ export function render(days, a) {
   const t = a.ticketFit;
   if (t?.runs) {
     lines.push(`  ticket    ${t.runs} table(s) · ${t.contradicted} contradicted line(s), ${t.confirmed} confirmed · ${t.noCriteria} ticket(s) without acceptance criteria`);
+  }
+  const v = a.verifier;
+  if (v?.runs) {
+    lines.push(
+      `  verifier  ${v.runs} run(s) · ${v.claims} claim(s): ${v.confirmed} confirmed · ${v.refuted} refuted (${v.refutedBlocking} that would have blocked) · ${v.unverifiable} unverifiable · ${v.unverified} not verified · ${v.failed} failed run(s) · p50 ${secs(v.durationMs.p50)} · p95 ${secs(v.durationMs.p95)} added · ${money(v.costUsd)}`,
+    );
   }
   const keys = Object.keys(a.roles);
   if (keys.length) {

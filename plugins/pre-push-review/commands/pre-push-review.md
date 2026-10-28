@@ -19,6 +19,6 @@ Steps:
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/scripts/ai-review-panel.mjs" <flags>
    ```
-3. Summarize the panel's output for the user: the per-agent finding counts, every critical/high issue with its `file:line`, the "Fit to the ticket" table when there is one (every `CONTRADICTED`, `MISSING` and `UNREQUESTED` row with its quoted ticket line), and the final `SUMMARY:` line. Do not re-review yourself — just relay and, if asked, help fix the reported issues.
+3. Summarize the panel's output for the user: the per-agent finding counts, every critical/high issue with its `file:line` and the verifier's verdict under it (`confirmed`, `REFUTED, not blocking`, `unverifiable` or `not run`, with its reason), the "Fit to the ticket" table when there is one (every `CONTRADICTED`, `MISSING` and `UNREQUESTED` row with its quoted ticket line), the "Refuted by the verifier (not counted)" list, and the final `SUMMARY:` line. Do not re-review yourself — just relay and, if asked, help fix the reported issues.
 
 Note: this is the same panel that the global git pre-push hook (`scripts/git-pre-push.mjs`) runs automatically on every `git push`. Use this command to review without pushing, and run `pr <n>` before merging: the push gate only ever sees one push's commits and rarely the ticket.
