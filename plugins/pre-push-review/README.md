@@ -102,7 +102,7 @@ Deleted files are part of the review. The reviewers get each one as a header wit
 and no content, so removed code does not use up the diff budget. A push that only deletes
 files is reviewed; it is not reported as "no changes".
 
-The panel is 6 independent specialist reviewers, each constrained to one branch of review:
+The panel is up to 8 independent specialist reviewers, each constrained to one branch of review:
 
 | Agent | Focus |
 |---|---|
@@ -112,9 +112,39 @@ The panel is 6 independent specialist reviewers, each constrained to one branch 
 | Performance & Scale | N+1, unbounded loops/fetches, hot-path waste |
 | Test Coverage & Quality | untested branches, weak assertions, flaky patterns |
 | Maintainability & Design | boundaries, duplication, dead code, leaky abstractions |
+| Readability & Simplicity | comments that explain what the code should make obvious, jargon or invented terms in names and comments, designs more complex than the goal needs (always with the simpler alternative); at most `medium` unless it hides a correctness risk |
+| Fit to the ticket | runs only when ticket text is found: does the change do what the ticket's "Done when" and business reason ask, and does it add a rule or exemption the ticket contradicts; `high` when the design contradicts an explicit requirement |
 
 Each reviewer ingests the repo's own guidance (`CLAUDE.md` / `.github/copilot-instructions.md`
 / `AGENTS.md` / `.cursorrules`), so the generic panel auto-adapts per project.
+
+### Ticket context
+
+The other reviewers only see the diff, so they cannot tell when a well-written change does the
+wrong thing. The "Fit to the ticket" reviewer gets the ticket text as well:
+
+- with `--pr <n>`: the PR title and body, plus the issues they reference;
+- otherwise (a push, `--branch`, `--base`): the issues referenced in the reviewed commits' messages.
+
+Recognised references: `#12` (this repository), `owner/repo#12`, `repo#12` (a repository of the
+same owner as `origin`, for example `prodmgt#31` from a `PhoenixCare/...` checkout means
+`PhoenixCare/prodmgt#31`) and `https://github.com/owner/repo/issues/12`. Up to 6 are fetched with
+`gh issue view` (title and the first 4,000 characters of the body). Only issues of the same owner
+as `origin` are fetched: references come from text anyone opening a PR can write, and the fetch
+uses your own `gh` login, so another owner's (possibly private) issue never reaches the prompt or
+a posted comment. Skipped references are listed in the output. If `gh` is missing or not
+logged in, or nothing is referenced, the output says so and that reviewer is skipped; the rest of
+the panel runs as usual. Staged changes have no commit messages, so they never get a ticket.
+
+Only this reviewer receives the ticket text, marked as data, not instructions. The PR
+description is marked as the author's account, not as requirements: the requirements are the
+issues.
+
+### Large diffs
+
+The reviewers get at most 3,000 diff lines. When a diff is longer, the output (and the PR
+comment) names the file cut in the middle and lists every file that was not reviewed, and the
+reviewers are told those files exist so they do not report them as missing.
 
 ### Reviewers have no tools
 
@@ -181,6 +211,13 @@ itself would now review a second time, so remove such a hook (the gate already c
 
 `/pre-push-review` — review without pushing (staged changes, `branch`, or `pr <n>`).
 
+**Before merging, run `/pre-push-review pr <n>` as well.** The push gate reviews only the
+commits of each push, so no push ever shows the whole change, and a push rarely carries the
+ticket. `pr <n>` reviews the full PR diff against its base, with the PR description and the
+issues it references, and posts the report as one rolling PR comment. Run it from a checkout of
+the PR head (`gh pr checkout <n>`): the diff comes from the local checkout, and the panel warns
+when `HEAD` is not the PR head. Add `--no-post` to print the report without commenting.
+
 Or directly:
 
 ```
@@ -189,6 +226,7 @@ node scripts/ai-review-panel.mjs --branch   # commits being pushed
 node scripts/ai-review-panel.mjs --base origin/main   # everything on this branch that is not on the base
 node scripts/ai-review-panel.mjs --range <base> <head>   # an exact range (full object names)
 node scripts/ai-review-panel.mjs --pr 123   # review a PR and post a rolling comment
+node scripts/ai-review-panel.mjs --pr 123 --no-post   # same review, printed only
 ```
 
 ## Configuration (env)
@@ -217,5 +255,5 @@ node --test test/*.test.mjs
 ```
 
 The tests use temporary git repositories, a temporary `HOME`, a local bare remote and a
-stand-in for the `claude` CLI, so they need no network and no account. They need git 2.54 or
+stand-in for the `claude` and `gh` CLIs, so they need no network and no account. They need git 2.54 or
 newer (config-based hooks).
