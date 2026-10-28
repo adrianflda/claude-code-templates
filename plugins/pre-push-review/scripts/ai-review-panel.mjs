@@ -79,7 +79,7 @@ import { homedir } from 'os';
 import { packDiff, MAX_DIFF_LINES, MAX_DIFF_BYTES, MAX_FILE_BYTES, MAX_LINE_CHARS } from './diff-budget.mjs';
 import { addUsage, emptyCounts, recordRun, usageOf } from './run-log.mjs';
 import { ROLES } from './roles.mjs';
-import { BATCH_SIZE, VERIFIER_ROLE, VERIFIER_TOOLS, applyVerdicts, batches, buildVerifierPrompt, isRefuted, selectClaims, verifierSettings } from './verify.mjs';
+import { BATCH_SIZE, VERIFIER_ROLE, VERIFIER_TOOLS, applyVerdicts, batches, buildVerifierPrompt, isRefuted, repoFileChecker, selectClaims, verifierSettings } from './verify.mjs';
 
 // Lines alone do not bound the prompt: one regenerated catalog line can be megabytes, and a
 // prompt over the context window makes every reviewer fail at once. So the diff also gets a
@@ -988,11 +988,7 @@ if (claims.length) {
   );
   const tally = { confirmed: 0, refuted: 0, unverifiable: 0, unverified: 0 };
   // A refutation must cite a file that exists inside the repository, not next to it.
-  const repoRoot = resolve(runRow.repo);
-  const fileExists = (p) => {
-    const full = resolve(repoRoot, p);
-    return (full === repoRoot || full.startsWith(repoRoot + '/')) && existsSync(full);
-  };
+  const fileExists = repoFileChecker(runRow.repo);
   groups.forEach((group, i) => {
     const res = runs[i];
     const verdicts = res.ok && res.verdicts ? applyVerdicts(group, res.verdicts, { fileExists }) : null;

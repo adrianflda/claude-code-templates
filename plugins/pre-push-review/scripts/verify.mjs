@@ -17,6 +17,9 @@
  * reasoning, so it has to establish the facts from the code instead of agreeing with an argument.
  */
 
+import { existsSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
+
 export const VERIFIER_TOOLS = 'Read,Grep,Glob';
 /**
  * Files the verifier may not read even inside the repository: credentials, private keys and
@@ -100,7 +103,24 @@ export function batches(items, size) {
   return out;
 }
 
-/** Whether `evidence` cites at least one `path:line` whose path `fileExists` in the repository. */
+/**
+ * The `fileExists` of applyVerdicts for a repository: the path must resolve inside `repoRoot`
+ * (`../next-to-it/x` and absolute paths elsewhere do not count) and exist.
+ */
+export function repoFileChecker(repoRoot, exists = existsSync) {
+  const root = resolve(repoRoot);
+  return (p) => {
+    const full = resolve(root, p);
+    return (full === root || full.startsWith(root + sep)) && exists(full);
+  };
+}
+
+/**
+ * Whether `evidence` cites at least one `path:line` whose path `fileExists` in the repository.
+ * A path is relative segments of word characters, dots and dashes (`..` alone is not a path,
+ * hence the word-character guard); a leading `/` is not matched, so an absolute path is tried
+ * relative to the repository, where it does not exist.
+ */
 export function citesRepoFile(evidence, fileExists) {
   for (const m of String(evidence).matchAll(/((?:[\w.-]+\/)*[\w.-]+):\d+/g)) {
     if (/\w/.test(m[1]) && fileExists(m[1])) return true;

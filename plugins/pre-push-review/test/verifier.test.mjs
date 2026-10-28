@@ -10,7 +10,7 @@ import { basename, dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { aggregate, render } from '../scripts/stats.mjs';
-import { MAX_CLAIMS, applyVerdicts, buildVerifierPrompt, selectClaims } from '../scripts/verify.mjs';
+import { MAX_CLAIMS, applyVerdicts, buildVerifierPrompt, citesRepoFile, repoFileChecker, selectClaims } from '../scripts/verify.mjs';
 import { SCRIPTS, executable, git, makeRepo, runNode, tempDir, write } from './helpers.mjs';
 
 const PANEL = join(SCRIPTS, 'ai-review-panel.mjs');
@@ -417,6 +417,25 @@ test('applyVerdicts: silence, no evidence, an unknown verdict or a duplicate id 
     { id: 'R4', verdict: 'confirmed', reason: 'c', evidence: 'src/b.js:1' },
   ], { fileExists: exists });
   assert.deepEqual([...checked.values()].map((v) => v.verdict), ['refuted', 'refuted', 'unverifiable', 'confirmed'], 'only a refutation needs a real file');
+});
+
+test('repoFileChecker: a cited path must resolve inside the repository and exist', () => {
+  const root = tempDir('containment');
+  const repo = join(root, 'repo');
+  write(root, { 'repo/src/a.js': 'a\n', 'outside/key.txt': 'k\n' });
+  const inRepo = repoFileChecker(repo);
+  assert.equal(inRepo('src/a.js'), true);
+  assert.equal(inRepo('./src/a.js'), true);
+  assert.equal(inRepo(join(repo, 'src', 'a.js')), true, 'an absolute path inside the repository');
+  assert.equal(inRepo('src/missing.js'), false);
+  assert.equal(inRepo('../outside/key.txt'), false, 'a file next to the repository exists but does not count');
+  assert.equal(inRepo(join(root, 'outside', 'key.txt')), false);
+  assert.equal(inRepo('../repo/src/a.js'), true, 'a path that leaves and comes back resolves inside');
+  assert.equal(inRepo(`${repo}-sibling/x.js`), false, 'a sibling whose name starts with the root is outside');
+  assert.equal(citesRepoFile('see ../outside/key.txt:1', inRepo), false);
+  assert.equal(citesRepoFile(`see ${join(root, 'outside', 'key.txt')}:1`, inRepo), false, 'an absolute path is tried relative to the repository');
+  assert.equal(citesRepoFile('handled at src/a.js:3-9', inRepo), true);
+  assert.equal(citesRepoFile('..:1 and .:2', inRepo), false);
 });
 
 test('the verifier prompt carries the claim and the rules, not the reviewer\'s suggestion', () => {
