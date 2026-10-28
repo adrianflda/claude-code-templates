@@ -45,6 +45,11 @@ const footerLines = (n) => (n === 0 ? 0 : 2 + n);
  * importing this module for a unit test has no side effects).
  */
 export function boundDiffBytes(text, opts = {}) {
+  return packDiff(text, opts).diff;
+}
+
+/** boundDiffBytes, plus the names of the files it left out (so the caller can report them). */
+export function packDiff(text, opts = {}) {
   const log = opts.log || (() => {});
   const chunks = text.split(/^(?=diff --git )/m).filter(Boolean);
   const entries = chunks.map((chunk, idx) => {
@@ -79,9 +84,12 @@ export function boundDiffBytes(text, opts = {}) {
     usedBytes -= moved.size;
     skipped.push(moved);
   }
-  if (!skipped.length) return kept.map((e) => e.piece).join('');
+  if (!skipped.length) return { diff: kept.map((e) => e.piece).join(''), skipped: [] };
   kept.sort((a, b) => a.idx - b.idx);
   skipped.sort((a, b) => a.idx - b.idx);
   log(`[pre-push-review] Diff is over the ${MAX_DIFF_BYTES}-byte / ${MAX_DIFF_LINES}-line budget: ${skipped.length} file(s) not sent (review is partial).`);
-  return `${kept.map((e) => e.piece).join('')}\n# [pre-push-review] ${skipped.length} file(s) not reviewed (over the diff budget):\n${skipped.map((e) => `#   ${e.name}`).join('\n')}\n`;
+  return {
+    diff: `${kept.map((e) => e.piece).join('')}\n# [pre-push-review] ${skipped.length} file(s) not reviewed (over the diff budget):\n${skipped.map((e) => `#   ${e.name}`).join('\n')}\n`,
+    skipped: skipped.map((e) => e.name),
+  };
 }
