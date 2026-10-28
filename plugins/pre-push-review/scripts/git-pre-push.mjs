@@ -29,12 +29,18 @@
  * It honors no skip switch: AI_REVIEW_SKIP, PREPUSH_REVIEW_SKIP and AI_REVIEW_REQUIRED are
  * removed or forced in the environment given to the panel. The only way past it is the human
  * typing `git push --no-verify`, which git itself implements and no hook can see.
+ *
+ * Run log: the panel records each run it finishes in ~/.cache/git-ai-review/runs.jsonl. This
+ * runner records only the pushes the panel never got to finish: blocked by the quality gate, or a
+ * panel that could not start, was killed or timed out. A --no-verify push runs no hook, so it
+ * leaves no row: the log cannot count overrides.
  */
 import { spawn, spawnSync } from 'child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { basename, dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { recordRun } from './run-log.mjs';
 
 const TIMEOUT_MS = Number(process.env.AI_REVIEW_GATE_TIMEOUT_MS || 540_000);
 const QK_TIMEOUT_MS = Number(process.env.QK_PUSH_TIMEOUT_MS || 1_800_000);
@@ -46,6 +52,7 @@ const MAX_TIMER_MS = 2_147_483_647;
 const QK_ENV = { QK_MEM_MAX_PRESSURE_LEVEL: '3', ...process.env };
 const ZERO = /^0+$/;
 
+const startedAt = Date.now();
 const say = (msg) => process.stderr.write(`${msg}\n`);
 const fail = (msg) => {
   say(`[pre-push-review] PUSH BLOCKED: ${msg}`);
@@ -183,7 +190,7 @@ if (usableRefs) {
 }
 
 // No skip switch is honored; the review is always required.
-const env = { ...process.env, AI_REVIEW_REQUIRED: '1' };
+const env = { ...process.env, AI_REVIEW_REQUIRED: '1', AI_REVIEW_TRIGGER: 'pre-push' };
 delete env.AI_REVIEW_SKIP;
 delete env.PREPUSH_REVIEW_SKIP;
 
@@ -361,8 +368,20 @@ try {
   /* the log is best-effort */
 }
 
-if (qkBlock) fail(qkBlock);
-if (failure) fail(`${failure}; the change was NOT reviewed.`);
+// The panel writes its own row when it finishes; these are the pushes where it did not.
+const unreviewed = (outcome, reason) => {
+  for (const run of runs) {
+    recordRun({ trigger: 'pre-push', repo: root, mode: run.base ? 'range' : 'branch', base: run.base || '', head: run.head, outcome, reason, exit: 1, durationMs: Date.now() - startedAt });
+  }
+};
+if (qkBlock) {
+  unreviewed('blocked', `quality gate: ${qkBlock}`);
+  fail(qkBlock);
+}
+if (failure) {
+  unreviewed('not-reviewed', failure);
+  fail(`${failure}; the change was NOT reviewed.`);
+}
 if (code === 0) process.exit(0);
 if (code === 1) fail('critical issue(s) found by the expert panel. Fix them and push again.');
 fail(`no reviewer could run (panel exit ${code}). Check that the \`claude\` CLI is installed and signed in.`);

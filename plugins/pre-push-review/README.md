@@ -259,6 +259,28 @@ node scripts/ai-review-panel.mjs --pr 123   # review a PR and post a rolling com
 node scripts/ai-review-panel.mjs --pr 123 --no-post   # same review, printed only
 ```
 
+## Run log and stats
+
+Every run appends one JSON line to `~/.cache/git-ai-review/runs.jsonl`: repository, mode, base
+and head, which reviewers ran, were skipped or failed, each reviewer's findings by severity, the
+de-duplicated totals, the outcome (`passed`, `blocked`, `not-reviewed`, `nothing-to-review`,
+`skipped`), model calls, token usage, cost in USD and wall time. The panel writes the row when it
+finishes; the git runner writes one only when the panel never got to finish (blocked by the
+quality gate, or a panel that could not start, was killed or timed out). A `git push --no-verify`
+runs no hook, so it leaves no row: the log cannot count overrides.
+
+```
+node scripts/stats.mjs                 # the last 30 days
+node scripts/stats.mjs --days 7        # per-outcome counts, cost/time/calls p50 and p95, a per-role table
+node scripts/stats.mjs --days 7 --json
+```
+
+The log exists so the panel is judged on data: a reviewer that is rarely confirmed or fixed gets
+retired or merged, and blocking is only tightened once precision is known. The reviewers are
+called with `--output-format json`, which is where the usage and cost come from; a reply without
+that envelope is still parsed, with no usage recorded. The log is written best-effort: a
+read-only home never fails a review.
+
 ## Configuration (env)
 
 | Var | Default | Meaning |
@@ -271,6 +293,7 @@ node scripts/ai-review-panel.mjs --pr 123 --no-post   # same review, printed onl
 | `QK_MEM_MAX_PRESSURE_LEVEL` | `3` on push | macOS memory-pressure level at which the quality gate refuses to start (its own default is 2); a refusal blocks the push |
 | `QK_PUSH_TIMEOUT_MS` | `1800000` | how long the gate waits for the quality gate (all pushed ranges together); past it the push is blocked as not verified |
 | `CLAUDE_BIN` | auto | explicit path to the `claude` binary |
+| `AI_REVIEW_TRIGGER` | set to `pre-push` by the gate | recorded in the run log as the run's trigger (`pre-push` or `cli`) |
 
 `PREPUSH_REVIEW_SKIP` and `AI_REVIEW_SKIP` no longer skip a push: the gate removes them, and the
 guard blocks Claude commands that set them. They only affect the panel when it is run directly.

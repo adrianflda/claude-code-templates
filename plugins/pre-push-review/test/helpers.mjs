@@ -40,13 +40,16 @@ export function executable(path, source) {
   return path;
 }
 
-/** Run a script with JSON on stdin; never throws. */
+/**
+ * Run a script with JSON on stdin; never throws. HOME is a fresh temporary directory unless the
+ * test passes one: the scripts write under ~/.cache, and a test must never touch the developer's.
+ */
 export function runNode(script, { args = [], input = '', cwd, env = {} } = {}) {
   const result = spawnSync(process.execPath, [script, ...args], {
     cwd,
     input,
     encoding: 'utf8',
-    env: { ...cleanEnv(), ...env },
+    env: { ...cleanEnv(), HOME: tempDir('home'), ...env },
   });
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -56,15 +59,20 @@ export function runNode(script, { args = [], input = '', cwd, env = {} } = {}) {
  * what it saw and then behaves as told: FAKE_PANEL_EXIT is its exit code, FAKE_PANEL_OUT its
  * stdout, FAKE_PANEL_KILL makes it die from a signal, FAKE_PANEL_HANG makes it never finish.
  */
-export function fakePlugin({ withPanel = true, qkGate = false } = {}) {
+export function fakePlugin({ withPanel = true, qkGate = false, realPanel = false } = {}) {
   // Laid out as in the plugins repo: <plugins>/pre-push-review next to <plugins>/quality-kernel.
   const root = join(tempDir('plugins'), 'pre-push-review');
   mkdirSync(join(root, 'scripts'), { recursive: true });
   if (qkGate) fakeQkGate(join(root, '..', 'quality-kernel', 'scripts', 'qk-gate.mjs'));
-  for (const f of ['git-pre-push.mjs', 'install-git-hook.mjs']) {
+  for (const f of ['git-pre-push.mjs', 'install-git-hook.mjs', 'run-log.mjs']) {
     copyFileSync(join(SCRIPTS, f), join(root, 'scripts', f));
   }
-  if (withPanel) {
+  if (realPanel) {
+    // The real panel (with its modules); the test supplies a `claude` stand-in through CLAUDE_BIN.
+    for (const f of ['ai-review-panel.mjs', 'diff-budget.mjs', 'roles.mjs']) {
+      copyFileSync(join(SCRIPTS, f), join(root, 'scripts', f));
+    }
+  } else if (withPanel) {
     executable(
       join(root, 'scripts', 'ai-review-panel.mjs'),
       `import { appendFileSync } from 'node:fs';

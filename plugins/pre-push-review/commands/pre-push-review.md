@@ -10,6 +10,11 @@ Steps:
    - `branch` → review the commits being pushed (`--branch`)
    - `pr <n>` → review PR `<n>` (full diff vs its base, plus the PR description and the issues it references) and post the report as a rolling PR comment (`--pr <n>`); run it from a checkout of the PR head
    - `pr <n> --no-post` → the same review, printed only (`--pr <n> --no-post`)
+   - `stats [days]` → no review; print what the run log says for the last `days` days (default 30):
+     ```bash
+     node "${CLAUDE_PLUGIN_ROOT}/scripts/stats.mjs" --days <days>
+     ```
+     Relay the output as is and stop.
 2. Execute the panel:
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/scripts/ai-review-panel.mjs" <flags>
