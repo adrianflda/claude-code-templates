@@ -1,6 +1,6 @@
 ---
-description: Entry point of the quality-kernel — run the six-agent quality pipeline scaled to the task (from a one-line issue to a large feature), with automatic tier routing and a blast-radius override.
-argument-hint: <task description | issue #> [--tier T0|T1|T2]
+description: Entry point of the quality-kernel — run the quality-kernel agent pipeline scaled to the task (from a one-line issue to a large feature), with automatic tier routing and a blast-radius override.
+argument-hint: <task description | issue #> [--tier T0|T1|T2] [--design-settled <path to design.md>]
 ---
 
 Run the quality-kernel pipeline for the task described in `$ARGUMENTS`.
@@ -14,10 +14,18 @@ Classify the task into a tier from cheap signals: estimated change size, number 
 files / subprojects, and whether it is new behavior vs. a fix.
 
 - **T0 — issue / small fix:** a single agent, or the two-pack `coder → cleaner`.
-- **T1 — medium feature:** the four-pack `specifier → coder → cleaner → architect`.
-- **T2 — large / multi-subproject:** the full six-pack
-  `specifier → coder → cleaner → architect → hardener → qa` under hierarchical
+- **T1 — medium feature:** `specifier → designer → coder → cleaner → architect`.
+- **T2 — large / multi-subproject:** the full chain
+  `specifier → designer → coder → cleaner → architect → hardener → qa` under hierarchical
   orchestration.
+
+The designer runs for T1 and T2 only. Skip it when `--design-settled <path>` is passed (the
+caller, e.g. `/develop`, already had the human approve the design for this feature); the
+`design.md` at that path, with its `## Chosen option` filled in, is then the reference for the
+coder and architect, and forge does not stop for a design choice. A path that is missing or has
+no chosen option means not settled: run the designer. The one exception: if a new design decision
+appears during the build that the settled design could not have foreseen (rare), stop and report
+it to the caller with the reason and the options; do not pick one yourself.
 
 Rules:
 - The human MAY propose a tier (e.g. `--tier T1`). The system may **raise** the tier but
@@ -40,7 +48,7 @@ every touched repo, and close with `qk-org-gate --org <org> --branch <branch>`.
 
 ## Step 1 — Run the chain for the tier
 
-Dispatch each role as a subagent (`specifier`, `coder`, `cleaner`, `architect`,
+Dispatch each role as a subagent (`specifier`, `designer`, `coder`, `cleaner`, `architect`,
 `hardener`, `qa`), in order, skipping the ones the tier does not include. Inject the
 domain expertise the task needs (backend / frontend / security / db) into each role's
 context — **the roles are fixed, the expertise is injected**.
@@ -57,13 +65,23 @@ Communication model:
 
 ## Gates (enforce; do not skip)
 
-1. **Blind contract review, then the intention gate (human)** — after the specifier
+1. **Blind contract review, design, then the intention gate (human)** — after the specifier
    produces the contract (EARS + Gherkin + External Observable Invariants), run
    `node <plugin>/scripts/contract-review.mjs --contract <spec.md> --out <spec>.review.md`
    (T1+). Two isolated, tool-less reviewers that see only the contract text report
-   gaps as `blocker` / `major` / `nit`. Send each blocker back to the specifier; then
-   pause for human validation that the contract matches intent, with the review report
-   beside it, before any code is written. A blocker left in the contract must be waived
+   gaps as `blocker` / `major` / `nit`. Send each blocker back to the specifier.
+   - **Design** (T1+; skipped as in Step 0 when the design is settled): dispatch the
+     **designer** with the ticket text and the contract; it writes a fresh `design.md` in
+     the contract's folder. A design file without fit findings, options and an empty
+     `## Chosen option`, or a designer that could not read the ticket, is not
+     "no findings": re-run it or ask the human.
+   - **Intention gate** — pause once, before any code, with the contract, the review
+     report and the design file together. The human approves (or edits) the contract
+     against the fit findings and picks the option. If the contract changed, re-run the
+     blind review and the designer on the new text before continuing. Write the pick
+     under `## Chosen option`; that file is the coder's constraint and the architect's
+     reference design.
+   - A blocker left in the contract must be waived
    by the human explicitly, never by an agent. Exit 2 (a reviewer could not run or
    answered off-format) means not reviewed: re-run, do not proceed as if it passed.
    *(Optional, per-project:)* if GitHub Project integration is enabled, create one issue
@@ -107,5 +125,6 @@ free lateral chat between agents.
 ## Output
 
 Report: the **residual risk, stated first**, then the chosen tier and why, the agents
-run, each gate's result, the mutation / coverage / CRAP / DRY figures where run, the
+run, the designer's fit findings and how each was resolved, the option the human chose
+(or "design settled upstream"), each gate's result, the mutation / coverage / CRAP / DRY figures where run, the
 `Proof:` trailers, and the action log.

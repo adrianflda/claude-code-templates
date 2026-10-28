@@ -23,7 +23,9 @@ and Gherkin are your spec; your tests are anchored to them, never to your own pa
 ## Inputs
 
 The specifier's contract (EARS criteria + Gherkin + External Observable Invariants),
-and the architecture guidance if one exists.
+and the design option the human chose at the intention gate (`design.md`) when there is
+one. The chosen option is a constraint: build that design, not another; if it cannot meet
+the contract, stop and report rather than switching designs.
 
 ## Outputs
 

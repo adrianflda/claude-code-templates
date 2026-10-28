@@ -5,6 +5,32 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-28
+
+### Added
+- **`designer` agent** (opus), between the specifier and the human intention gate in `/forge`
+  for T1 and T2 (T0 skips it). Given the ticket text (fetched with `gh` when an issue is
+  referenced) and the contract, it writes `design.md` beside the contract: where the contract
+  contradicts or goes beyond the ticket's "Done when" and business reason, or carries a rule
+  from elsewhere; 2–3 implementation options, always including the simplest one that meets the
+  ticket, each with effort, risk and what it leaves out; and one recommendation. No code. The
+  intention gate now shows contract + review + `design.md` together, and the human approves the
+  contract and picks the option in that single stop. The chosen option is a constraint for the
+  coder and the reference design for the architect. Motivated by a real run where the contract
+  kept a rule from an older design that contradicted the ticket's business need, and the coder
+  picked a complex design on its own because nobody chose the "how" before coding.
+  Live-checked blind (isolated tool-less `claude -p`, opus, ticket title + body only, no comments)
+  on that case: the first prompt listed the "never switchable" rule only as an unstated but
+  plausible criterion and kept it in the simplest option; with the added rule (test every
+  exemption against the ticket's business reason) it flagged it as a contradiction to resolve
+  before approval and named emergency detection and the alarm as the blocked items.
+- `/develop` keeps one approval: in Phase 1 it runs the designer for the system (architecture,
+  stack, subproject split) and for every feature whose design the system one leaves open, and the
+  Phase 2 gate shows all options together for the human to pick. After approval every feature is
+  settled and develop calls `/forge --design-settled <design file>`. Forge stops for a design
+  choice only on a new decision the plan could not have foreseen (rare); develop tells the human
+  which decision and why.
+
 ## [0.11.1] - 2026-10-27
 
 ### Fixed — commit proof
