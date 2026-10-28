@@ -61,6 +61,11 @@ test('the agent set is exactly the seven pipeline stages', () => {
   assert.deepStrictEqual(agents, Object.keys(EXPECTED_MODELS).sort());
 });
 
+test('every agent is named in the /forge chain', () => {
+  const forge = read('commands/forge.md');
+  for (const agent of Object.keys(EXPECTED_MODELS)) assert.ok(forge.includes(`\`${agent}\``), `commands/forge.md does not name \`${agent}\``);
+});
+
 for (const [agent, expected] of Object.entries(EXPECTED_MODELS)) {
   test(`agent ${agent} declares model alias ${expected}`, () => {
     const file = `agents/${agent}.md`;

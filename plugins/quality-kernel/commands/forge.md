@@ -1,6 +1,6 @@
 ---
 description: Entry point of the quality-kernel — run the quality-kernel agent pipeline scaled to the task (from a one-line issue to a large feature), with automatic tier routing and a blast-radius override.
-argument-hint: <task description | issue #> [--tier T0|T1|T2] [--design-settled]
+argument-hint: <task description | issue #> [--tier T0|T1|T2] [--design-settled <path to design.md>]
 ---
 
 Run the quality-kernel pipeline for the task described in `$ARGUMENTS`.
@@ -19,9 +19,11 @@ files / subprojects, and whether it is new behavior vs. a fix.
   `specifier → designer → coder → cleaner → architect → hardener → qa` under hierarchical
   orchestration.
 
-The designer runs for T1 and T2 only. Skip it when `--design-settled` is passed (the caller,
-e.g. `/develop`, already had the human approve the design for this feature); the settled
-design is then the reference for the coder and architect.
+The designer runs for T1 and T2 only. Skip it when `--design-settled <path>` is passed (the
+caller, e.g. `/develop`, already had the human approve the design for this feature); the
+`design.md` at that path, with its `## Chosen option` filled in, is then the reference for the
+coder and architect. A path that is missing or has no chosen option means not settled: run the
+designer.
 
 Rules:
 - The human MAY propose a tier (e.g. `--tier T1`). The system may **raise** the tier but
@@ -59,14 +61,18 @@ Communication model:
    `node <plugin>/scripts/contract-review.mjs --contract <spec.md> --out <spec>.review.md`
    (T1+). Two isolated, tool-less reviewers that see only the contract text report
    gaps as `blocker` / `major` / `nit`. Send each blocker back to the specifier. Then
-   (T1+) dispatch the **designer** with the ticket text and the contract; it writes
-   `design.md` beside the contract: where the contract does not fit the ticket, 2–3
-   options including the simplest one that meets the ticket, and a recommendation.
-   Then pause, once, for the human with the contract, the review report and `design.md`
+   (T1+, unless `--design-settled`) dispatch the **designer** with the ticket text and the
+   contract; it writes `design.md` in the same folder as the contract: where the contract
+   does not fit the ticket, 2–3 options including the simplest one that meets the ticket,
+   and a recommendation. If the designer reports it could not read the ticket, or
+   `design.md` is missing, that is not "no findings": re-run it or ask the human. Then
+   pause, once, for the human with the contract, the review report and `design.md`
    together: the human approves (or edits) the contract against the fit findings **and
-   picks the option**, before any code is written. Pass the chosen option to the coder
-   as a constraint and to the architect as the reference design; record it in
-   `design.md`. A blocker left in the contract must be waived
+   picks the option** (with `--design-settled`, only the contract and review, the settled
+   design beside them), before any code is written. If the contract changed, re-run the
+   blind review on the new text. Write the pick into `design.md` under
+   `## Chosen option`; pass that file to the coder as a constraint and to the architect as
+   the reference design. A blocker left in the contract must be waived
    by the human explicitly, never by an agent. Exit 2 (a reviewer could not run or
    answered off-format) means not reviewed: re-run, do not proceed as if it passed.
    *(Optional, per-project:)* if GitHub Project integration is enabled, create one issue

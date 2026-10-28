@@ -24,7 +24,7 @@ to approve the contract and choose *how* it is built, in one stop.
 
 ## Output
 
-Write `design.md` beside the contract, short, in plain words, in three parts:
+Write `design.md` in the same folder as the contract, short, in plain words, in three parts:
 
 1. **Fit to the ticket.** Each place the contract contradicts the ticket, goes beyond its
    "Done when" or its stated business reason, or carries a rule from somewhere else (an
@@ -37,6 +37,10 @@ Write `design.md` beside the contract, short, in plain words, in three parts:
    leaves out. Prefer options that differ in kind, not in detail.
 3. **Recommendation.** One option and the reason, in two or three sentences. If a fit
    finding must be resolved first, say so.
+
+End the file with an empty `## Chosen option` heading; the orchestrator fills it in with the
+human's pick. If you cannot read the ticket, write no options: report that the fit check
+could not run.
 
 ## Rules
 

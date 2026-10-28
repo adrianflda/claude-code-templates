@@ -23,7 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   picked a complex design on its own because nobody chose the "how" before coding.
 - `/develop` runs the designer once at system level in Phase 1 (architecture, stack, subproject
   split) and presents it in the Phase 2 approval gate; the plan marks each feature
-  `design: settled` / `design: open`, and settled features run `/forge --design-settled`.
+  `design: settled` / `design: open` (no marker = open), and settled features run
+  `/forge --design-settled <path to design.md>`.
 
 ## [0.6.0] - 2026-10-26
 

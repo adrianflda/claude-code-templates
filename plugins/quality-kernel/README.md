@@ -249,7 +249,8 @@ the coder and the reference design for the architect.
 
 `/develop` runs the designer once at system level (architecture, stack, subproject split) and
 presents it in its approval gate. It marks each feature `design: settled` or `design: open` in
-the plan; settled features run `/forge --design-settled`, which skips the designer.
+the plan; settled features run `/forge --design-settled <path to design.md>`, which skips the designer
+(a missing file or an empty `## Chosen option` counts as not settled).
 
 ## Gates & hooks
 
