@@ -273,6 +273,10 @@ test('Claude cannot forge a prompt by writing to a transcript', () => {
     'cp -t ~/.claude/projects/p forged.jsonl',
     'cp --target-directory=~/.claude/projects/p forged.jsonl',
     'ln -s -t ~/.claude/projects/p /tmp/forged.jsonl',
+    // the memory folder sits next to the transcripts: leaving it must still count
+    'cd ~/.claude/projects/p/memory && echo x >> ../abc.jsonl',
+    'cp forged.jsonl ~/.claude/projects/p/memory/..',
+    'echo x > ~/.claude/projects/p/memory/../s.jsonl',
     `echo "echo x >> ${s.path}" | bash`, // a shell reading its script on stdin
     `echo "open('${s.path}', 'a').write('x')" | python3`,
   ]) {
@@ -308,6 +312,10 @@ test('reading transcripts, even with > or >= elsewhere in the command, is not a 
     `python3 parse.py < ${s.path}`, // a script reading the transcript on stdin
     `grep -h '"human"' ${s.path} | python3 -I count.py`,
     `ls 2>&1 >/tmp/out; cat ${s.path} >&2`,
+    // Claude Code's memory files live in .claude/projects/<project>/memory/ and are meant to be written
+    "cd ~/.claude/projects/p/memory && python3 - <<'EOF'\np='notes.md'; s=open(p).read(); open(p,'w').write(s+'x')\nEOF",
+    'echo "- [Note](note.md) — hook" >> ~/.claude/projects/p/memory/MEMORY.md',
+    'cp /tmp/draft.md ~/.claude/projects/p/memory/project_x.md',
   ]) {
     assert.equal(bash(s, c).code, 0, `expected PASS: ${c}`);
   }

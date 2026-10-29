@@ -95,8 +95,16 @@ const READERS = new Set(['cat', 'head', 'tail', 'less', 'more', 'grep', 'egrep',
  * one, is under .claude/projects, is a relative *.jsonl, or cannot be known before it runs (a
  * variable, $(...), a glob). Reading transcripts stays allowed.
  */
+// Claude Code's memory folder sits next to the transcripts and is meant to be written. A path inside
+// it (no "..", not a *.jsonl) is not a transcript.
+const MEMORY_PATH = /[^\s'"]*\.claude\/projects\/[^/\s'"]+\/memory(\/[^\s'"]*)?/g;
+const inMemory = (t) => !t.includes('..') && !/\.jsonl$/.test(t) &&
+  /\.claude\/projects\/[^/]+\/memory(\/|$)/.test(t);
+
 function writesTranscript(command, transcriptPath) {
-  const mentions = (transcriptPath && command.includes(transcriptPath)) || /\.claude\/projects/.test(command);
+  const outsideMemory = command.replace(MEMORY_PATH, (m) => (inMemory(m) ? '' : m));
+  const mentions = (transcriptPath && command.includes(transcriptPath)) ||
+    /\.claude\/projects\b[\s\S]*\.jsonl/.test(command) || /\.claude\/projects/.test(outsideMemory);
   if (!mentions) return false;
   try {
     return writesIn(command, transcriptPath, 0);
@@ -109,7 +117,8 @@ function writesTranscript(command, transcriptPath) {
 
 function transcriptLike(word, transcriptPath) {
   const t = word.text;
-  return word.dynamic || t.includes('.claude/projects') || Boolean(transcriptPath && t.includes(transcriptPath)) ||
+  return word.dynamic || (t.includes('.claude/projects') && !inMemory(t)) ||
+    Boolean(transcriptPath && t.includes(transcriptPath)) ||
     (/\.jsonl$/.test(t) && !/^[/~]/.test(t));
 }
 
