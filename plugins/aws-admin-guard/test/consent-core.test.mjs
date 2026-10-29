@@ -24,6 +24,14 @@ test('a negated confirmation classifies as none, never confirm', () => {
   }
 });
 
+test('a negation up to 3 tokens before the confirm word still cancels it; farther away it does not', () => {
+  for (const text of ['no lo confirmo', 'I do not really confirm', 'never would I confirm']) {
+    assert.equal(classify(text, PROFILES), 'none', text);
+  }
+  // Four tokens between the negation and the verb: outside the window, so it confirms.
+  assert.equal(classify('no problem at all here, confirm', PROFILES), 'confirm');
+});
+
 test('a negated confirmation does not grant admin (the prior authorize stays merely pending)', () => {
   const t0 = Date.now() - 2 * MIN;
   for (const second of ['no confirmo', 'todavia no confirmo', 'no, no confirmo nada', "I don't confirm"]) {
