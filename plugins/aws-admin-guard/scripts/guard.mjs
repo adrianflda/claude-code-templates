@@ -102,7 +102,9 @@ const inMemory = (t) => !t.includes('..') && !/\.jsonl$/.test(t) &&
   /\.claude\/projects\/[^/]+\/memory(\/|$)/.test(t);
 
 function writesTranscript(command, transcriptPath) {
-  const outsideMemory = command.replace(MEMORY_PATH, (m) => (inMemory(m) ? '' : m));
+  // The memory carve-out holds only while the command cannot leave memory/: no "..", at most one cd.
+  const staysInMemory = !command.includes('..') && (command.match(/\b(cd|pushd|popd)\b/g) || []).length <= 1;
+  const outsideMemory = staysInMemory ? command.replace(MEMORY_PATH, (m) => (inMemory(m) ? '' : m)) : command;
   const mentions = (transcriptPath && command.includes(transcriptPath)) ||
     /\.claude\/projects\b[\s\S]*\.jsonl/.test(command) || /\.claude\/projects/.test(outsideMemory);
   if (!mentions) return false;

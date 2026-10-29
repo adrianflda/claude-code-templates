@@ -277,6 +277,9 @@ test('Claude cannot forge a prompt by writing to a transcript', () => {
     'cd ~/.claude/projects/p/memory && echo x >> ../abc.jsonl',
     'cp forged.jsonl ~/.claude/projects/p/memory/..',
     'echo x > ~/.claude/projects/p/memory/../s.jsonl',
+    'cd ~/.claude/projects/p/memory && cd .. && echo x >> conv*',
+    'cd ~/.claude/projects/p/memory; popd; echo x >> s.json"l"',
+    'pushd ~/.claude/projects/p/memory && cd - && tee * < forged',
     `echo "echo x >> ${s.path}" | bash`, // a shell reading its script on stdin
     `echo "open('${s.path}', 'a').write('x')" | python3`,
   ]) {
