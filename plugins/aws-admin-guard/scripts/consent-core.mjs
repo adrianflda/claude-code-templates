@@ -34,6 +34,10 @@ const QUESTION = /[?\u00bf]/;
 const AFFIRM_START = /^\W*(si|yes|ok|dale|adelante)\b/;
 const CONFIRM = /\b(confirmo|reconfirmo|confirm|confirmed)\b/;
 const REVOKE = /\b(revoco|revocar|revoca|revoke|revoked|retiro)\b/;
+// A negation up to 3 tokens before "confirm" ("no confirmo", "I don't confirm") means the
+// prompt does NOT confirm — unlike NEGATION above (which needs the admin verb nearby and
+// revokes), this only cancels the confirmation; it does not revoke an existing grant.
+const NEGATED_CONFIRM = /\b(no|nunca|jamas|never|dont|don't|do not|not)\b(?:\s+\S+){0,3}\s+\b(confirmo|reconfirmo|confirm|confirmed)\b/;
 
 /** The verb and the profile name must be close: "autorizo usar admin", "usa admin", "use the admin profile". */
 const nearProfile = (t, profiles) => profiles.some((p) =>
@@ -47,7 +51,7 @@ export function classify(text, profiles) {
   if (admin && NEGATION.test(t)) return 'revoke';
   if (DOUBT.test(t) || QUESTION.test(t)) return 'none';
   if (nearProfile(t, profiles) && (AUTHORIZE.test(t) || AFFIRM_START.test(t))) return 'authorize';
-  if (CONFIRM.test(t) && !NEGATION.test(t)) return 'confirm';
+  if (CONFIRM.test(t) && !NEGATION.test(t) && !NEGATED_CONFIRM.test(t)) return 'confirm';
   return 'none';
 }
 
@@ -72,6 +76,10 @@ export function humanPrompts(transcriptPath) {
     let e;
     try { e = JSON.parse(line); } catch { continue; }
     if (e?.type !== 'user' || e.isMeta || e.isSidechain) continue;
+    // A compaction summary is model-written, not typed by the human; entries carrying tool
+    // metadata are tool output/ids, not a typed prompt either.
+    if (e.isCompactSummary === true) continue;
+    if (e.toolUseResult !== undefined || e.sourceToolUseID !== undefined || e.toolUseID !== undefined) continue;
     if (e.origin && e.origin.kind !== 'human') continue;
     const text = textOf(e.message?.content);
     if (!text || text.trimStart().startsWith('<')) continue;
