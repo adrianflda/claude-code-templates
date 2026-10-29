@@ -49944,8 +49944,8 @@
       "language": "javascript-typescript",
       "description": "Angular-App with Javascript-Typescript",
       "files": [
-        ".claude/commands/components.md",
-        ".claude/commands/services.md"
+        ".claude/commands/services.md",
+        ".claude/commands/components.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=angular-app --yes",
       "downloads": 0
@@ -49958,11 +49958,11 @@
       "category": "languages",
       "description": "Common project template",
       "files": [
-        ".claude/commands/git-workflow.md",
-        ".claude/commands/project-setup.md",
         ".mcp.json",
         "README.md",
-        "CLAUDE.md"
+        "CLAUDE.md",
+        ".claude/commands/project-setup.md",
+        ".claude/commands/git-workflow.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=common --yes",
       "downloads": 0
@@ -49976,10 +49976,10 @@
       "language": "python",
       "description": "Django-App with Python",
       "files": [
-        ".claude/commands/django-model.md",
-        ".claude/commands/admin.md",
+        "CLAUDE.md",
         ".claude/commands/views.md",
-        "CLAUDE.md"
+        ".claude/commands/admin.md",
+        ".claude/commands/django-model.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=django-app --yes",
       "downloads": 0
@@ -49993,12 +49993,12 @@
       "language": "python",
       "description": "Fastapi-App with Python",
       "files": [
+        "CLAUDE.md",
         ".claude/commands/database.md",
-        ".claude/commands/auth.md",
         ".claude/commands/api-endpoints.md",
-        ".claude/commands/deployment.md",
         ".claude/commands/testing.md",
-        "CLAUDE.md"
+        ".claude/commands/deployment.md",
+        ".claude/commands/auth.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=fastapi-app --yes",
       "downloads": 0
@@ -50012,13 +50012,13 @@
       "language": "python",
       "description": "Flask-App with Python",
       "files": [
+        "CLAUDE.md",
         ".claude/commands/database.md",
         ".claude/commands/app-factory.md",
+        ".claude/commands/testing.md",
         ".claude/commands/flask-route.md",
         ".claude/commands/deployment.md",
-        ".claude/commands/testing.md",
-        ".claude/commands/blueprint.md",
-        "CLAUDE.md"
+        ".claude/commands/blueprint.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=flask-app --yes",
       "downloads": 0
@@ -50045,17 +50045,17 @@
       "category": "languages",
       "description": "Javascript-Typescript project template",
       "files": [
-        ".claude/settings.json",
-        ".claude/commands/refactor.md",
-        ".claude/commands/typescript-migrate.md",
-        ".claude/commands/api-endpoint.md",
-        ".claude/commands/test.md",
-        ".claude/commands/lint.md",
-        ".claude/commands/debug.md",
-        ".claude/commands/npm-scripts.md",
         ".mcp.json",
         "README.md",
-        "CLAUDE.md"
+        "CLAUDE.md",
+        ".claude/settings.json",
+        ".claude/commands/npm-scripts.md",
+        ".claude/commands/debug.md",
+        ".claude/commands/typescript-migrate.md",
+        ".claude/commands/api-endpoint.md",
+        ".claude/commands/lint.md",
+        ".claude/commands/refactor.md",
+        ".claude/commands/test.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=javascript-typescript --yes",
       "downloads": 0
@@ -50069,11 +50069,11 @@
       "language": "javascript-typescript",
       "description": "Node-Api with Javascript-Typescript",
       "files": [
+        "CLAUDE.md",
         ".claude/commands/database.md",
-        ".claude/commands/api-endpoint.md",
-        ".claude/commands/route.md",
         ".claude/commands/middleware.md",
-        "CLAUDE.md"
+        ".claude/commands/api-endpoint.md",
+        ".claude/commands/route.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=node-api --yes",
       "downloads": 0
@@ -50086,11 +50086,11 @@
       "category": "languages",
       "description": "Python project template",
       "files": [
-        ".claude/settings.json",
-        ".claude/commands/test.md",
-        ".claude/commands/lint.md",
         ".mcp.json",
-        "CLAUDE.md"
+        "CLAUDE.md",
+        ".claude/settings.json",
+        ".claude/commands/lint.md",
+        ".claude/commands/test.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=python --yes",
       "downloads": 0
@@ -50104,8 +50104,8 @@
       "language": "ruby",
       "description": "Rails-App with Ruby",
       "files": [
-        ".claude/commands/authentication.md",
-        "CLAUDE.md"
+        "CLAUDE.md",
+        ".claude/commands/authentication.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=rails-app --yes",
       "downloads": 0
@@ -50119,10 +50119,10 @@
       "language": "javascript-typescript",
       "description": "React-App with Javascript-Typescript",
       "files": [
+        "CLAUDE.md",
         ".claude/commands/hooks.md",
         ".claude/commands/state-management.md",
-        ".claude/commands/component.md",
-        "CLAUDE.md"
+        ".claude/commands/component.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=react-app --yes",
       "downloads": 0
@@ -50135,11 +50135,11 @@
       "category": "languages",
       "description": "Ruby project template",
       "files": [
+        ".mcp.json",
+        "CLAUDE.md",
         ".claude/settings.json",
         ".claude/commands/model.md",
-        ".claude/commands/test.md",
-        ".mcp.json",
-        "CLAUDE.md"
+        ".claude/commands/test.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=ruby --yes",
       "downloads": 0
@@ -50167,8 +50167,8 @@
       "language": "javascript-typescript",
       "description": "Vue-App with Javascript-Typescript",
       "files": [
-        ".claude/commands/components.md",
-        ".claude/commands/composables.md"
+        ".claude/commands/composables.md",
+        ".claude/commands/components.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=vue-app --yes",
       "downloads": 0
@@ -50176,11 +50176,34 @@
   ],
   "plugins": [
     {
+      "name": "org-workspace",
+      "id": "org-workspace",
+      "type": "plugin",
+      "description": "A light global guide for an org folder of many repos: /org-init maps who calls whom and writes a short managed block into the root CLAUDE.md saying where the truth of each thing lives; /org-learn updates it from a conversation.",
+      "version": "0.2.0",
+      "keywords": [
+        "claude-md",
+        "multi-repo",
+        "org",
+        "system-map",
+        "integrations"
+      ],
+      "author": "",
+      "commands": 0,
+      "agents": 0,
+      "mcpServers": 0,
+      "commandsList": [],
+      "agentsList": [],
+      "mcpServersList": [],
+      "installCommand": "/plugin install org-workspace@claude-code-templates",
+      "downloads": 0
+    },
+    {
       "name": "pre-push-review",
       "id": "pre-push-review",
       "type": "plugin",
       "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-      "version": "1.3.0",
+      "version": "1.7.0",
       "keywords": [
         "code-review",
         "pre-push",
@@ -50204,8 +50227,8 @@
       "name": "quality-kernel",
       "id": "quality-kernel",
       "type": "plugin",
-      "description": "A quality-assurance kernel for agentic development: a six-agent SwarmForge-style engine (specifier -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-      "version": "0.6.0",
+      "description": "A quality-assurance kernel for agentic development: a seven-agent SwarmForge-style engine (specifier -> designer -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
+      "version": "0.12.0",
       "keywords": [
         "quality-gate",
         "multi-agent",
@@ -50268,7 +50291,7 @@
         "name": "pre-push-review",
         "source": "./plugins/pre-push-review",
         "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-        "version": "1.3.0",
+        "version": "1.7.0",
         "category": "quality-gates",
         "keywords": [
           "code-review",
@@ -50283,8 +50306,8 @@
       {
         "name": "quality-kernel",
         "source": "./plugins/quality-kernel",
-        "description": "A quality-assurance kernel for agentic development: a six-agent SwarmForge-style engine (specifier -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-        "version": "0.6.0",
+        "description": "A quality-assurance kernel for agentic development: a seven-agent SwarmForge-style engine (specifier -> designer -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
+        "version": "0.12.0",
         "category": "quality-gates",
         "keywords": [
           "quality-gate",
@@ -50295,6 +50318,20 @@
           "verification",
           "swarmforge",
           "agents"
+        ]
+      },
+      {
+        "name": "org-workspace",
+        "source": "./plugins/org-workspace",
+        "description": "A light global guide for an org folder of many repos: /org-init maps who calls whom and writes a short managed block into the root CLAUDE.md saying where the truth of each thing lives; /org-learn updates it from a conversation.",
+        "version": "0.2.0",
+        "category": "productivity",
+        "keywords": [
+          "claude-md",
+          "multi-repo",
+          "org",
+          "system-map",
+          "integrations"
         ]
       },
       {
