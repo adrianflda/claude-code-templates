@@ -270,6 +270,9 @@ test('Claude cannot forge a prompt by writing to a transcript', () => {
     `echo x >& ${s.path}`,
     `eval "eval \\"eval 'eval \\\\\\"echo x >> ${s.path}\\\\\\"'\\""`,
     `echo "${s.path} > /tmp/x`, // unbalanced quote: the broad fallback still blocks
+    'cp -t ~/.claude/projects/p forged.jsonl',
+    'cp --target-directory=~/.claude/projects/p forged.jsonl',
+    'ln -s -t ~/.claude/projects/p /tmp/forged.jsonl',
     `echo "echo x >> ${s.path}" | bash`, // a shell reading its script on stdin
     `echo "open('${s.path}', 'a').write('x')" | python3`,
   ]) {

@@ -77,6 +77,7 @@ const SHELLS = new Set(['bash', 'sh', 'zsh']);
 const ANY_OPERAND = new Set(['tee', 'mv', 'rm', 'truncate', 'shred', 'unlink']);
 // Only the last operand of these is written (the others are read), unless -t names the target.
 const LAST_OPERAND = new Set(['cp', 'ln', 'rsync', 'install']);
+const JUDGED_ABOVE = new Set(['dd', 'sed', 'perl', 'find', 'awk', 'gawk', 'nawk', 'mawk']);
 const MAX_DEPTH = 3; // nested bash -c / eval / heredoc levels read; deeper is treated as a write
 // Programs that only read the files they are given. Any other program handed a transcript-like
 // argument is treated as writing it (fail-closed): editors, archivers, `sort -o`, unknown tools.
@@ -169,9 +170,10 @@ function writesIn(command, transcriptPath, depth) {
       if (operands.length > 1 && hit(operands[1])) return true;
       continue;
     }
-    const handled = SHELLS.has(name) || ANY_OPERAND.has(name) || LAST_OPERAND.has(name) || READERS.has(name) ||
-      ['eval', 'dd', 'sed', 'perl', 'find', 'awk', 'gawk', 'nawk', 'mawk'].includes(name);
-    if (!handled && words.some(hit)) return true; // incl. a program name that is itself a variable
+    // Shells, eval, interpreters, sort and uniq returned or continued above; these were judged above
+    // without continuing. Anything else handed a transcript-like word is treated as writing it.
+    const judged = READERS.has(name) || ANY_OPERAND.has(name) || LAST_OPERAND.has(name) || JUDGED_ABOVE.has(name);
+    if (!judged && words.some(hit)) return true; // incl. a program name that is itself a variable
   }
   return false;
 }
