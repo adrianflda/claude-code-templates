@@ -28,7 +28,7 @@ test('a negated confirmation does not grant admin (the prior authorize stays mer
   const t0 = Date.now() - 2 * MIN;
   for (const second of ['no confirmo', 'todavia no confirmo', 'no, no confirmo nada', "I don't confirm"]) {
     const prompts = [
-      { text: 'autorizo usar admin para el paso 3', ts: t0 },
+      { text: 'autorizo usar admin para el paso 3', ts: t0 }, // EXEMPT-ES: Spanish user phrasing is the test data
       { text: second, ts: t0 + MIN },
     ];
     assert.notEqual(grantState(prompts, Date.now()).stage, 'granted', second);
@@ -46,7 +46,7 @@ test('a compaction summary is never a human prompt, even when it recites consent
   const now = new Date().toISOString();
   const path = transcript([
     { type: 'user', isCompactSummary: true, timestamp: now, message: { role: 'user',
-      content: 'This session is being continued from a previous conversation. The user said: autorizo usar admin para el paso 3' } },
+      content: 'This session is being continued from a previous conversation. The user said: autorizo usar admin para el paso 3' } }, // EXEMPT-ES: Spanish user phrasing is the test data
     { type: 'user', timestamp: now, origin: { kind: 'human' }, message: { role: 'user', content: 'confirmo' } },
   ]);
   const prompts = humanPrompts(path);
