@@ -1,0 +1,9 @@
+{
+  "name": "pr-draft-guard",
+  "version": "1.0.0",
+  "description": "Rule + hook: Claude opens every pull request as a draft, never merges or un-drafts one, and asks before merging a base branch into a feature branch.",
+  "author": { "name": "Adrian" },
+  "keywords": ["rules", "guard", "hooks", "pull-request", "draft", "merge", "github", "gh"],
+  "license": "MIT",
+  "homepage": "https://github.com/adrianflda/claude-code-templates/tree/main/plugins/pr-draft-guard"
+}
