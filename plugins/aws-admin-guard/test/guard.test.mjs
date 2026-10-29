@@ -257,6 +257,21 @@ test('Claude cannot forge a prompt by writing to a transcript', () => {
     `uniq forged ${s.path}`,
     'tar -xf forged.tgz -C ~/.claude/projects/p',
     `python3 -c "open('"$(ls ~/.claude/projects/p/*.jsonl)"','w')"`,
+    // bypasses the pre-push panel found in the first version (2026-10-28)
+    `bash -xc "echo x >> ${s.path}"`,
+    `sh -ec 'cp forged ${s.path}'`,
+    `python3 evil.py ${s.path}`,
+    `node tool.mjs --out ${s.path}`,
+    `bash fix.sh ${s.path}`,
+    `sudo -n tee ${s.path} < forged`,
+    `sudo -s tee ${s.path} < forged`,
+    `sudo -u root tee ${s.path} < forged`,
+    `xargs -n 1 -I {} cp {} ${s.path} < list`,
+    `echo x >& ${s.path}`,
+    `eval "eval \\"eval 'eval \\\\\\"echo x >> ${s.path}\\\\\\"'\\""`,
+    `echo "${s.path} > /tmp/x`, // unbalanced quote: the broad fallback still blocks
+    `echo "echo x >> ${s.path}" | bash`, // a shell reading its script on stdin
+    `echo "open('${s.path}', 'a').write('x')" | python3`,
   ]) {
     assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
   }
@@ -287,6 +302,9 @@ test('reading transcripts, even with > or >= elsewhere in the command, is not a 
     `sort ${s.path} | uniq -c | head`,
     `stat -f %z ${s.path}; head -c 200 ${s.path}; tail -n 3 ${s.path}`,
     `awk -F'"' '$4 > 3 {n++} END {print n}' ${s.path}`,
+    `python3 parse.py < ${s.path}`, // a script reading the transcript on stdin
+    `grep -h '"human"' ${s.path} | python3 -I count.py`,
+    `ls 2>&1 >/tmp/out; cat ${s.path} >&2`,
   ]) {
     assert.equal(bash(s, c).code, 0, `expected PASS: ${c}`);
   }

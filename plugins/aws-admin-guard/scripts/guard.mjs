@@ -17,7 +17,7 @@
  * not a determined adversary.
  */
 import { config, esc, grantState, humanPrompts } from './consent-core.mjs';
-import { basename, simpleCommands, unwrap } from './shell-words.mjs';
+import { basename, ShellParseError, simpleCommands, unwrap } from './shell-words.mjs';
 
 function readStdin() {
   // Read until EOF, bounded three ways: size (8 MB), idle time (5 s) and total time (15 s).
@@ -53,8 +53,10 @@ function selectsProfile(command, profiles) {
     new RegExp(`(--[\\w-]*profile(?:=|\\s+)|\\b[A-Za-z_]*profile\\s*=\\s*)\\\\?["']?${esc(p)}(?![\\w-])`, 'i').test(command));
 }
 
-// The broad check, kept for commands the shell reader cannot read (unbalanced quotes): any write
-// intent anywhere in a command that mentions a transcript blocks it.
+// The broad check, for what cannot be read word by word (unbalanced quotes, a script fed on stdin):
+// any write intent anywhere in a command that mentions a transcript blocks it. It scans shell text;
+// WRITE_CODE below scans program code. They overlap on purpose and are kept separate because the
+// same word means different things in each (">" is a redirect in one and a comparison in the other).
 const WRITE_INTENT = /(^|[^0-9])&?>>?\s*(?!\/dev\/null|&)|\btee\b|\bsed\s+-[a-z]*i|\bperl\s+-[a-z]*i|open\([^)]*['"][wa+x]|write(File|Sync)?\b|append|truncate|\b(mv|cp|rm|dd|ln)\b/;
 // Code an interpreter runs (python -c, node -e, a heredoc fed to python) that writes, moves or deletes files.
 const WRITE_CODE = new RegExp([
@@ -71,8 +73,11 @@ const AWK_WRITE = /(print|printf)[^;}]*(>|\|)/;
 const SPAWNS = /os\.system|subprocess|popen|child_process|exec(Sync|File)?\(|spawn|`|\bsystem\(/;
 const INTERPRETERS = /^(python[\d.]*|node|perl|ruby|deno|bun)$/;
 const SHELLS = new Set(['bash', 'sh', 'zsh']);
+// Any operand of these can be the file overwritten, moved or removed.
 const ANY_OPERAND = new Set(['tee', 'mv', 'rm', 'truncate', 'shred', 'unlink']);
+// Only the last operand of these is written (the others are read), unless -t names the target.
 const LAST_OPERAND = new Set(['cp', 'ln', 'rsync', 'install']);
+const MAX_DEPTH = 3; // nested bash -c / eval / heredoc levels read; deeper is treated as a write
 // Programs that only read the files they are given. Any other program handed a transcript-like
 // argument is treated as writing it (fail-closed): editors, archivers, `sort -o`, unknown tools.
 const READERS = new Set(['cat', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'jq', 'yq',
@@ -94,8 +99,10 @@ function writesTranscript(command, transcriptPath) {
   if (!mentions) return false;
   try {
     return writesIn(command, transcriptPath, 0);
-  } catch {
-    return WRITE_INTENT.test(command);
+  } catch (e) {
+    if (e instanceof ShellParseError) return WRITE_INTENT.test(command);
+    process.stderr.write(`[aws-admin-guard] shell reader error (${e?.message || e}); treating the command as a write.\n`);
+    return true;
   }
 }
 
@@ -114,13 +121,24 @@ function writesIn(command, transcriptPath, depth) {
     const name = basename(words[0].text);
     const args = words.slice(1);
     const operands = args.filter((w) => !w.text.startsWith('-'));
-    if (name === 'eval' && depth < 3 && writesIn(args.map((w) => w.text).join(' '), transcriptPath, depth + 1)) {
-      return true;
+    // Code run by a nested shell: read it too, up to MAX_DEPTH; deeper than that counts as a write.
+    const nested = (script) => depth + 1 >= MAX_DEPTH || writesIn(script, transcriptPath, depth + 1);
+    if (name === 'eval') {
+      if (nested(args.map((w) => w.text).join(' '))) return true;
+      continue;
     }
     if (SHELLS.has(name)) {
-      const c = args.findIndex((w) => w.text === '-c');
-      if (c >= 0 && args[c + 1] && depth < 3 && writesIn(args[c + 1].text, transcriptPath, depth + 1)) return true;
-      if (cmd.heredoc && depth < 3 && writesIn(cmd.heredoc, transcriptPath, depth + 1)) return true;
+      const c = args.findIndex((w) => /^-[a-zA-Z]*c$/.test(w.text)); // -c, -xc, -ec ...
+      if (c >= 0) {
+        if (nested(args[c + 1]?.text ?? '')) return true;
+      } else if (cmd.heredoc !== null) {
+        if (nested(cmd.heredoc)) return true;
+      } else if (operands.length) {
+        if (args.some(hit)) return true; // a script file handed a transcript: unknown, so a write
+      } else if (WRITE_INTENT.test(command)) {
+        return true; // the script arrives on stdin (`... | bash`): judge the whole command broadly
+      }
+      continue;
     }
     if (ANY_OPERAND.has(name) && operands.some(hit)) return true;
     const targetDir = args.some((w) => /^(-t|--target-directory)/.test(w.text));
@@ -137,7 +155,11 @@ function writesIn(command, transcriptPath, depth) {
       args.forEach((w, i) => { if (/^-[a-z]*[cep]$|^--eval$/.test(w.text) && args[i + 1]) code.push(args[i + 1].text); });
       if (cmd.heredoc) code.push(cmd.heredoc);
       if (code.some((c) => WRITE_CODE.test(c) || (SPAWNS.test(c) && WRITE_INTENT.test(c)))) return true;
-      continue; // a script file or read-only code: what it reads is its business
+      if (!code.length && operands.length && args.some(hit)) return true; // a script file handed a transcript
+      if (!code.length && !operands.length && (WRITE_CODE.test(command) || WRITE_INTENT.test(command))) {
+        return true; // code arrives on stdin (`echo ... | python3`): judge the whole command broadly
+      }
+      continue; // read-only inline code, or a script that is not handed a transcript
     }
     if (name === 'sort') {
       if (args.some((w) => /^(-o|--output)/.test(w.text)) && args.some(hit)) return true;
@@ -149,7 +171,7 @@ function writesIn(command, transcriptPath, depth) {
     }
     const handled = SHELLS.has(name) || ANY_OPERAND.has(name) || LAST_OPERAND.has(name) || READERS.has(name) ||
       ['eval', 'dd', 'sed', 'perl', 'find', 'awk', 'gawk', 'nawk', 'mawk'].includes(name);
-    if (!handled && args.some(hit)) return true;
+    if (!handled && words.some(hit)) return true; // incl. a program name that is itself a variable
   }
   return false;
 }
