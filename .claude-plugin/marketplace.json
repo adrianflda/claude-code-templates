@@ -42,8 +42,8 @@
     {
       "name": "usage-guard",
       "source": "./plugins/usage-guard",
-      "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace.",
-      "version": "0.1.0",
+      "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace. Hooks cap context per call (main and subagents) and subagent spawns per session.",
+      "version": "0.2.0",
       "category": "productivity",
       "keywords": ["usage", "tokens", "rate-limit", "statusline", "cost", "subagents", "context-window"]
     }

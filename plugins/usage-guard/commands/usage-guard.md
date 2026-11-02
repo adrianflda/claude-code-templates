@@ -27,4 +27,6 @@ Subcommand from `$ARGUMENTS` (default: `report`):
   To install the chosen style, set `statusLine.command` in `~/.claude/settings.json` to
   `python3 <plugin root>/scripts/statusline.py --style <name>`.
 
+- `hooks` → explain the three hooks the plugin installs (context watchdog, spawn budget, subagent note) and the `USAGE_GUARD_*` knobs from `${CLAUDE_PLUGIN_ROOT}/README.md`, then show the current ledger for this session if `$CLAUDE_SCRATCHPAD_DIR/usage-guard/` exists.
+
 Then stop. Only `setup --apply` edits files, and only after the user agrees.

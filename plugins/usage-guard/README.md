@@ -8,7 +8,7 @@ Subagents, workflow agents and `claude -p` runs all draw on the same 5-hour and
 tells you which of them is draining the plan, or stops a session whose context has
 grown to 800k tokens. This plugin does the measuring first and the stopping next.
 
-## What ships today (phase 1)
+## What ships today (phases 1 and 2)
 
 | Tool | What it does |
 |---|---|
@@ -16,6 +16,9 @@ grown to 800k tokens. This plugin does the measuring first and the stopping next
 | `scripts/doctor.py` | Read-only lint of `settings.json`, enabled plugins, agents, skills, CLAUDE.md and claude-mem. One PASS / WARN / INFO line per check with the fix |
 | `scripts/statusline.py` | Status line with context %, 5-hour and 7-day limits, reset countdown and burn pace. Four styles |
 | `scripts/apply.py` | Phase 0 baseline applier: dry run by default, `--apply` writes with backups, idempotent |
+| `hooks/context_watchdog.py` | `PreToolUse` + `UserPromptSubmit`: warns from 250k context, denies tools and blocks prompts from 400k (subagents: 150k / 300k, so they return their report instead of looping) |
+| `hooks/spawn_budget.py` | `PreToolUse` on `Agent`: per-session spawn budget, default 8 |
+| `hooks/subagent_note.py` | `SubagentStart`: budget note injected into every subagent |
 | `/usage-guard` | `report [days]`, `doctor`, `setup`, `statusline` |
 | `skills/usage-guard` | Runbook another agent follows to replicate the setup on a new machine |
 | `docs/` | `RESEARCH.md` (limits, levers, method, measurements, community tools) and `PLAN.md` (phases 0-4) |
@@ -61,11 +64,18 @@ claude plugin install usage-guard@adrianflda-claude-code-templates
 Then `/usage-guard report`, `/usage-guard doctor`, `/usage-guard setup`. The skill
 loads automatically when the user talks about running out of limits.
 
+### Hook knobs
+
+All optional, set in the `env` block of `settings.json` or the shell:
+`USAGE_GUARD_CTX_WARN` (250000), `USAGE_GUARD_CTX_BLOCK` (400000),
+`USAGE_GUARD_SUBAGENT_CTX_WARN` (150000), `USAGE_GUARD_SUBAGENT_CTX_BLOCK`
+(300000), `USAGE_GUARD_SPAWN_BUDGET` (8, `0` = unlimited),
+`USAGE_GUARD_PROMPT_BLOCK` (`1`; `0` only warns), `USAGE_GUARD_DISABLE=1` (all
+hooks become no-ops). Slash commands such as `/compact` are never blocked.
+Hooks exit 0 on any error and time out at 5 s, so they cannot stall a session.
+
 ## Roadmap
 
-- Phase 2: hooks. Context watchdog on `UserPromptSubmit` and `PreToolUse` (warn at
-  250k, block at 400k), the same watchdog inside subagents, a per-session subagent
-  spawn budget, and a `SubagentStart` budget note.
 - Phase 3: `prompt-audit`: which skills and agents were actually invoked in the last
   30 days, with a suggested `skillOverrides` block.
 - Phase 4: claude-mem pause/resume and provider switch.

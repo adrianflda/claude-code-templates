@@ -20,18 +20,21 @@ Left alone on purpose: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` (user decision),
 
 `report.py`, `doctor.py`, `statusline.py`, `/usage-guard` command, tests.
 
-## Phase 2: enforce (next)
+## Phase 2: enforce (done, `hooks/hooks.json`)
 
-- `hooks/context-watchdog.py` on `UserPromptSubmit` and `PreToolUse`: read
-  `transcript_path`, compute the last call's context, warn at 250k, block at 400k
-  with a message that tells the model to `/compact` or finish.
-- Same hook in subagents, once the open question about `PreToolUse` inside
-  subagents is answered by experiment (write a one-line hook that logs its input).
-- Subagent spawn budget per session: count `Agent` tool calls in the transcript,
-  block above N (default 8), configurable through `USAGE_GUARD_SPAWN_BUDGET`.
-- `SubagentStart` hook: inject a short budget note through `additionalContext`.
+| Hook | Event | Behaviour |
+|---|---|---|
+| `context_watchdog.py` | `PreToolUse` (all tools), `UserPromptSubmit` | Reads the last assistant usage from the tail of the right transcript. Main: warn once per 50k step from 250k, deny tools and block prompts from 400k. Subagent: warn from 150k, deny tools from 300k so it returns its report. Slash commands are never blocked |
+| `spawn_budget.py` | `PreToolUse` matcher `Agent` | Per-session ledger in the scratchpad dir; deny past `USAGE_GUARD_SPAWN_BUDGET` (default 8, 0 = unlimited); reminder on the last two |
+| `subagent_note.py` | `SubagentStart` | Injects the budget and reading rules as `additionalContext` |
 
-## Phase 3: prompt audit (later)
+Knobs (env): `USAGE_GUARD_CTX_WARN`, `USAGE_GUARD_CTX_BLOCK`,
+`USAGE_GUARD_SUBAGENT_CTX_WARN`, `USAGE_GUARD_SUBAGENT_CTX_BLOCK`,
+`USAGE_GUARD_SPAWN_BUDGET`, `USAGE_GUARD_PROMPT_BLOCK`, `USAGE_GUARD_DISABLE=1`.
+Hooks never exit non-zero and time out at 5 s; the watchdog costs about 70 ms on
+a 2.5 MB transcript because it reads only the tail.
+
+## Phase 3: prompt audit (next)
 
 `prompt-audit.py`: which skills and agents were invoked in the last 30 days
 (from `Skill` and `Agent` tool calls in transcripts) versus which are loaded, with

@@ -78,8 +78,27 @@ all of them, the 7-day window in few.
 - Never touch git config or hooks from the plugin: another plugin on the
   reference machine guards `hook.ai-review.*` and `core.hooksPath`.
 
-## 7. Open questions for phase 2
+## 7. Questions answered by experiment (2026-11-02, Claude Code 2.1.x)
 
-- Does `PreToolUse` fire inside subagents with the subagent's `transcript_path`?
+A headless run (`claude -p --model haiku --settings <file>`) with a logging hook
+on `UserPromptSubmit`, `PreToolUse` and `SubagentStart` showed:
+
+- `PreToolUse` fires inside the subagent, with `agent_id` and `agent_type`
+  (`Explore`). Settings and plugin hooks apply there, as the docs say.
+- `transcript_path` inside the subagent is the parent session's file. The
+  subagent's own transcript is
+  `<same dir>/<session_id>/subagents/agent-<agent_id>.jsonl`, with a
+  `.meta.json` beside it. The hooks resolve it from `session_id` + `agent_id`.
+- `CLAUDE_CODE_SUBAGENT_MODEL` + `_FORCE=1` from `settings.json` won over both
+  the `--model haiku` main session and the Explore built-in: the subagent ran
+  on Sonnet, as configured. The settings `env` block also won over the same
+  variable set to `haiku` in the shell environment.
+- Cost of the experiment: one haiku turn plus one Sonnet subagent turn.
+
+Still open:
+
 - Do `rate_limits` arrive in the status line JSON on every plan and version?
-- When a hook blocks a tool inside a subagent, does the subagent wrap up or loop?
+  The status line prints `--%` when they are missing.
+- Whether a subagent denied every tool returns its report at once or retries
+  first. The deny reason tells it to stop; verify on the first real hit by
+  reading the subagent transcript.
