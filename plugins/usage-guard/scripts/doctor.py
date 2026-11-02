@@ -145,7 +145,7 @@ def run(cwd, rep):
     for _, d in plugin_dirs:
         skill_files += glob.glob(os.path.join(d, "skills", "*", "SKILL.md"))
     overrides = settings.get("skillOverrides") or {}
-    off = sum(1 for v in overrides.values() if v == "off")
+    off = sum(1 for v in overrides.values() if v in ("off", "user-invocable-only"))
     desc_chars = 0
     for p in agent_files + skill_files:
         try:
@@ -157,7 +157,7 @@ def run(cwd, rep):
             pass
     est = desc_chars // 4
     status = "WARN" if est > 6000 else "INFO"
-    rep.add(status, "prompt-load", f"{len(agent_files)} agents + {len(skill_files)} skills ({off} turned off) ≈ {est:,} tokens of descriptions on every request and every subagent",
+    rep.add(status, "prompt-load", f"{len(agent_files)} agents + {len(skill_files)} skills ({off} hidden by skillOverrides) ≈ {est:,} tokens of descriptions on every request and every subagent",
             "run scripts/prompt_audit.py for the unused ones and a skillOverrides block")
 
     # 8. CLAUDE.md sizes on the cwd chain
