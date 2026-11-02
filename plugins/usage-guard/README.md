@@ -1,0 +1,79 @@
+# usage-guard
+
+Keeps a Claude Code subscription inside its weekly limit.
+
+Subagents, workflow agents and `claude -p` runs all draw on the same 5-hour and
+7-day windows as the main conversation ([costs](https://code.claude.com/docs/en/costs),
+[sub-agents](https://code.claude.com/docs/en/sub-agents)). Nothing in Claude Code
+tells you which of them is draining the plan, or stops a session whose context has
+grown to 800k tokens. This plugin does the measuring first and the stopping next.
+
+## What ships today (phase 1)
+
+| Tool | What it does |
+|---|---|
+| `scripts/report.py` | Price-weighted attribution from `~/.claude/projects/**/*.jsonl`: by kind (main / subagent / claude-mem observer), model, day, session and subagent name, plus context-per-call percentiles |
+| `scripts/doctor.py` | Read-only lint of `settings.json`, enabled plugins, agents, skills, CLAUDE.md and claude-mem. One PASS / WARN / INFO line per check with the fix |
+| `scripts/statusline.py` | Status line with context %, 5-hour and 7-day limits, reset countdown and burn pace. Four styles |
+| `scripts/apply.py` | Phase 0 baseline applier: dry run by default, `--apply` writes with backups, idempotent |
+| `/usage-guard` | `report [days]`, `doctor`, `setup`, `statusline` |
+| `skills/usage-guard` | Runbook another agent follows to replicate the setup on a new machine |
+| `docs/` | `RESEARCH.md` (limits, levers, method, measurements, community tools) and `PLAN.md` (phases 0-4) |
+
+### Weights
+
+`report.py` ranks consumers by the relative API list price of each token class
+(input 1.0, cache write 1.25, cache read 0.10, output 5.0). It is not a bill. It
+is the order in which things drain the plan.
+
+### Status line
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "python3 /path/to/plugins/usage-guard/scripts/statusline.py --style minimal"
+}
+```
+
+Styles: `minimal` (plain text, any font), `bar` (block progress bars), `powerline`
+(Nerd Font glyphs, colored segments), `multiline` (identity on line 1, budgets on
+line 2). `--preview` renders all four with sample data. `USAGE_GUARD_STATUSLINE_STYLE`
+sets the default.
+
+`pace` is `used / expected-if-linear` for the 7-day window: `1.0x` is on track,
+`1.6x` means the week runs out on Thursday. The fields come from the
+[status line JSON](https://code.claude.com/docs/en/statusline) (`rate_limits.seven_day`).
+
+### Doctor checks
+
+effort level, auto-compact window, subagent model and force flag, agent teams,
+`ANTHROPIC_API_KEY` presence, agent definitions pinning Opus/Fable, estimated
+prompt load of agent + skill descriptions, CLAUDE.md files over 200 lines on the
+cwd chain, claude-mem provider and model, status line showing the weekly limit.
+
+## Replicate on another machine
+
+```bash
+claude plugin marketplace add adrianflda/claude-code-templates
+claude plugin install usage-guard@adrianflda-claude-code-templates
+```
+
+Then `/usage-guard report`, `/usage-guard doctor`, `/usage-guard setup`. The skill
+loads automatically when the user talks about running out of limits.
+
+## Roadmap
+
+- Phase 2: hooks. Context watchdog on `UserPromptSubmit` and `PreToolUse` (warn at
+  250k, block at 400k), the same watchdog inside subagents, a per-session subagent
+  spawn budget, and a `SubagentStart` budget note.
+- Phase 3: `prompt-audit`: which skills and agents were actually invoked in the last
+  30 days, with a suggested `skillOverrides` block.
+- Phase 4: claude-mem pause/resume and provider switch.
+
+## Tests
+
+```bash
+python3 -I -m unittest discover -s plugins/usage-guard/test -v
+```
+
+Requires Python 3.9+. No dependencies, no network, no subprocesses.
