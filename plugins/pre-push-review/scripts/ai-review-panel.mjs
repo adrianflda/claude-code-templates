@@ -35,6 +35,9 @@
  *   AI_REVIEW_PUSH_REF    the ref being pushed (refs/heads/<branch>), set by the git runner; names
  *                         the branch whose PR carries the ticket
  *   AI_REVIEW_ROLES       comma-separated role keys to run (default: all); for replays and tests
+ *   AI_REVIEW_QUICK_LINES a push with at most this many changed lines gets the quick panel
+ *                         (security, correctness, reliability, ticket) instead of all roles
+ *                         (default: 60; 0 = always the whole panel)
  *   AI_REVIEW_VERIFY      0 = do not run the verifier over the findings (default: 1)
  *   AI_REVIEW_VERIFIER_MODEL  model for the verifier (default: AI_REVIEW_MODEL)
  *   AI_REVIEW_MAX_FILE_BYTES  a file's diff larger than this is sent as its header only (default: 100000)
@@ -78,7 +81,7 @@ import { resolve } from 'path';
 import { homedir } from 'os';
 import { packDiff, MAX_DIFF_LINES, MAX_DIFF_BYTES, MAX_FILE_BYTES, MAX_LINE_CHARS } from './diff-budget.mjs';
 import { addUsage, emptyCounts, recordRun, usageOf } from './run-log.mjs';
-import { ROLES } from './roles.mjs';
+import { QUICK_ROLES, ROLES } from './roles.mjs';
 import { BATCH_SIZE, VERIFIER_ROLE, VERIFIER_TOOLS, applyVerdicts, batches, buildVerifierPrompt, isRefuted, repoFileChecker, selectClaims, verifierSettings } from './verify.mjs';
 
 // Lines alone do not bound the prompt: one regenerated catalog line can be megabytes, and a
@@ -97,6 +100,7 @@ const BLOCK_ON = (process.env.AI_REVIEW_BLOCK_ON || 'critical').toLowerCase();
 const REQUIRED = process.env.AI_REVIEW_REQUIRED === '1';
 const TRIGGER = process.env.AI_REVIEW_TRIGGER === 'pre-push' ? 'pre-push' : 'cli';
 const ROLE_FILTER = (process.env.AI_REVIEW_ROLES || '').split(',').map((s) => s.trim()).filter(Boolean);
+const QUICK_LINES = Math.max(0, Number(process.env.AI_REVIEW_QUICK_LINES ?? 60) || 0);
 const VERIFY = process.env.AI_REVIEW_VERIFY !== '0';
 const VERIFIER_MODEL = process.env.AI_REVIEW_VERIFIER_MODEL || MODEL;
 const startedAt = Date.now();
@@ -837,9 +841,24 @@ console.log(`[pre-push-review] ${ticket.status}`);
 if (ticket.text && ticketView !== pushView) {
   console.log(`[pre-push-review] "Fit to the ticket" covers ${ticketView.description} (${ticketView.lines} lines).`);
 }
-const roles = ROLES.filter((r) => (!r.needsTicket || ticket.text) && (!ROLE_FILTER.length || ROLE_FILTER.includes(r.key)));
+// Quick mode: a push of at most AI_REVIEW_QUICK_LINES changed lines (the diff's + and - lines,
+// file headers excluded; default 60) gets QUICK_ROLES instead of the whole panel. The verifier
+// and the blocking rules are the same. An explicit AI_REVIEW_ROLES wins; a cut diff never
+// qualifies; 0 turns it off.
+const changedLines = diff.split('\n').filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---) ([ab]\/|\/dev\/null)/.test(l)).length;
+const quick = !ROLE_FILTER.length && QUICK_LINES > 0 && !cut.partial && !cut.omitted.length && changedLines <= QUICK_LINES;
+const roles = ROLES.filter(
+  (r) => (!r.needsTicket || ticket.text) && (ROLE_FILTER.length ? ROLE_FILTER.includes(r.key) : !quick || QUICK_ROLES.includes(r.key)),
+);
+if (quick) {
+  console.log(
+    `[pre-push-review] Quick mode: ${changedLines} changed line(s), at most ${QUICK_LINES}: ${roles.map((r) => r.title).join(', ')} review it. AI_REVIEW_QUICK_LINES=0 runs the whole panel.`,
+  );
+}
 Object.assign(runRow, {
   diffLines,
+  changedLines,
+  quick,
   partial: Boolean(cut.omitted.length || cut.partial),
   ticket: ticket.text ? 'found' : 'none',
   ticketSource: ticket.source,

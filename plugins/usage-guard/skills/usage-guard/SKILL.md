@@ -1,6 +1,6 @@
 ---
 name: usage-guard
-description: Runbook to diagnose and cut Claude Code subscription burn on any machine (measure transcripts, lint config, apply the phase 0 baseline, pick a status line, audit the prompt load of skills and agents). Use when the user says the weekly limit runs out early, asks why Claude Code spends so many tokens, or wants the usage-guard setup replicated.
+description: Runbook to diagnose and cut Claude Code subscription burn on any machine (measure transcripts, lint config, apply the phase 0 baseline, pick a status line, audit the prompt load of skills and agents, pause or re-route the claude-mem observer). Use when the user says the weekly limit runs out early, asks why Claude Code spends so many tokens, or wants the usage-guard setup replicated.
 ---
 
 # usage-guard runbook
@@ -77,6 +77,36 @@ choose:
 
 The hooks (phase 2) need nothing from this step: they are active as soon as the
 plugin is enabled. Knobs are in `README.md`, section "Hook knobs".
+
+## 7. claude-mem observer (when the report shows it, or the limit is close)
+
+```bash
+python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/claude_mem.py" status
+```
+
+claude-mem summarizes every tool call with a model call of its own; with
+`provider: claude` and auth `cli` those calls run on the subscription's OAuth
+token (`status` shows the worker's auth). Two levers, both reversible and both
+backed up:
+
+- `pause` / `resume`: the hooks skip every project from the next tool call on,
+  in running sessions too. Memory search and the session-start context keep
+  working. Use it when the weekly window is close to its limit; `resume` later.
+- `provider gemini|openrouter [--model <name>]`: moves the observer off the
+  plan. The user must first paste the API key into
+  `~/.claude-mem/settings.json` (`CLAUDE_MEM_GEMINI_API_KEY` or
+  `CLAUDE_MEM_OPENROUTER_API_KEY`); the script refuses while it is empty and
+  never handles keys itself. `provider claude --model haiku` is the way back.
+
+Doctor reports `claude-mem: paused` while a pause is active.
+
+## 8. pre-push-review (if that plugin is installed)
+
+Nothing to configure: since 1.8.0 a push of at most 60 changed lines gets the
+quick panel (security, correctness, reliability, ticket) instead of all roles,
+and the design and readability reviewers are one. `node <plugin>/scripts/stats.mjs`
+shows how many runs were quick. `AI_REVIEW_QUICK_LINES=0` restores the whole
+panel on every push.
 
 ## Reference
 

@@ -189,7 +189,10 @@ def run(cwd, rep):
     if mem_on and mem:
         provider = mem.get("CLAUDE_MEM_PROVIDER", "claude")
         model = mem.get("CLAUDE_MEM_MODEL", "")
-        if provider == "claude" and "haiku" not in model:
+        excluded = [p.strip() for p in (mem.get("CLAUDE_MEM_EXCLUDED_PROJECTS") or "").split(",")]
+        if "**" in excluded:
+            rep.add("PASS", "claude-mem", "paused (CLAUDE_MEM_EXCLUDED_PROJECTS matches every project); scripts/claude_mem.py resume")
+        elif provider == "claude" and "haiku" not in model:
             rep.add("WARN", "claude-mem", f"provider={provider} model={model}: every tool call is summarized on your plan",
                     'set CLAUDE_MEM_MODEL to "haiku", move CLAUDE_MEM_PROVIDER off "claude", or disable the plugin')
         else:

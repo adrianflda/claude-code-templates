@@ -8,7 +8,7 @@ Subagents, workflow agents and `claude -p` runs all draw on the same 5-hour and
 tells you which of them is draining the plan, or stops a session whose context has
 grown to 800k tokens. This plugin does the measuring first and the stopping next.
 
-## What ships today (phases 1 to 3)
+## What ships today (phases 1 to 4)
 
 | Tool | What it does |
 |---|---|
@@ -17,10 +17,11 @@ grown to 800k tokens. This plugin does the measuring first and the stopping next
 | `scripts/statusline.py` | Status line with context %, 5-hour and 7-day limits, reset countdown and burn pace. Four styles |
 | `scripts/apply.py` | Phase 0 baseline applier: dry run by default, `--apply` writes with backups, idempotent |
 | `scripts/prompt_audit.py` | Prompt audit: every agent and skill loaded into the system prompt with its invocation count over the last 30 days (Skill tool, Agent tool, typed `/commands`), unused agent files, and a `skillOverrides` block; `--apply` merges it with a backup |
+| `scripts/claude_mem.py` | claude-mem observer: `status` (provider, model, auth, pause state, worker), `pause` / `resume` (the hooks skip every project, in running sessions too; reversible), `provider claude\|gemini\|openrouter [--model]` (refuses while the provider's key is empty; never handles keys; restarts the worker) |
 | `hooks/context_watchdog.py` | `PreToolUse` + `UserPromptSubmit`: warns from 250k context, denies tools and blocks prompts from 400k (subagents: 150k / 300k, so they return their report instead of looping) |
 | `hooks/spawn_budget.py` | `PreToolUse` on `Agent`: per-session spawn budget, default 8 |
 | `hooks/subagent_note.py` | `SubagentStart`: budget note injected into every subagent |
-| `/usage-guard` | `report [days]`, `doctor`, `audit [days]`, `setup`, `statusline`, `hooks` |
+| `/usage-guard` | `report [days]`, `doctor`, `audit [days]`, `setup`, `statusline`, `hooks`, `mem [status\|pause\|resume\|provider …]` |
 | `skills/usage-guard` | Runbook another agent follows to replicate the setup on a new machine |
 | `docs/` | `RESEARCH.md` (limits, levers, method, measurements, community tools) and `PLAN.md` (phases 0-4) |
 
@@ -85,9 +86,36 @@ because it is reversible and cannot break a workflow; pass `--mode off` to
 remove skills entirely. Skills whose file is younger than `--grace` days
 (default 7) are never suggested, and agent files are only listed, never moved.
 
+### claude-mem observer
+
+claude-mem summarizes every tool call with a model call of its own. With
+`CLAUDE_MEM_PROVIDER=claude` and the `cli` auth method those calls run on the
+Claude Code OAuth token, so they count against the subscription (the worker's
+`/api/health` says which token it runs on; `claude_mem.py status` shows it).
+
+`pause` does not stop the worker (every `SessionStart` hook would start it
+again). It uses claude-mem's own exclusion list: each hook is a fresh process
+that reads `~/.claude-mem/settings.json` and skips the project when its cwd
+matches a glob in `CLAUDE_MEM_EXCLUDED_PROJECTS` (anchored, `**` matches every
+path). `pause` sets `**` and keeps the previous list in
+`~/.claude-mem/usage-guard-pause.json`; `resume` restores it. It takes effect
+in running sessions from the next tool call, keeps memory search and the
+session-start context working, and touches no plugin file. Verified on
+claude-mem 13.11.0: the observation hook logs "Project excluded from tracking"
+and enqueues nothing.
+
+`provider gemini|openrouter` refuses while that provider's API key is empty in
+`settings.json`: paste the key there by hand first. The script never reads
+keys from the command line, never prints them and never writes them. Every
+write backs `settings.json` up first.
+
+pre-push-review 1.8.0 adds the matching cost lever on its side: a quick panel
+for pushes of at most 60 changed lines (see that plugin's README).
+
 ## Roadmap
 
-- Phase 4: claude-mem pause/resume and provider switch.
+Phases 0 to 4 are done. Next candidates, measured first: a weekly digest of
+`report.py`, and a `doctor` check for the pre-push-review quick-mode knob.
 
 ## Tests
 

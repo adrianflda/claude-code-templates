@@ -214,7 +214,7 @@ test('--range refuses anything but full object names', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Readability & Simplicity, Fit to the ticket, and the truncation report
+// Maintainability & Readability, Fit to the ticket, and the truncation report
 // ---------------------------------------------------------------------------
 
 /**
@@ -278,18 +278,80 @@ const ISSUE_ARGS = ['--json', 'title,body,url'];
 // The panel asks for the pushed branch's PR before anything else: its body may name the ticket.
 const PR_LOOKUP = ['pr', 'view', 'feature', '--json', 'number,baseRefName,title,body', '-R', 'Acme/frontend'];
 
-test('the Readability & Simplicity reviewer runs on every review, capped at medium', () => {
+test('the Maintainability & Readability reviewer runs on every full review, capped at medium', () => {
   const repo = repoWithDeletion();
   const claude = fakeClaude();
   const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
 
   assert.equal(result.code, 0, result.stderr);
-  const [simplicity] = roleOf(claude.calls(), 'reads code the way the next teammate will');
-  assert.ok(simplicity, 'the simplicity reviewer ran');
-  assert.match(simplicity.role, /jargon, invented terms/);
-  assert.match(simplicity.role, /always name the simpler alternative/);
-  assert.match(simplicity.role, /Severity is at most "medium", unless the unclear code hides a correctness risk/);
-  assert.match(result.stdout, /Readability & Simplicity/);
+  const [reviewer] = roleOf(claude.calls(), 'reads code the way the next teammate will');
+  assert.ok(reviewer, 'the maintainability reviewer ran');
+  assert.match(reviewer.role, /poor API\/module boundaries, duplication, dead code/);
+  assert.match(reviewer.role, /jargon, invented terms/);
+  assert.match(reviewer.role, /always name the simpler alternative/);
+  assert.match(reviewer.role, /Severity is at most "medium", unless the unclear code hides a correctness risk/);
+  assert.match(result.stdout, /Maintainability & Readability/);
+  assert.equal(claude.calls().length, 6, 'one call per role; the ticket reviewer has no ticket');
+});
+
+// ---------------------------------------------------------------------------
+// Quick mode: a small push gets the blocking reviewers only
+// ---------------------------------------------------------------------------
+
+test('a push within AI_REVIEW_QUICK_LINES runs security, correctness and reliability only', () => {
+  const repo = repoWithDeletion(); // 3 changed lines: one edit (-/+) and one added line
+  const claude = fakeClaude();
+  const result = runNode(PANEL, {
+    args: ['--branch', '--base', 'main'],
+    cwd: repo,
+    env: { CLAUDE_BIN: claude.bin, AI_REVIEW_QUICK_LINES: '60' },
+  });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Quick mode: 3 changed line\(s\), at most 60: Security & Privacy, Correctness & Logic, Error Handling & Reliability review it/);
+  assert.match(result.stdout, /with 3 expert agents/);
+  assert.equal(claude.calls().length, 3);
+  assert.equal(roleOf(claude.calls(), 'reads code the way the next teammate will').length, 0);
+  assert.equal(roleOf(claude.calls(), 'application-security reviewer').length, 1);
+});
+
+test('the quick panel still blocks on a critical finding', () => {
+  const repo = repoWithDeletion();
+  const claude = fakeClaude({
+    reply: '{"findings":[{"severity":"critical","file":"keep.js","line":1,"issue":"breaks the core","suggestion":"revert"}],"summary":"bad"}',
+  });
+  const result = runNode(PANEL, {
+    args: ['--branch', '--base', 'main'],
+    cwd: repo,
+    env: { CLAUDE_BIN: claude.bin, AI_REVIEW_QUICK_LINES: '60' },
+  });
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /Quick mode/);
+  assert.match(result.stdout, /breaks the core/);
+});
+
+test('a push over AI_REVIEW_QUICK_LINES, or with AI_REVIEW_ROLES set, is not quick', () => {
+  const repo = repoWithDeletion();
+  const over = fakeClaude();
+  const result = runNode(PANEL, {
+    args: ['--branch', '--base', 'main'],
+    cwd: repo,
+    env: { CLAUDE_BIN: over.bin, AI_REVIEW_QUICK_LINES: '2' },
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /Quick mode/);
+  assert.equal(over.calls().length, 6);
+
+  const filtered = fakeClaude();
+  const explicit = runNode(PANEL, {
+    args: ['--branch', '--base', 'main'],
+    cwd: repo,
+    env: { CLAUDE_BIN: filtered.bin, AI_REVIEW_QUICK_LINES: '60', AI_REVIEW_ROLES: 'tests' },
+  });
+  assert.equal(explicit.code, 0, explicit.stderr);
+  assert.doesNotMatch(explicit.stdout, /Quick mode/);
+  assert.equal(filtered.calls().length, 1);
+  assert.equal(roleOf(filtered.calls(), 'senior test reviewer').length, 1);
 });
 
 test('without ticket references the Fit to the ticket reviewer is skipped, and the output says so', () => {
@@ -304,7 +366,7 @@ test('without ticket references the Fit to the ticket reviewer is skipped, and t
 
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /No ticket references found in the commit messages, the pull request or the branch name\. "Fit to the ticket" is skipped\./);
-  assert.match(result.stdout, /with 7 expert agents/);
+  assert.match(result.stdout, /with 6 expert agents/);
   assert.equal(roleOf(claude.calls(), 'checks a change against the ticket').length, 0);
   // Only the branch's PR is looked up (it may carry the ticket); no issue is fetched.
   assert.deepEqual(gh.calls(), [PR_LOOKUP], 'gh fetches no issue when nothing is referenced');
@@ -338,7 +400,7 @@ test('commit-message references are fetched with gh and only the ticket reviewer
     ['issue', 'view', '7', ...ISSUE_ARGS, '-R', 'acme/lib'],
   ], 'only origin\'s owner (any case) is fetched; text that is not a reference is ignored');
   assert.match(result.stdout, /Ticket context: issue\(s\) #12, Acme\/prodmgt#31, acme\/lib#7\. Not fetched \(other owner\): Other\/private#8\./);
-  assert.match(result.stdout, /with 8 expert agents/);
+  assert.match(result.stdout, /with 7 expert agents/);
 
   const calls = claude.calls();
   const [fit] = roleOf(calls, 'checks a change against the ticket');

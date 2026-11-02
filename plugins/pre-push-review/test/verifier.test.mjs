@@ -177,8 +177,8 @@ test('the verifier gets the findings at medium and above, as claims without the 
     { ...row.verifier, durationMs: 0 },
     { model: 'sonnet', claims: 3, findings: 3, ticket: 0, confirmed: 3, refuted: 0, unverifiable: 0, unverified: 0, failed: 0, calls: 1, costUsd: 0.01, usage: { input: 10, output: 5, cacheRead: 0, cacheCreation: 0 }, durationMs: 0, refutedBlocking: 0, ticketRefuted: 0 },
   );
-  assert.equal(row.calls, 8, 'seven reviewers and one verifier call');
-  assert.equal(row.costUsd, 0.08);
+  assert.equal(row.calls, 7, 'six reviewers and one verifier call');
+  assert.equal(row.costUsd, 0.07);
   assert.deepEqual(row.roles.run.includes('verifier'), false, 'the verifier is not a reviewer role');
 });
 
@@ -267,7 +267,7 @@ test('a verifier that fails or answers without verdicts leaves every claim as re
   assert.equal(row.verifier.failed, 1);
   assert.equal(row.verifier.unverified, 2);
   assert.equal(row.verifier.calls, 2, 'the failed verifier call was retried once');
-  assert.equal(row.calls, 9);
+  assert.equal(row.calls, 8);
 
   const findingsOnly = review({ findings: [FINDING.critical], verifierReply: LGTM });
   assert.equal(findingsOnly.code, 1);

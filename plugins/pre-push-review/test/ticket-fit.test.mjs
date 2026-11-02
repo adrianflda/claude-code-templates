@@ -149,7 +149,7 @@ test('offline replay: the design pushed earlier contradicts a ticket line, and a
   assert.match(ticketCall.prompt, /refuseLock/, 'the design from the first push is in the ticket prompt');
   assert.match(ticketCall.prompt, /Check the lock on dev/);
   assert.match(ticketCall.prompt, /### Ticket \(from .*prodmgt-76\.md\)\n# As PO, I would like the application to support feature flagging/);
-  assert.equal(r.claude.otherCalls().length, 7);
+  assert.equal(r.claude.otherCalls().length, 6);
   for (const other of r.claude.otherCalls()) {
     assert.doesNotMatch(other.prompt, /refuseLock/, 'the other reviewers see only the push');
     assert.doesNotMatch(other.prompt, /feature flagging/, 'the other reviewers do not get the ticket');
@@ -302,7 +302,7 @@ test('AI_REVIEW_ROLES runs only the named reviewers, and the run log says which 
   assert.match(r.stdout, /with 1 expert agents/);
   assert.equal(r.claude.calls().length, 1);
   assert.deepEqual(r.rows[0].roles.run, ['ticket']);
-  assert.equal(r.rows[0].roles.skipped.length, 7);
+  assert.equal(r.rows[0].roles.skipped.length, 6);
 
   const none = replay(ROWS, { env: { AI_REVIEW_ROLES: 'nope' } });
   assert.equal(none.code, 0);

@@ -47,26 +47,23 @@ export const ROLES = [
       'tests that would still pass if the code were broken. Ignore style and naming.',
   },
   {
+    // One reviewer for design and readability: 30 days of the run log showed the two former
+    // roles (Maintainability & Design, Readability & Simplicity) never reported above medium,
+    // so a second model call bought nothing a single reviewer with both lists does not.
     key: 'maintainability',
-    title: 'Maintainability & Design',
-    system:
-      'You are a senior design reviewer. Review ONLY: poor API/module boundaries, excessive ' +
-      'complexity, duplication, dead code, leaky abstractions, and changes that will be hard ' +
-      'to evolve. Report only consequential issues, not nitpicks.',
-  },
-  {
-    key: 'simplicity',
-    title: 'Readability & Simplicity',
+    title: 'Maintainability & Readability',
     system:
       'You are a senior reviewer who reads code the way the next teammate will. Review ONLY: ' +
-      '(1) comment blocks that explain what the code should make obvious through names and ' +
-      'structure, and comments much longer than the code they describe; (2) jargon, invented ' +
-      'terms, internal codes or unexplained abbreviations in names and comments; (3) designs ' +
-      'more complex than the stated goal needs, such as extra layers, flags, modes or ' +
-      'generality nothing in the diff uses. For (3) always name the simpler alternative in ' +
-      '"suggestion". In this focus area these ARE real defects: they make the change hard to ' +
-      'review and maintain. Severity is at most "medium", unless the unclear code hides a ' +
-      'correctness risk (then say which). Ignore formatting and personal taste.',
+      '(1) poor API/module boundaries, duplication, dead code and leaky abstractions that will ' +
+      'make the change hard to evolve; (2) comment blocks that explain what the code should ' +
+      'make obvious through names and structure, and comments much longer than the code they ' +
+      'describe; (3) jargon, invented terms, internal codes or unexplained abbreviations in ' +
+      'names and comments; (4) designs more complex than the stated goal needs, such as extra ' +
+      'layers, flags, modes or generality nothing in the diff uses. For (4) always name the ' +
+      'simpler alternative in "suggestion". In this focus area these ARE real defects: they ' +
+      'make the change hard to review and maintain. Report consequential issues, not nitpicks. ' +
+      'Severity is at most "medium", unless the unclear code hides a correctness risk (then say ' +
+      'which). Ignore formatting and personal taste.',
   },
   {
     key: 'ticket',
@@ -95,5 +92,14 @@ export const ROLES = [
   },
 ];
 
-/** Role title by key, for reports that read the run log. */
-export const ROLE_TITLES = Object.fromEntries(ROLES.map((r) => [r.key, r.title]));
+/**
+ * The reviewers a small push gets (see AI_REVIEW_QUICK_LINES in the panel): the ones whose
+ * findings can block, plus the ticket. The others only ever reported medium and low.
+ */
+export const QUICK_ROLES = ['security', 'correctness', 'reliability', 'ticket'];
+
+/** Role title by key, for reports that read the run log; retired keys keep a title for old rows. */
+export const ROLE_TITLES = {
+  simplicity: 'Readability (retired, 1.7)',
+  ...Object.fromEntries(ROLES.map((r) => [r.key, r.title])),
+};

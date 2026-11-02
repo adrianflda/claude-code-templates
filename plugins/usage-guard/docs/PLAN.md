@@ -50,10 +50,33 @@ loaded, 13 used; 52 skills suggested (4 spared by the grace period). Top skills:
 `quality-kernel:coder` (102), `adversarial-critic` (61), `quality-kernel:specifier`
 (46). Runtime 12 s over 4.3 GB of transcripts.
 
-## Phase 4: plugin integrations (later)
+## Phase 4: plugin integrations (done)
 
-- claude-mem: `pause` / `resume` subcommands (worker stop/start) and provider switch.
-- pre-push-review: a quick mode that skips the panel for small diffs.
+claude-mem (`scripts/claude_mem.py`, `/usage-guard mem`): `status`, `pause`,
+`resume`, `provider`. The worker cannot be stopped as a pause (every
+`SessionStart` hook starts it again), so `pause` uses the plugin's own
+exclusion list: every claude-mem hook is a fresh process that reads
+`~/.claude-mem/settings.json` and skips the project when its cwd matches a
+glob in `CLAUDE_MEM_EXCLUDED_PROJECTS` (anchored; `**` matches every path).
+`pause` sets `**` and keeps the previous list in `usage-guard-pause.json`;
+`resume` restores it. Verified on 13.11.0: with the pause active, the
+observation hook logs `Project excluded from tracking, skipping observation`
+and enqueues nothing; the worker and the memory search tools stay up.
+`provider` writes `CLAUDE_MEM_PROVIDER` (+ the provider's model), refuses
+gemini / openrouter while that provider's key is empty, restarts the worker,
+and never touches keys. Doctor reports a pause.
+
+pre-push-review 1.8.0: quick mode. A push of at most `AI_REVIEW_QUICK_LINES`
+(60) changed lines gets security, correctness, reliability and the ticket
+reviewer instead of all roles; the verifier and the blocking rules are the
+same, the run log says `quick: true` and `stats` counts them. The plan said
+"skips the panel": a size-based skip would be a bypass (a push can be split
+into small ones, and a one-line change can leak a secret), so the quick panel
+is a smaller review, never none. The design and readability reviewers are one
+role now (`maintainability`): 30 days of the run log showed neither reported
+above medium. Expected saving per small push: 3 of 7 reviewer calls instead
+of 7 of 8. Not done from the pre-push-review plan's step 4: known non-issues
+from a base-branch `REVIEW.md` (precision, not cost).
 
 ## Replicating on another machine
 

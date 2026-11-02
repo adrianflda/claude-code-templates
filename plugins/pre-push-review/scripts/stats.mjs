@@ -53,6 +53,7 @@ export function aggregate(rows) {
   const vtimes = verifiers.map((v) => Number(v.durationMs) || 0);
   return {
     runs: rows.length,
+    quick: rows.filter((r) => r.quick === true).length,
     outcomes,
     roles,
     costUsd: { total: costs.reduce((a, b) => a + b, 0), p50: percentile(costs, 0.5), p95: percentile(costs, 0.95) },
@@ -86,7 +87,7 @@ const secs = (ms) => (ms == null ? '-' : `${Math.round(ms / 1000)}s`);
 export function render(days, a) {
   const o = a.outcomes;
   const lines = [
-    `pre-push-review, last ${days} day(s): ${a.runs} run(s)`,
+    `pre-push-review, last ${days} day(s): ${a.runs} run(s)${a.quick ? `, ${a.quick} in quick mode` : ''}`,
     `  outcome   ${o.passed} passed · ${o.blocked} blocked · ${o['not-reviewed']} not reviewed · ${o['nothing-to-review']} nothing to review · ${o.skipped} skipped`,
     `  cost      ${money(a.costUsd.total)} total · p50 ${money(a.costUsd.p50)} · p95 ${money(a.costUsd.p95)} per run`,
     `  time      p50 ${secs(a.durationMs.p50)} · p95 ${secs(a.durationMs.p95)} per run`,

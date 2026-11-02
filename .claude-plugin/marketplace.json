@@ -10,8 +10,8 @@
     {
       "name": "pre-push-review",
       "source": "./plugins/pre-push-review",
-      "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-      "version": "1.7.0",
+      "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings; small pushes get a quick panel of the blocking reviewers. Portable, versioned — no per-machine hand-wiring.",
+      "version": "1.8.0",
       "category": "quality-gates",
       "keywords": ["code-review", "pre-push", "git", "quality-gate", "hooks", "security", "multi-agent"]
     },
@@ -42,8 +42,8 @@
     {
       "name": "usage-guard",
       "source": "./plugins/usage-guard",
-      "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace. Hooks cap context per call (main and subagents) and subagent spawns per session. A prompt audit lists unused skills and agents with a skillOverrides block.",
-      "version": "0.3.0",
+      "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace. Hooks cap context per call (main and subagents) and subagent spawns per session. A prompt audit lists unused skills and agents with a skillOverrides block. claude-mem can be paused, resumed and moved to another provider.",
+      "version": "0.4.0",
       "category": "productivity",
       "keywords": ["usage", "tokens", "rate-limit", "statusline", "cost", "subagents", "context-window"]
     }
