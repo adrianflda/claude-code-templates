@@ -1,6 +1,6 @@
 ---
 name: usage-guard
-description: Runbook to diagnose and cut Claude Code subscription burn on any machine (measure transcripts, lint config, apply the phase 0 baseline, pick a status line). Use when the user says the weekly limit runs out early, asks why Claude Code spends so many tokens, or wants the usage-guard setup replicated.
+description: Runbook to diagnose and cut Claude Code subscription burn on any machine (measure transcripts, lint config, apply the phase 0 baseline, pick a status line, audit the prompt load of skills and agents). Use when the user says the weekly limit runs out early, asks why Claude Code spends so many tokens, or wants the usage-guard setup replicated.
 ---
 
 # usage-guard runbook
@@ -56,6 +56,27 @@ python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py" --preview
 
 Re-run doctor (step 2) and expect PASS on effort, autocompact, subagent-model,
 claude-mem and statusline. Tell the user env changes apply to new sessions only.
+
+## 6. Prompt audit (when doctor warns on `prompt-load`)
+
+```bash
+python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/prompt_audit.py" --days 30 --cwd "$PWD"
+```
+
+Every agent and skill description is sent on every request and every subagent
+call. The audit lists each one with its invocation count from the transcripts
+(Skill tool, Agent tool and typed `/commands`), the agent files never invoked
+and a `skillOverrides` block for the unused skills. Show it and let the user
+choose:
+
+- `--apply` merges the block with value `user-invocable-only`: the skill leaves
+  the model's prompt but `/name` still works. Reversible, cannot break anything.
+- `--apply --mode off` removes the skill entirely.
+- Skills younger than `--grace` days (default 7) are never suggested.
+- Agent files are only listed. Moving them out of `agents/` is the user's call.
+
+The hooks (phase 2) need nothing from this step: they are active as soon as the
+plugin is enabled. Knobs are in `README.md`, section "Hook knobs".
 
 ## Reference
 

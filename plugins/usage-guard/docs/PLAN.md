@@ -34,11 +34,21 @@ Knobs (env): `USAGE_GUARD_CTX_WARN`, `USAGE_GUARD_CTX_BLOCK`,
 Hooks never exit non-zero and time out at 5 s; the watchdog costs about 70 ms on
 a 2.5 MB transcript because it reads only the tail.
 
-## Phase 3: prompt audit (next)
+## Phase 3: prompt audit (done, `scripts/prompt_audit.py`)
 
-`prompt-audit.py`: which skills and agents were invoked in the last 30 days
-(from `Skill` and `Agent` tool calls in transcripts) versus which are loaded, with
-a suggested `skillOverrides` block and a list of agent files never used.
+Inventory of agents and skills (user, project, enabled plugins) with the tokens
+their descriptions add to every request, joined with the invocations found in
+the transcripts of the last N days (`Skill` tool, `Agent` tool, typed
+`<command-name>`), deduplicated by message id. Output: both tables, the agent
+files never invoked, and a `skillOverrides` block (`user-invocable-only` by
+default, `--mode off`), merged into `settings.json` with `--apply` after a
+backup. Skills younger than `--grace` days are spared.
+
+Reference machine, 2026-11-02, 30 days: 50 agents loaded, 29 used; 69 skills
+loaded, 13 used; 52 skills suggested (4 spared by the grace period). Top skills: `pre-push-review` (35),
+`quality-kernel:develop` (24), `quality-kernel:forge` (14). Top agents:
+`quality-kernel:coder` (102), `adversarial-critic` (61), `quality-kernel:specifier`
+(46). Runtime 12 s over 4.3 GB of transcripts.
 
 ## Phase 4: plugin integrations (later)
 

@@ -1,5 +1,5 @@
 ---
-description: Measure, lint and fix Claude Code plan usage (report, doctor, setup, statusline preview)
+description: Measure, lint and fix Claude Code plan usage (report, doctor, audit, setup, statusline preview)
 ---
 
 Run the usage-guard tools and relay their output as is. Do not summarize numbers away; the tables are the deliverable.
@@ -27,6 +27,11 @@ Subcommand from `$ARGUMENTS` (default: `report`):
   To install the chosen style, set `statusLine.command` in `~/.claude/settings.json` to
   `python3 <plugin root>/scripts/statusline.py --style <name>`.
 
+- `audit [days]` → prompt audit: every agent and skill loaded into the system prompt with its invocation count over the last `days` days (default 30), the unused agent files, and a `skillOverrides` block for the unused skills. Run it from the project directory so project agents are counted:
+  ```bash
+  python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/prompt_audit.py" --days <days> --cwd "$PWD"
+  ```
+  Relay both tables and the block. The suggested value is `user-invocable-only` (hidden from the model, `/name` keeps working); `--mode off` removes the skill entirely. Apply with `--apply` only if the user agrees; a `.bak-<timestamp>` copy of `settings.json` is written first. Never delete agent files: list them and let the user decide.
 - `hooks` → explain the three hooks the plugin installs (context watchdog, spawn budget, subagent note) and the `USAGE_GUARD_*` knobs from `${CLAUDE_PLUGIN_ROOT}/README.md`, then show the current ledger for this session if `$CLAUDE_SCRATCHPAD_DIR/usage-guard/` exists.
 
-Then stop. Only `setup --apply` edits files, and only after the user agrees.
+Then stop. Only `setup --apply` and `audit --apply` edit files, and only after the user agrees.

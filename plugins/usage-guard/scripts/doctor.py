@@ -158,7 +158,7 @@ def run(cwd, rep):
     est = desc_chars // 4
     status = "WARN" if est > 6000 else "INFO"
     rep.add(status, "prompt-load", f"{len(agent_files)} agents + {len(skill_files)} skills ({off} turned off) ≈ {est:,} tokens of descriptions on every request and every subagent",
-            "turn off unused ones with skillOverrides; delete agents you never invoke")
+            "run scripts/prompt_audit.py for the unused ones and a skillOverrides block")
 
     # 8. CLAUDE.md sizes on the cwd chain
     big = []

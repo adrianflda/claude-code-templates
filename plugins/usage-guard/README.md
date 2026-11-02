@@ -8,7 +8,7 @@ Subagents, workflow agents and `claude -p` runs all draw on the same 5-hour and
 tells you which of them is draining the plan, or stops a session whose context has
 grown to 800k tokens. This plugin does the measuring first and the stopping next.
 
-## What ships today (phases 1 and 2)
+## What ships today (phases 1 to 3)
 
 | Tool | What it does |
 |---|---|
@@ -16,10 +16,11 @@ grown to 800k tokens. This plugin does the measuring first and the stopping next
 | `scripts/doctor.py` | Read-only lint of `settings.json`, enabled plugins, agents, skills, CLAUDE.md and claude-mem. One PASS / WARN / INFO line per check with the fix |
 | `scripts/statusline.py` | Status line with context %, 5-hour and 7-day limits, reset countdown and burn pace. Four styles |
 | `scripts/apply.py` | Phase 0 baseline applier: dry run by default, `--apply` writes with backups, idempotent |
+| `scripts/prompt_audit.py` | Prompt audit: every agent and skill loaded into the system prompt with its invocation count over the last 30 days (Skill tool, Agent tool, typed `/commands`), unused agent files, and a `skillOverrides` block; `--apply` merges it with a backup |
 | `hooks/context_watchdog.py` | `PreToolUse` + `UserPromptSubmit`: warns from 250k context, denies tools and blocks prompts from 400k (subagents: 150k / 300k, so they return their report instead of looping) |
 | `hooks/spawn_budget.py` | `PreToolUse` on `Agent`: per-session spawn budget, default 8 |
 | `hooks/subagent_note.py` | `SubagentStart`: budget note injected into every subagent |
-| `/usage-guard` | `report [days]`, `doctor`, `setup`, `statusline` |
+| `/usage-guard` | `report [days]`, `doctor`, `audit [days]`, `setup`, `statusline`, `hooks` |
 | `skills/usage-guard` | Runbook another agent follows to replicate the setup on a new machine |
 | `docs/` | `RESEARCH.md` (limits, levers, method, measurements, community tools) and `PLAN.md` (phases 0-4) |
 
@@ -74,10 +75,18 @@ All optional, set in the `env` block of `settings.json` or the shell:
 hooks become no-ops). Slash commands such as `/compact` are never blocked.
 Hooks exit 0 on any error and time out at 5 s, so they cannot stall a session.
 
+### Prompt audit
+
+`skillOverrides` values, verified in the Claude Code 2.1.316 binary: `on`, `off`
+and `user-invocable-only` (hidden from the model, so its description leaves the
+prompt, but `/name` still works). Keys are the skill name, prefixed with
+`plugin:` for plugin skills. The audit suggests `user-invocable-only` by default
+because it is reversible and cannot break a workflow; pass `--mode off` to
+remove skills entirely. Skills whose file is younger than `--grace` days
+(default 7) are never suggested, and agent files are only listed, never moved.
+
 ## Roadmap
 
-- Phase 3: `prompt-audit`: which skills and agents were actually invoked in the last
-  30 days, with a suggested `skillOverrides` block.
 - Phase 4: claude-mem pause/resume and provider switch.
 
 ## Tests
