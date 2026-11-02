@@ -194,9 +194,9 @@ def style_powerline(f, color):
     out = ""
     for i, (bg, text) in enumerate(segs):
         fg_text = "\033[30m" if bg in ("yellow", "green", "white") else "\033[97m"
-        out += f"{BG[bg]}{fg_text}{text}{RESET}"
+        out += f"{BG.get(bg, BG['grey'])}{fg_text}{text}{RESET}"
         nxt = segs[i + 1][0] if i + 1 < len(segs) else None
-        out += f"{FG.get(bg, '')}{BG[nxt] if nxt else ''}{sep}{RESET}" if True else ""
+        out += f"{FG.get(bg, '')}{BG.get(nxt, BG['grey']) if nxt else ''}{sep}{RESET}"
     return out
 
 

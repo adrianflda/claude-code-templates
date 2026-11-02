@@ -83,8 +83,9 @@ def pause_file(mem_dir):
 
 
 def is_paused(mem_dir, mem):
+    """Paused means the catch-all is in the settings the hooks read; the sidecar alone proves nothing."""
     excluded = (mem.get("CLAUDE_MEM_EXCLUDED_PROJECTS") or "").strip()
-    return os.path.exists(pause_file(mem_dir)) or PAUSE_PATTERN in [p.strip() for p in excluded.split(",")]
+    return PAUSE_PATTERN in [p.strip() for p in excluded.split(",")]
 
 
 def worker_health(mem, timeout=2.0):
@@ -126,11 +127,12 @@ def pause(mem_dir, mem):
     if is_paused(mem_dir, mem):
         return 0, ["claude-mem is already paused"]
     previous = mem.get("CLAUDE_MEM_EXCLUDED_PROJECTS") or ""
+    # Settings first: if that write fails nothing is paused, and no sidecar is left to say otherwise.
+    mem["CLAUDE_MEM_EXCLUDED_PROJECTS"] = PAUSE_PATTERN
+    save(mem_dir, mem)
     with open(pause_file(mem_dir), "w", encoding="utf-8") as f:
         json.dump({"paused_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "previous": previous}, f, indent=2)
         f.write("\n")
-    mem["CLAUDE_MEM_EXCLUDED_PROJECTS"] = PAUSE_PATTERN
-    save(mem_dir, mem)
     return 0, [f"claude-mem paused: CLAUDE_MEM_EXCLUDED_PROJECTS={PAUSE_PATTERN!r} (was {previous!r})",
                "the hooks skip every project from the next tool call on, in running sessions too",
                "memory search and the session context keep working; `resume` restores the list"]

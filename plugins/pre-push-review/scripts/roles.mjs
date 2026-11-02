@@ -100,6 +100,6 @@ export const QUICK_ROLES = ['security', 'correctness', 'reliability', 'ticket'];
 
 /** Role title by key, for reports that read the run log; retired keys keep a title for old rows. */
 export const ROLE_TITLES = {
-  simplicity: 'Readability (retired, 1.7)',
+  simplicity: 'Readability & Simplicity (retired)',
   ...Object.fromEntries(ROLES.map((r) => [r.key, r.title])),
 };

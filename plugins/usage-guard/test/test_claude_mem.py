@@ -60,6 +60,25 @@ class ClaudeMemTest(unittest.TestCase):
         self.assertIn("already paused", out)
         self.assertEqual(len(self.backups()), 1)
 
+    def test_a_failed_settings_write_leaves_nothing_paused(self):
+        real_save = cm.save
+        cm.save = lambda *a: (_ for _ in ()).throw(OSError("read-only"))
+        try:
+            with self.assertRaises(OSError):
+                cm.pause(self.dir, cm.load(self.dir))
+        finally:
+            cm.save = real_save
+        self.assertFalse(os.path.exists(cm.pause_file(self.dir)), "no sidecar without the settings write")
+        self.assertNotIn("**", self.saved().get("CLAUDE_MEM_EXCLUDED_PROJECTS", ""))
+        # A stale sidecar alone is not a pause: the retry goes through.
+        with open(cm.pause_file(self.dir), "w", encoding="utf-8") as f:
+            f.write('{"paused_at": "x", "previous": ""}\n')
+        self.assertFalse(cm.is_paused(self.dir, self.saved()))
+        code, out = self.run_cli("pause")
+        self.assertEqual(code, 0)
+        self.assertNotIn("already paused", out)
+        self.assertEqual(self.saved()["CLAUDE_MEM_EXCLUDED_PROJECTS"], "**")
+
     def test_resume_restores_the_previous_list(self):
         self.settings["CLAUDE_MEM_EXCLUDED_PROJECTS"] = "a/*,b"
         with open(cm.settings_path(self.dir), "w", encoding="utf-8") as f:

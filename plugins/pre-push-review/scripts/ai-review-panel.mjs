@@ -99,7 +99,8 @@ const TIMEOUT_MS = Number(process.env.AI_REVIEW_TIMEOUT_MS || 240_000);
 const BLOCK_ON = (process.env.AI_REVIEW_BLOCK_ON || 'critical').toLowerCase();
 const REQUIRED = process.env.AI_REVIEW_REQUIRED === '1';
 const TRIGGER = process.env.AI_REVIEW_TRIGGER === 'pre-push' ? 'pre-push' : 'cli';
-const ROLE_FILTER = (process.env.AI_REVIEW_ROLES || '').split(',').map((s) => s.trim()).filter(Boolean);
+// `simplicity` was merged into `maintainability` in 1.8.0; an old AI_REVIEW_ROLES still works.
+const ROLE_FILTER = [...new Set((process.env.AI_REVIEW_ROLES || '').split(',').map((s) => s.trim()).filter(Boolean).map((k) => (k === 'simplicity' ? 'maintainability' : k)))];
 const QUICK_LINES = Math.max(0, Number(process.env.AI_REVIEW_QUICK_LINES ?? 60) || 0);
 const VERIFY = process.env.AI_REVIEW_VERIFY !== '0';
 const VERIFIER_MODEL = process.env.AI_REVIEW_VERIFIER_MODEL || MODEL;
