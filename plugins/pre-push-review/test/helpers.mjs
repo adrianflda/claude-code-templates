@@ -43,13 +43,15 @@ export function executable(path, source) {
 /**
  * Run a script with JSON on stdin; never throws. HOME is a fresh temporary directory unless the
  * test passes one: the scripts write under ~/.cache, and a test must never touch the developer's.
+ * Quick mode is off unless the test turns it on: the fixtures are tiny diffs, and most tests
+ * expect the whole panel.
  */
 export function runNode(script, { args = [], input = '', cwd, env = {} } = {}) {
   const result = spawnSync(process.execPath, [script, ...args], {
     cwd,
     input,
     encoding: 'utf8',
-    env: { ...cleanEnv(), HOME: tempDir('home'), ...env },
+    env: { ...cleanEnv(), HOME: tempDir('home'), AI_REVIEW_QUICK_LINES: '0', ...env },
   });
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
