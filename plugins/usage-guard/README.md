@@ -13,11 +13,12 @@ grown to 800k tokens. This plugin does the measuring first and the stopping next
 | Tool | What it does |
 |---|---|
 | `scripts/report.py` | Price-weighted attribution from `~/.claude/projects/**/*.jsonl`: by kind (main / subagent / claude-mem observer), model, day, session and subagent name, plus context-per-call percentiles |
-| `scripts/doctor.py` | Read-only lint of `settings.json`, enabled plugins, agents, skills, CLAUDE.md and claude-mem. One PASS / WARN / INFO line per check with the fix |
+| `scripts/doctor.py` | Read-only lint of `settings.json`, enabled plugins, agents, skills, CLAUDE.md, claude-mem, the pre-push-review git hook and (inside a session) the live environment against `settings.env`. One PASS / WARN / INFO line per check with the fix |
 | `scripts/statusline.py` | Status line with context %, 5-hour and 7-day limits, reset countdown and burn pace. Four styles |
-| `scripts/apply.py` | Phase 0 baseline applier: dry run by default, `--apply` writes with backups, idempotent |
-| `scripts/prompt_audit.py` | Prompt audit: every agent and skill loaded into the system prompt with its invocation count over the last 30 days (Skill tool, Agent tool, typed `/commands`), unused agent files, and a `skillOverrides` block; `--apply` merges it with a backup |
+| `scripts/apply.py` | Phase 0 baseline applier: dry run by default, `--apply` writes with backups, idempotent. `--keep-agent-pins` leaves pinned agents on their model (no FORCE) and records them in `USAGE_GUARD_ACCEPTED_PINS` |
+| `scripts/prompt_audit.py` | Prompt audit: every agent and skill loaded into the system prompt with its invocation count over the last 30 days (Skill tool, Agent tool, typed `/commands`), unused agent files, and a `skillOverrides` block; `--apply` merges it with a backup; `--keep NAME` protects a skill a CLAUDE.md declares mandatory |
 | `scripts/claude_mem.py` | claude-mem observer: `status` (provider, model, auth, pause state, worker), `pause` / `resume` (the hooks skip every project, in running sessions too; reversible), `provider claude\|gemini\|openrouter [--model]` (refuses while the provider's key is empty; never handles keys; restarts the worker) |
+| `scripts/claude_config.py` | Shared helpers, not a command: config dir resolved at call time, JSON written with a backup, enabled plugin dirs, agent frontmatter and costly pins |
 | `hooks/context_watchdog.py` | `PreToolUse` + `UserPromptSubmit`: warns from 250k context, denies tools and blocks prompts from 400k (subagents: 150k / 300k, so they return their report instead of looping) |
 | `hooks/spawn_budget.py` | `PreToolUse` on `Agent`: per-session spawn budget, default 8 |
 | `hooks/subagent_note.py` | `SubagentStart`: budget note injected into every subagent |
@@ -54,7 +55,26 @@ sets the default.
 effort level, auto-compact window, subagent model and force flag, agent teams,
 `ANTHROPIC_API_KEY` presence, agent definitions pinning Opus/Fable, estimated
 prompt load of agent + skill descriptions, CLAUDE.md files over 200 lines on the
-cwd chain, claude-mem provider and model, status line showing the weekly limit.
+cwd chain, claude-mem provider and model, status line showing the weekly limit,
+the pre-push-review git hook (installed, version, quick-mode knob) and, inside
+a Claude Code session, the environment keys whose live value differs from
+`settings.env`.
+
+Agents that stay on a costly model on purpose are listed in
+`USAGE_GUARD_ACCEPTED_PINS` (`settings.env` or the shell: agent names separated
+by commas, or `*`); `agent-models` then reports `PASS … accepted on purpose`
+instead of a WARN. `apply.py --apply --keep-agent-pins` writes that list from
+the agent files and drops `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, so every other
+subagent still runs on `CLAUDE_CODE_SUBAGENT_MODEL` while the pinned ones keep
+their `model:`.
+
+`settings.env` is read when Claude Code starts, so a running session keeps the
+values it loaded (and a value removed from the file stays in the session until
+a restart). The `env-drift` check, only inside a session, lists those keys; it
+is INFO, never a WARN, because the fix is a restart. Values are printed only for
+the knobs the doctor knows (`CLAUDE_CODE_*`, `AI_REVIEW_QUICK_LINES`,
+`USAGE_GUARD_ACCEPTED_PINS`); any other `settings.env` key is named without its
+value, since it may hold a secret and the output lands in the conversation.
 
 ## Replicate on another machine
 
@@ -85,6 +105,9 @@ prompt, but `/name` still works). Keys are the skill name, prefixed with
 because it is reversible and cannot break a workflow; pass `--mode off` to
 remove skills entirely. Skills whose file is younger than `--grace` days
 (default 7) are never suggested, and agent files are only listed, never moved.
+`--keep NAME` (repeatable; a plugin skill by its full `plugin:name` or bare name)
+excludes a skill from the suggestions no matter its count: use it for the skills
+a CLAUDE.md declares mandatory, which are read rather than invoked.
 
 ### claude-mem observer
 
@@ -97,8 +120,12 @@ Claude Code OAuth token, so they count against the subscription (the worker's
 again). It uses claude-mem's own exclusion list: each hook is a fresh process
 that reads `~/.claude-mem/settings.json` and skips the project when its cwd
 matches a glob in `CLAUDE_MEM_EXCLUDED_PROJECTS` (anchored, `**` matches every
-path). `pause` sets `**` and keeps the previous list in
-`~/.claude-mem/usage-guard-pause.json`; `resume` restores it. It takes effect
+path). `pause` writes the previous list to
+`~/.claude-mem/usage-guard-pause.json` first and then sets `**`; if the
+settings write fails the file is removed again, so the list is never lost and
+a pause never exists without its file. `resume` restores the list and removes
+the file; a file left behind without `**` in the settings is stale and `resume`
+just removes it. It takes effect
 in running sessions from the next tool call, keeps memory search and the
 session-start context working, and touches no plugin file. Verified on
 claude-mem 13.11.0: the observation hook logs "Project excluded from tracking"
@@ -110,12 +137,17 @@ keys from the command line, never prints them and never writes them. Every
 write backs `settings.json` up first.
 
 pre-push-review 1.8.0 adds the matching cost lever on its side: a quick panel
-for pushes of at most 60 changed lines (see that plugin's README).
+for pushes of at most 60 changed lines (see that plugin's README). `doctor`'s
+`pre-push-review` line says whether the global `hook.ai-review.command` is set,
+which plugin version it runs and whether `AI_REVIEW_QUICK_LINES=0` turned the
+quick panel off (the one WARN of that check).
 
 ## Roadmap
 
-Phases 0 to 4 are done. Next candidates, measured first: a weekly digest of
-`report.py`, and a `doctor` check for the pre-push-review quick-mode knob.
+Phases 0 to 4 are done; 0.5.0 added the doctor checks for pre-push-review and
+session env drift, accepted agent pins (`apply.py --keep-agent-pins`),
+`prompt_audit.py --keep` and the sidecar-first claude-mem pause. Next candidate,
+measured first: a weekly digest of `report.py`.
 
 ## Tests
 
@@ -123,4 +155,7 @@ Phases 0 to 4 are done. Next candidates, measured first: a weekly digest of
 python3 -I -m unittest discover -s plugins/usage-guard/test -v
 ```
 
-Requires Python 3.9+. No dependencies, no network, no subprocesses.
+Requires Python 3.9+. No dependencies, no network. The only subprocesses are
+`doctor.py`'s read-only `git config --global --get hook.ai-review.command`
+(5 s timeout, mocked in `test_doctor.py`) and the claude-mem worker restart in
+`apply.py` / `claude_mem.py`, which the tests never reach.

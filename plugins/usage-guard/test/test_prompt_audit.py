@@ -104,10 +104,23 @@ class PromptAuditTest(unittest.TestCase):
         res = self.run_audit()
         n = self.pa.apply_overrides(path, self.settings, res["suggested_skill_overrides"])
         self.assertEqual(n, 3)
-        saved = json.load(open(path))
+        with open(path, encoding="utf-8") as f:
+            saved = json.load(f)
         self.assertEqual(saved["skillOverrides"]["already"], "off")
         self.assertEqual(saved["skillOverrides"]["idle-cmd"], "user-invocable-only")
         self.assertTrue(any(f.startswith("settings.json.bak-") for f in os.listdir(self.cfg)))
+
+    def test_keep_excludes_names_from_suggestions(self):
+        res = self.run_audit(keep=["idle-skill", "idle-plugin-skill"])
+        self.assertEqual(set(res["suggested_skill_overrides"]), {"idle-cmd"})
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = self.pa.main(["--json", "--cwd", self.tmp, "--root", self.root,
+                               "--keep", "idle-cmd", "--keep", "qk:idle-plugin-skill"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(set(json.loads(buf.getvalue())["suggested_skill_overrides"]), {"idle-skill"})
 
     def test_main_json_runs(self):
         import io

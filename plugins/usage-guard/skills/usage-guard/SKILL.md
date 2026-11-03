@@ -37,8 +37,16 @@ python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/apply.py" --apply    # only after the 
 
 Show the dry run to the user first. Options: `--effort`, `--autocompact`,
 `--subagent-model`, `--style minimal|bar|powerline|multiline|keep`,
-`--claude-mem-model`, `--no-claude-mem`. Backups land next to each file as
-`.bak-<timestamp>`. The script never touches git config, hooks or plugins.
+`--claude-mem-model`, `--no-claude-mem`, `--keep-agent-pins`. Backups land next
+to each file as `.bak-<timestamp>`. The script never touches git config, hooks
+or plugins.
+
+Ask whether the agents pinned to Opus/Fable (doctor's `agent-models` line names
+them) should keep their model. If yes, add `--keep-agent-pins`: it drops
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` and lists those agents in
+`USAGE_GUARD_ACCEPTED_PINS`, so the doctor stops warning about them while every
+other subagent still runs on `--subagent-model`. Without it FORCE=1 overrides
+every pin.
 
 Then ask the user to close any interactive session the report listed above
 400k context. Do not kill their processes.
@@ -55,7 +63,11 @@ python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py" --preview
 ## 5. Verify
 
 Re-run doctor (step 2) and expect PASS on effort, autocompact, subagent-model,
-claude-mem and statusline. Tell the user env changes apply to new sessions only.
+agent-models (plain, or "accepted on purpose"), claude-mem, statusline and
+pre-push-review. Tell the user env changes apply to new sessions only: inside
+the session the `env-drift` line lists the keys the running session still has
+with another value (values shown only for the doctor's own knobs, never for
+other `settings.env` keys), and it clears after a restart.
 
 ## 6. Prompt audit (when doctor warns on `prompt-load`)
 
@@ -73,6 +85,9 @@ choose:
   the model's prompt but `/name` still works. Reversible, cannot break anything.
 - `--apply --mode off` removes the skill entirely.
 - Skills younger than `--grace` days (default 7) are never suggested.
+- `--keep NAME` (repeatable) never suggests that skill. Use it for every skill
+  the user's CLAUDE.md declares mandatory (they are read, not invoked, so their
+  count is 0); plugin skills by `plugin:name` or the bare name.
 - Agent files are only listed. Moving them out of `agents/` is the user's call.
 
 The hooks (phase 2) need nothing from this step: they are active as soon as the
@@ -106,7 +121,10 @@ Nothing to configure: since 1.8.0 a push of at most 60 changed lines gets the
 quick panel (security, correctness, reliability, ticket) instead of all roles,
 and the design and readability reviewers are one. `node <plugin>/scripts/stats.mjs`
 shows how many runs were quick. `AI_REVIEW_QUICK_LINES=0` restores the whole
-panel on every push.
+panel on every push. Doctor's `pre-push-review` line (step 2) says whether the
+global git hook is set, which version runs and whether the quick panel is off:
+INFO when the hook is missing or older than 1.8.0, WARN only on
+`AI_REVIEW_QUICK_LINES=0`.
 
 ## Reference
 

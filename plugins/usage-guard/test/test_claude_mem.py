@@ -151,6 +151,54 @@ class ClaudeMemTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("not installed", out)
 
+    def test_a_failed_sidecar_write_never_loses_the_previous_list(self):
+        self.settings["CLAUDE_MEM_EXCLUDED_PROJECTS"] = "~/Projects/secret"
+        with open(cm.settings_path(self.dir), "w", encoding="utf-8") as f:
+            json.dump(self.settings, f)
+        os.mkdir(cm.pause_file(self.dir))  # the sidecar path cannot be written
+        try:
+            with self.assertRaises(OSError):
+                cm.pause(self.dir, cm.load(self.dir))
+        finally:
+            os.rmdir(cm.pause_file(self.dir))
+        self.assertEqual(self.saved()["CLAUDE_MEM_EXCLUDED_PROJECTS"], "~/Projects/secret",
+                         "settings must not be paused when the previous list could not be kept")
+        self.assertEqual(self.backups(), [])
+
+    def test_resume_ignores_a_stale_sidecar_when_not_paused(self):
+        self.settings["CLAUDE_MEM_EXCLUDED_PROJECTS"] = "a/*"
+        with open(cm.settings_path(self.dir), "w", encoding="utf-8") as f:
+            json.dump(self.settings, f)
+        with open(cm.pause_file(self.dir), "w", encoding="utf-8") as f:
+            f.write('{"paused_at": "x", "previous": "zzz"}\n')
+        code, out = self.run_cli("resume")
+        self.assertEqual(code, 0)
+        self.assertIn("not paused", out)
+        self.assertEqual(self.saved()["CLAUDE_MEM_EXCLUDED_PROJECTS"], "a/*")
+        self.assertFalse(os.path.exists(cm.pause_file(self.dir)), "the stale sidecar is removed")
+        self.assertEqual(self.backups(), [])
+
+    def test_a_failed_settings_write_during_resume_keeps_the_sidecar(self):
+        self.settings["CLAUDE_MEM_EXCLUDED_PROJECTS"] = "a/*,b"
+        with open(cm.settings_path(self.dir), "w", encoding="utf-8") as f:
+            json.dump(self.settings, f)
+        self.run_cli("pause")
+        real_save = cm.save
+        cm.save = lambda *a: (_ for _ in ()).throw(OSError("read-only"))
+        try:
+            with self.assertRaises(OSError):
+                cm.resume(self.dir, cm.load(self.dir))
+        finally:
+            cm.save = real_save
+        self.assertTrue(os.path.exists(cm.pause_file(self.dir)), "the sidecar survives a failed settings write")
+        self.assertEqual(self.saved()["CLAUDE_MEM_EXCLUDED_PROJECTS"], "**", "still paused")
+        # The retry restores the list from the sidecar that was kept.
+        code, out = self.run_cli("resume")
+        self.assertEqual(code, 0)
+        self.assertIn("'a/*,b'", out)
+        self.assertEqual(self.saved()["CLAUDE_MEM_EXCLUDED_PROJECTS"], "a/*,b")
+        self.assertFalse(os.path.exists(cm.pause_file(self.dir)))
+
     def run_cli_in(self, mem_dir, *argv):
         out = io.StringIO()
         with redirect_stdout(out):

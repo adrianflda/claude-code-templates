@@ -8,39 +8,25 @@ to ``<file>.bak-<timestamp>``. Never touches git config, hooks or plugins.
     python3 -I apply.py                 # show pending changes
     python3 -I apply.py --apply         # write them
     python3 -I apply.py --style bar --effort high --no-claude-mem
+    python3 -I apply.py --apply --keep-agent-pins   # agents pinned to Opus stay on Opus
+
+By default every subagent runs on ``--subagent-model``: ``CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1``
+overrides the ``model:`` pins in the agent files. ``--keep-agent-pins`` drops
+FORCE instead, so a pinned agent keeps its model, and records the pinned names
+in ``USAGE_GUARD_ACCEPTED_PINS`` so ``doctor.py`` stops warning about them.
 """
 import argparse
 import glob
-import json
 import os
-import shutil
 import subprocess
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import claude_config as cc  # noqa: E402
+
 STATUSLINE = os.path.join(HERE, "statusline.py")
 STYLES = ("minimal", "bar", "powerline", "multiline")
-
-
-def config_dir():
-    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
-
-
-def load_json(path):
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_json(path, data):
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    if os.path.exists(path):
-        shutil.copy2(path, f"{path}.bak-{stamp}")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
 
 
 def set_path(data, keys, value, changes, label):
@@ -54,6 +40,18 @@ def set_path(data, keys, value, changes, label):
         node[keys[-1]] = value
 
 
+def del_path(data, keys, changes, label):
+    """Remove data[k1][k2]... when present, recording a change line."""
+    node = data
+    for k in keys[:-1]:
+        node = node.get(k) if isinstance(node, dict) else None
+        if node is None:
+            return
+    if isinstance(node, dict) and keys[-1] in node:
+        changes.append(f"{label}: {node[keys[-1]]!r} -> (removed)")
+        del node[keys[-1]]
+
+
 def plan_settings(settings, args):
     changes = []
     set_path(settings, ["effortLevel"], args.effort, changes, "effortLevel")
@@ -65,8 +63,17 @@ def plan_settings(settings, args):
              "env.CLAUDE_CODE_AUTO_COMPACT_WINDOW")
     set_path(settings, ["env", "CLAUDE_CODE_SUBAGENT_MODEL"], args.subagent_model, changes,
              "env.CLAUDE_CODE_SUBAGENT_MODEL")
-    set_path(settings, ["env", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"], "1", changes,
-             "env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
+    if args.keep_agent_pins:
+        _, costly = cc.costly_agent_pins(cc.config_dir(), settings)
+        del_path(settings, ["env", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"], changes, "env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
+        if costly:
+            set_path(settings, ["env", "USAGE_GUARD_ACCEPTED_PINS"], ",".join(name for name, _ in costly), changes,
+                     "env.USAGE_GUARD_ACCEPTED_PINS")
+        else:
+            del_path(settings, ["env", "USAGE_GUARD_ACCEPTED_PINS"], changes, "env.USAGE_GUARD_ACCEPTED_PINS")
+    else:
+        set_path(settings, ["env", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"], "1", changes,
+                 "env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
     if args.style != "keep":
         cmd = f"python3 {STATUSLINE} --style {args.style}"
         set_path(settings, ["statusLine", "type"], "command", changes, "statusLine.type")
@@ -81,7 +88,7 @@ def plan_claude_mem(mem, args):
 
 
 def restart_claude_mem_worker():
-    runners = sorted(glob.glob(os.path.join(config_dir(), "plugins/cache/thedotmack/claude-mem/*/scripts/bun-runner.js")))
+    runners = sorted(glob.glob(os.path.join(cc.config_dir(), "plugins/cache/thedotmack/claude-mem/*/scripts/bun-runner.js")))
     if not runners:
         return "claude-mem worker: plugin not found, nothing to restart"
     runner = runners[-1]
@@ -100,6 +107,9 @@ def main(argv=None):
     ap.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--autocompact", type=int, default=200000, help="CLAUDE_CODE_AUTO_COMPACT_WINDOW (100000-1000000)")
     ap.add_argument("--subagent-model", default="sonnet")
+    ap.add_argument("--keep-agent-pins", action="store_true",
+                    help="agents pinned to Opus/Fable/Mythos keep their model: drop CLAUDE_CODE_SUBAGENT_MODEL_FORCE "
+                         "and list the pinned names in USAGE_GUARD_ACCEPTED_PINS (the doctor stops warning about them)")
     ap.add_argument("--style", default="minimal", choices=STYLES + ("keep",), help="status line style, or keep")
     ap.add_argument("--claude-mem-model", default="haiku")
     ap.add_argument("--no-claude-mem", action="store_true", help="leave ~/.claude-mem/settings.json alone")
@@ -108,8 +118,8 @@ def main(argv=None):
         ap.error("--autocompact must be between 100000 and 1000000")
 
     pending = 0
-    settings_path = os.path.join(config_dir(), "settings.json")
-    settings = load_json(settings_path)
+    settings_path = os.path.join(cc.config_dir(), "settings.json")
+    settings = cc.read_json(settings_path, None, strict=True)  # a broken settings file stops here, it is never overwritten
     if settings is None:
         settings = {}
         print(f"{settings_path}: missing, will be created")
@@ -119,12 +129,12 @@ def main(argv=None):
         print("  " + c)
     pending += len(changes)
     if args.apply and changes:
-        save_json(settings_path, settings)
+        cc.write_json_with_backup(settings_path, settings)
 
     mem_path = os.path.expanduser("~/.claude-mem/settings.json")
     mem_changes = []
     if not args.no_claude_mem:
-        mem = load_json(mem_path)
+        mem = cc.read_json(mem_path, None, strict=True)
         if mem is None:
             print(f"{mem_path}: not present, claude-mem step skipped")
         else:
@@ -134,7 +144,7 @@ def main(argv=None):
                 print("  " + c)
             pending += len(mem_changes)
             if args.apply and mem_changes:
-                save_json(mem_path, mem)
+                cc.write_json_with_backup(mem_path, mem)
                 print("  " + restart_claude_mem_worker())
 
     if not args.apply and pending:
