@@ -1,12 +1,89 @@
 {
-  "lastUpdated": "2026-11-02T03:10:46.720762+00:00",
-  "totalJobs": 102,
+  "lastUpdated": "2026-11-03T03:10:06.376523+00:00",
+  "totalJobs": 106,
   "sources": [
     "Anthropic",
     "HackerNews",
     "RemoteOK"
   ],
   "jobs": [
+    {
+      "id": "hn-50344555",
+      "company": "Location: Huntington Beach, CA, USA Remote: Yes Willing to relocate: No Technolo",
+      "position": "Software Engineer",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Fractional CTO and contract work: web apps that do real work (booking, ordering, portals, quoting), modernizing older systems, and shipping faster with AI coding tools without losing quality. Twelve working examples you can click through: https://aiwebcenter.com/work/examples/",
+      "applyUrl": "https://news.ycombinator.com/item?id=50344555",
+      "source": "HackerNews",
+      "sourceUrl": "https://news.ycombinator.com/item?id=50344555",
+      "postedAt": "2026-11-02T22:06:30+00:00",
+      "tags": [
+        "React",
+        "TypeScript",
+        "PostgreSQL",
+        "Claude Code"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "hn-50341328",
+      "company": "Fredrin",
+      "position": "Software Engineer",
+      "location": "REMOTE (US)",
+      "remote": true,
+      "salary": "$130k",
+      "description": "Fredrin is the multiplayer software factory: one app where a team and its AI Workers build software together, and Workers running Claude Code or Codex, on the subscription you already pay for, plan, build, test and merge the work. We build Fredrin with Fredrin: over 1,500 PRs merged last month....",
+      "applyUrl": "https://news.ycombinator.com/item?id=50341328",
+      "source": "HackerNews",
+      "sourceUrl": "https://news.ycombinator.com/item?id=50341328",
+      "postedAt": "2026-11-02T18:30:35+00:00",
+      "tags": [
+        "Claude Code"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "hn-50340134",
+      "company": "Stratirus (a Tennetech company)",
+      "position": "AI Developer",
+      "location": "REMOTE (US only, Central Time hours)",
+      "remote": true,
+      "salary": "$65k",
+      "description": "Our optional take-home is a broken Ubuntu server: a service that won't stay up, a nightly report that hasn't gone out in days, and a disk that keeps filling. Fix it, write a script that heals a fresh box, and build a small read-only MCP tool so an AI agent can check on it. 60 to 90 minutes, unpaid,...",
+      "applyUrl": "https://news.ycombinator.com/item?id=50340134",
+      "source": "HackerNews",
+      "sourceUrl": "https://news.ycombinator.com/item?id=50340134",
+      "postedAt": "2026-11-02T17:19:04+00:00",
+      "tags": [
+        "Docker",
+        "Claude Code",
+        "Copilot"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "anth-5465639008",
+      "company": "Anthropic",
+      "position": "AI Outcomes Manager, Strategic Tech (Spanish-speaking)",
+      "location": "San Francisco, CA | Seattle, WA | New York City, NY | Washington, DC",
+      "remote": false,
+      "salary": "",
+      "description": "Join Anthropic's Customer Success team in a high-visibility & high-impact role driving AI adoption across a small number of strategic accounts in our Enterprise Tech segment. As our dedicated Outcomes AI Manager for Strategic Tech Customers you’ll be their partner and trusted advisor helping them...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5465639008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5465639008",
+      "postedAt": "2026-11-02T02:07:52-05:00",
+      "tags": [
+        "Rust",
+        "Go",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
     {
       "id": "rok-remote-cloud-engineer-automation-smile-digital-health-1137600",
       "company": "Smile Digital Health",

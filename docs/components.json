@@ -50202,8 +50202,8 @@
       "name": "pre-push-review",
       "id": "pre-push-review",
       "type": "plugin",
-      "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-      "version": "1.7.0",
+      "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings; small pushes get a quick panel of the blocking reviewers. Portable, versioned — no per-machine hand-wiring.",
+      "version": "1.8.0",
       "keywords": [
         "code-review",
         "pre-push",
@@ -50276,6 +50276,31 @@
       "mcpServersList": [],
       "installCommand": "/plugin install spa-kit@claude-code-templates",
       "downloads": 0
+    },
+    {
+      "name": "usage-guard",
+      "id": "usage-guard",
+      "type": "plugin",
+      "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace. Hooks cap context per call (main and subagents) and subagent spawns per session. A prompt audit lists unused skills and agents with a skillOverrides block. claude-mem can be paused, resumed and moved to another provider.",
+      "version": "0.4.0",
+      "keywords": [
+        "usage",
+        "tokens",
+        "rate-limit",
+        "statusline",
+        "cost",
+        "subagents",
+        "context-window"
+      ],
+      "author": "",
+      "commands": 0,
+      "agents": 0,
+      "mcpServers": 0,
+      "commandsList": [],
+      "agentsList": [],
+      "mcpServersList": [],
+      "installCommand": "/plugin install usage-guard@claude-code-templates",
+      "downloads": 0
     }
   ],
   "marketplace": {
@@ -50290,8 +50315,8 @@
       {
         "name": "pre-push-review",
         "source": "./plugins/pre-push-review",
-        "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings. Portable, versioned — no per-machine hand-wiring.",
-        "version": "1.7.0",
+        "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings; small pushes get a quick panel of the blocking reviewers. Portable, versioned — no per-machine hand-wiring.",
+        "version": "1.8.0",
         "category": "quality-gates",
         "keywords": [
           "code-review",
@@ -50351,6 +50376,22 @@
           "playwright",
           "design-tokens",
           "site-generator"
+        ]
+      },
+      {
+        "name": "usage-guard",
+        "source": "./plugins/usage-guard",
+        "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace. Hooks cap context per call (main and subagents) and subagent spawns per session. A prompt audit lists unused skills and agents with a skillOverrides block. claude-mem can be paused, resumed and moved to another provider.",
+        "version": "0.4.0",
+        "category": "productivity",
+        "keywords": [
+          "usage",
+          "tokens",
+          "rate-limit",
+          "statusline",
+          "cost",
+          "subagents",
+          "context-window"
         ]
       }
     ]
