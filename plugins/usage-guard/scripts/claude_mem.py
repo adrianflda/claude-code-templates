@@ -16,10 +16,11 @@ How pause works. Every claude-mem hook (PostToolUse observation, PreToolUse
 file context, FileEdit, Stop summary, session init) is a fresh process that
 reads ``~/.claude-mem/settings.json`` and skips the project when its cwd
 matches a glob in ``CLAUDE_MEM_EXCLUDED_PROJECTS`` (anchored; ``**`` matches
-every path). ``pause`` sets that key to ``**`` and keeps the previous value in
-``<dir>/usage-guard-pause.json``; ``resume`` puts it back. It takes effect in
-running sessions too, keeps the worker and the memory search tools up, and
-touches no plugin file. The session-start context injection makes no model
+every path). ``pause`` first keeps the previous value in
+``<dir>/usage-guard-pause.json``, then sets that key to ``**``; ``resume`` puts
+it back and removes the file (a pause file without ``**`` in the settings is
+stale and is just removed). It takes effect in running sessions too, keeps the
+worker and the memory search tools up, and touches no plugin file. The session-start context injection makes no model
 call and keeps working.
 
 ``provider`` writes ``CLAUDE_MEM_PROVIDER`` (and that provider's model with
@@ -33,7 +34,6 @@ Every write first copies settings.json to ``settings.json.bak-<timestamp>``.
 import argparse
 import json
 import os
-import shutil
 import sys
 import time
 import urllib.request
@@ -41,6 +41,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from apply import restart_claude_mem_worker  # noqa: E402
+from claude_config import write_json_with_backup  # noqa: E402
 
 PAUSE_PATTERN = "**"
 PAUSE_FILE = "usage-guard-pause.json"
@@ -70,12 +71,7 @@ def load(mem_dir):
 
 
 def save(mem_dir, data):
-    path = settings_path(mem_dir)
-    if os.path.exists(path):
-        shutil.copy2(path, f"{path}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    write_json_with_backup(settings_path(mem_dir), data)
 
 
 def pause_file(mem_dir):
@@ -127,12 +123,23 @@ def pause(mem_dir, mem):
     if is_paused(mem_dir, mem):
         return 0, ["claude-mem is already paused"]
     previous = mem.get("CLAUDE_MEM_EXCLUDED_PROJECTS") or ""
-    # Settings first: if that write fails nothing is paused, and no sidecar is left to say otherwise.
-    mem["CLAUDE_MEM_EXCLUDED_PROJECTS"] = PAUSE_PATTERN
-    save(mem_dir, mem)
-    with open(pause_file(mem_dir), "w", encoding="utf-8") as f:
+    # Sidecar first: the previous list is on disk before anything is paused. If the sidecar
+    # cannot be written nothing changes; if the settings write fails the sidecar is removed
+    # again, so there is never a pause without its sidecar nor a sidecar without a pause.
+    path = pause_file(mem_dir)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump({"paused_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "previous": previous}, f, indent=2)
         f.write("\n")
+    mem["CLAUDE_MEM_EXCLUDED_PROJECTS"] = PAUSE_PATTERN
+    try:
+        save(mem_dir, mem)
+    except BaseException:
+        mem["CLAUDE_MEM_EXCLUDED_PROJECTS"] = previous
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise
     return 0, [f"claude-mem paused: CLAUDE_MEM_EXCLUDED_PROJECTS={PAUSE_PATTERN!r} (was {previous!r})",
                "the hooks skip every project from the next tool call on, in running sessions too",
                "memory search and the session context keep working; `resume` restores the list"]
@@ -140,16 +147,20 @@ def pause(mem_dir, mem):
 
 def resume(mem_dir, mem):
     path = pause_file(mem_dir)
-    if os.path.exists(path):
+    sidecar = os.path.exists(path)
+    if not is_paused(mem_dir, mem):
+        if sidecar:
+            os.remove(path)  # left behind by an interrupted pause or a hand edit: nothing to restore
+            return 0, ["claude-mem is not paused (stale pause file removed)"]
+        return 0, ["claude-mem is not paused"]
+    previous = ""
+    if sidecar:
         with open(path, encoding="utf-8") as f:
             previous = (json.load(f).get("previous") or "")
-        os.remove(path)
-    elif is_paused(mem_dir, mem):
-        previous = ""
-    else:
-        return 0, ["claude-mem is not paused"]
     mem["CLAUDE_MEM_EXCLUDED_PROJECTS"] = previous
-    save(mem_dir, mem)
+    save(mem_dir, mem)  # settings first: a failed write keeps the sidecar, so a retry still has the list
+    if sidecar:
+        os.remove(path)
     return 0, [f"claude-mem resumed: CLAUDE_MEM_EXCLUDED_PROJECTS={previous!r}"]
 
 

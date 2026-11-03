@@ -156,6 +156,120 @@ class ApplyTests(unittest.TestCase):
         finally:
             os.environ.pop("CLAUDE_CONFIG_DIR", None)
 
+    def test_apply_never_overwrites_a_malformed_settings_file(self):
+        import apply
+        tmp = tempfile.mkdtemp()
+        os.environ["CLAUDE_CONFIG_DIR"] = tmp
+        old_home = os.environ.get("HOME")
+        os.environ["HOME"] = tmp  # ~/.claude-mem/settings.json lands under tmp
+        try:
+            path = os.path.join(tmp, "settings.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{not json")
+            with redirect_stdout(io.StringIO()):
+                with self.assertRaises(ValueError):
+                    apply.main(["--no-claude-mem", "--apply", "--style", "keep"])
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "{not json", "the broken file is left byte for byte as it was")
+            self.assertEqual(os.listdir(tmp), ["settings.json"], "no backup, no write")
+            # the same guarantee for the claude-mem settings
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{}")
+            mem_dir = os.path.join(tmp, ".claude-mem")
+            os.makedirs(mem_dir)
+            mem_path = os.path.join(mem_dir, "settings.json")
+            with open(mem_path, "w", encoding="utf-8") as f:
+                f.write("{not json")
+            with redirect_stdout(io.StringIO()):
+                with self.assertRaises(ValueError):
+                    apply.main(["--apply", "--style", "keep"])
+            with open(mem_path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "{not json")
+            self.assertEqual(os.listdir(mem_dir), ["settings.json"])
+        finally:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            if old_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = old_home
+
+    def test_keep_agent_pins_records_them_and_drops_force(self):
+        import apply
+        tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(tmp, "agents"))
+        with open(os.path.join(tmp, "agents", "critic.md"), "w") as f:
+            f.write("---\nname: critic\nmodel: claude-opus-5-5\n---\n")
+        with open(os.path.join(tmp, "agents", "dev.md"), "w") as f:
+            f.write("---\nname: dev\nmodel: sonnet\n---\n")
+        with open(os.path.join(tmp, "settings.json"), "w") as f:
+            json.dump({"env": {"CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}}, f)
+        os.environ["CLAUDE_CONFIG_DIR"] = tmp
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = apply.main(["--no-claude-mem", "--style", "keep", "--keep-agent-pins"])
+            self.assertEqual(rc, 3)
+            self.assertIn("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", buf.getvalue())
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(apply.main(["--no-claude-mem", "--apply", "--style", "keep", "--keep-agent-pins"]), 0)
+            with open(os.path.join(tmp, "settings.json")) as f:
+                s = json.load(f)
+            self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", s["env"])
+            self.assertEqual(s["env"]["USAGE_GUARD_ACCEPTED_PINS"], "critic")
+            self.assertEqual(s["env"]["CLAUDE_CODE_SUBAGENT_MODEL"], "sonnet")
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(apply.main(["--no-claude-mem", "--style", "keep", "--keep-agent-pins"]), 0)
+        finally:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+
+    def test_keep_agent_pins_without_costly_agents_drops_the_stale_list(self):
+        import apply
+        tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(tmp, "agents"))
+        with open(os.path.join(tmp, "agents", "dev.md"), "w") as f:
+            f.write("---\nname: dev\nmodel: sonnet\n---\n")
+        with open(os.path.join(tmp, "settings.json"), "w") as f:
+            json.dump({"env": {"CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1", "USAGE_GUARD_ACCEPTED_PINS": "gone"}}, f)
+        os.environ["CLAUDE_CONFIG_DIR"] = tmp
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(apply.main(["--no-claude-mem", "--style", "keep", "--keep-agent-pins"]), 3)
+            self.assertIn("env.USAGE_GUARD_ACCEPTED_PINS: 'gone' -> (removed)", buf.getvalue())
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(apply.main(["--no-claude-mem", "--apply", "--style", "keep", "--keep-agent-pins"]), 0)
+            with open(os.path.join(tmp, "settings.json")) as f:
+                s = json.load(f)
+            self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", s["env"])
+            self.assertNotIn("USAGE_GUARD_ACCEPTED_PINS", s["env"])
+        finally:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+
+    def test_keep_agent_pins_from_settings_that_never_had_force(self):
+        import apply
+        tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(tmp, "agents"))
+        with open(os.path.join(tmp, "agents", "critic.md"), "w") as f:
+            f.write("---\nname: critic\nmodel: claude-opus-5-5\n---\n")
+        with open(os.path.join(tmp, "settings.json"), "w") as f:
+            json.dump({"permissions": {"deny": ["Read(./.env)"]}}, f)
+        os.environ["CLAUDE_CONFIG_DIR"] = tmp
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(apply.main(["--no-claude-mem", "--style", "keep", "--keep-agent-pins"]), 3)
+            self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", buf.getvalue())
+            self.assertIn("env.USAGE_GUARD_ACCEPTED_PINS: None -> 'critic'", buf.getvalue())
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(apply.main(["--no-claude-mem", "--apply", "--style", "keep", "--keep-agent-pins"]), 0)
+            with open(os.path.join(tmp, "settings.json")) as f:
+                s = json.load(f)
+            self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", s["env"])
+            self.assertEqual(s["env"]["USAGE_GUARD_ACCEPTED_PINS"], "critic")
+            self.assertEqual(s["permissions"], {"deny": ["Read(./.env)"]})
+        finally:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+
 
 class DoctorTests(unittest.TestCase):
     def test_runs_on_empty_config(self):

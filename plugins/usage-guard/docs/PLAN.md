@@ -8,7 +8,7 @@ Status legend: done / in progress / next / later.
 |---|---|---|
 | `effortLevel` and every `modelSettings.*.effortLevel` | `medium` | `xhigh` multiplies output tokens on every call |
 | `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `200000` | Stops sessions from living at 800k context |
-| `env.CLAUDE_CODE_SUBAGENT_MODEL` + `_FORCE=1` | `sonnet` | Subagents were 53%; agent files pin Opus/Fable |
+| `env.CLAUDE_CODE_SUBAGENT_MODEL` + `_FORCE=1` | `sonnet` | Subagents were 53%; agent files pin Opus/Fable. `--keep-agent-pins` (0.5.0) drops FORCE and lists the pinned agents in `USAGE_GUARD_ACCEPTED_PINS` instead |
 | `statusLine.command` | `statusline.py --style <style>` | Make the 7-day window visible |
 | `~/.claude-mem/settings.json` `CLAUDE_MEM_MODEL` | `haiku` | Observer was 18% on Sonnet |
 | Open sessions above 400k context | close them | Each call re-reads the whole context |
@@ -58,8 +58,10 @@ claude-mem (`scripts/claude_mem.py`, `/usage-guard mem`): `status`, `pause`,
 exclusion list: every claude-mem hook is a fresh process that reads
 `~/.claude-mem/settings.json` and skips the project when its cwd matches a
 glob in `CLAUDE_MEM_EXCLUDED_PROJECTS` (anchored; `**` matches every path).
-`pause` sets `**` and keeps the previous list in `usage-guard-pause.json`;
-`resume` restores it. Verified on 13.11.0: with the pause active, the
+`pause` writes the previous list to `usage-guard-pause.json` first, then sets
+`**` (a failed settings write removes the file again); `resume` restores the
+list and removes the file, or removes a stale file when nothing is paused.
+Verified on 13.11.0: with the pause active, the
 observation hook logs `Project excluded from tracking, skipping observation`
 and enqueues nothing; the worker and the memory search tools stay up.
 `provider` writes `CLAUDE_MEM_PROVIDER` (+ the provider's model), refuses
@@ -77,6 +79,24 @@ role now (`maintainability`): 30 days of the run log showed neither reported
 above medium. Expected saving per small push: 3 of 7 reviewer calls instead
 of 7 of 8. Not done from the pre-push-review plan's step 4: known non-issues
 from a base-branch `REVIEW.md` (precision, not cost).
+
+## 0.5.0: doctor follow-ups (done)
+
+- `doctor` checks the pre-push-review side: `hook.ai-review.command` set
+  (one read-only `git config` call), the plugin version next to the hook
+  script, and `AI_REVIEW_QUICK_LINES` (0 = whole panel on every push, WARN).
+- `doctor` inside a session (`CLAUDECODE` set) reports `env-drift`: the keys
+  whose live value differs from `settings.env`. INFO only; the fix is a restart.
+  Values are printed only for the doctor's own knobs; any other key is named
+  without its value (it may hold a secret).
+- Accepted pins: `USAGE_GUARD_ACCEPTED_PINS` names the agents that stay on a
+  costly model on purpose; `apply.py --keep-agent-pins` writes it and drops
+  FORCE. `agent-models` then passes instead of warning on every run.
+- `prompt_audit.py --keep NAME` for the skills a CLAUDE.md declares mandatory.
+- `claude_mem.py pause` writes its sidecar before the settings (see phase 4).
+- `scripts/claude_config.py` holds the config-dir, JSON-with-backup, plugin and
+  frontmatter helpers the four scripts used to copy; `CLAUDE_CONFIG_DIR` is
+  read at call time, so tests and callers can redirect it without a reload.
 
 ## Replicating on another machine
 

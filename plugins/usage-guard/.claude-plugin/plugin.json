@@ -1,7 +1,7 @@
 {
   "name": "usage-guard",
-  "version": "0.4.0",
-  "description": "Keeps a Claude Code subscription inside its weekly limit. Ships a price-weighted usage report built from the local transcripts (by kind, model, session and subagent), a read-only configuration doctor that flags plan-draining settings (effort, auto-compact window, subagent model, costly agent pins, prompt load, oversized CLAUDE.md, claude-mem provider) and a status line with four styles that shows context size, the 5-hour and 7-day limits and the burn pace against a linear week. Hooks deny tools and block prompts past a context limit (main session and subagents), cap subagent spawns per session and brief every subagent on its budget. A prompt audit hides unused skills from the model; claude-mem can be paused, resumed and moved to another provider.",
+  "version": "0.5.0",
+  "description": "Keeps a Claude Code subscription inside its weekly limit. Ships a price-weighted usage report built from the local transcripts (by kind, model, session and subagent), a read-only configuration doctor that flags plan-draining settings (effort, auto-compact window, subagent model, costly agent pins unless accepted on purpose, prompt load, oversized CLAUDE.md, claude-mem provider, the pre-push-review hook and quick-mode knob, session env drift) and a status line with four styles that shows context size, the 5-hour and 7-day limits and the burn pace against a linear week. Hooks deny tools and block prompts past a context limit (main session and subagents), cap subagent spawns per session and brief every subagent on its budget. A prompt audit hides unused skills from the model; claude-mem can be paused, resumed and moved to another provider.",
   "author": {
     "name": "Adrian"
   },

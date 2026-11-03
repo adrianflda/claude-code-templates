@@ -13,57 +13,37 @@ Override values (verified in the Claude Code 2.1.316 binary): ``on``, ``off``,
 prompt, but ``/name`` still works). The default suggestion is
 ``user-invocable-only`` because it cannot break anything; ``--mode off`` removes
 the skill entirely. Keys are the skill name, prefixed with ``plugin:`` for plugin
-skills. Skills whose file is younger than ``--grace`` days are never suggested.
+skills. Skills whose file is younger than ``--grace`` days are never suggested,
+nor is any skill named with ``--keep`` (one a CLAUDE.md declares mandatory).
 
     python3 -I prompt_audit.py --days 30
     python3 -I prompt_audit.py --days 30 --json
-    python3 -I prompt_audit.py --apply [--mode off]
+    python3 -I prompt_audit.py --apply [--mode off] [--keep epistemic-discipline]
 """
 import argparse
 import glob
 import json
 import os
 import re
-import shutil
 import sys
 import time
 
-CONFIG = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import claude_config as cc  # noqa: E402
+
 SYNCED_PREFIX = "anthropic-skills:"
-
-
-def read_json(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
 
 
 def frontmatter(path):
     """Return (name, description) from a markdown frontmatter, with fallbacks."""
-    try:
-        with open(path, encoding="utf-8") as f:
-            head = f.read(6000)
-    except OSError:
-        return None, ""
-    name = re.search(r"^name:\s*(.+)$", head, re.M)
-    desc = re.search(r"^description:\s*(.+?)(?=^\w[\w-]*:|^---)", head, re.M | re.S)
-    return (name.group(1).strip().strip('"').strip("'") if name else None,
-            desc.group(1).strip() if desc else "")
+    fm = cc.frontmatter_fields(path)
+    return fm["name"], fm["description"]
 
 
 def enabled_plugin_dirs(settings):
-    dirs = []
-    installed = read_json(os.path.join(CONFIG, "plugins", "installed_plugins.json")).get("plugins", {})
-    for name, on in (settings.get("enabledPlugins") or {}).items():
-        if not on:
-            continue
-        for entry in installed.get(name, []):
-            p = entry.get("installPath")
-            if p and os.path.isdir(p):
-                dirs.append((name.split("@")[0], p))
-    return dirs
+    """Enabled plugins as (name without the marketplace suffix, install dir)."""
+    return [(name.split("@")[0], p) for name, p in cc.enabled_plugin_dirs(settings)]
 
 
 def add_item(items, kind, name, path, scope):
@@ -81,7 +61,7 @@ def add_item(items, kind, name, path, scope):
 
 def inventory(settings, cwd):
     items = []
-    roots = [("user", CONFIG), ("project", os.path.join(cwd, ".claude"))]
+    roots = [("user", cc.config_dir()), ("project", os.path.join(cwd, ".claude"))]
     for scope, root in roots:
         for p in sorted(glob.glob(os.path.join(root, "agents", "*.md"))):
             add_item(items, "agent", frontmatter(p)[0] or os.path.splitext(os.path.basename(p))[0], p, scope)
@@ -167,7 +147,8 @@ def uses_for(item, counts):
     return n
 
 
-def audit(settings, cwd, root, days, mode="user-invocable-only", grace=7, now=None):
+def audit(settings, cwd, root, days, mode="user-invocable-only", grace=7, now=None, keep=()):
+    keep = set(keep or ())
     items = inventory(settings, cwd)
     counts, files = usage(root, days)
     overrides = settings.get("skillOverrides") or {}
@@ -181,7 +162,8 @@ def audit(settings, cwd, root, days, mode="user-invocable-only", grace=7, now=No
                      and not (":" in n and n.split(":", 1)[1] in known))
     synced_used = sorted(n for n in counts["skill"] if n.startswith(SYNCED_PREFIX))
     suggested = {it["name"]: mode for it in items
-                 if it["kind"] == "skill" and it["uses"] == 0 and not it["off"] and not it["new"]}
+                 if it["kind"] == "skill" and it["uses"] == 0 and not it["off"] and not it["new"]
+                 and it["name"] not in keep and it["name"].split(":", 1)[-1] not in keep}
     return {"days": days, "files": files, "mode": mode, "items": items, "unknown": unknown, "synced_used": synced_used,
             "suggested_skill_overrides": suggested,
             "loaded_tokens": sum(it["tokens"] for it in items if not it["off"]),
@@ -221,10 +203,7 @@ def apply_overrides(settings_path, settings, suggested):
     if not suggested:
         return 0
     settings.setdefault("skillOverrides", {}).update(suggested)
-    shutil.copy2(settings_path, f"{settings_path}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-    with open(settings_path, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    cc.write_json_with_backup(settings_path, settings)
     return len(suggested)
 
 
@@ -232,16 +211,19 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--days", type=int, default=30)
     ap.add_argument("--cwd", default=os.getcwd())
-    ap.add_argument("--root", default=os.path.join(CONFIG, "projects"))
+    ap.add_argument("--root", default=os.path.join(cc.config_dir(), "projects"))
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--mode", choices=["user-invocable-only", "off"], default="user-invocable-only",
                     help="override value to suggest (default keeps /name usable)")
     ap.add_argument("--grace", type=int, default=7, help="skip skills whose file is younger than this many days")
     ap.add_argument("--apply", action="store_true", help="merge the suggested skillOverrides into settings.json (backup kept)")
+    ap.add_argument("--keep", action="append", default=[], metavar="NAME",
+                    help="never suggest this skill (repeatable; a plugin skill by its full or bare name)")
     args = ap.parse_args(argv)
-    settings_path = os.path.join(CONFIG, "settings.json")
-    settings = read_json(settings_path)
-    res = audit(settings, args.cwd, args.root, args.days, mode=args.mode, grace=args.grace)
+    settings_path = os.path.join(cc.config_dir(), "settings.json")
+    # --apply writes settings.json back: a broken file must stop here, never be replaced by the merge
+    settings = cc.read_json(settings_path, {}, strict=args.apply) or {}
+    res = audit(settings, args.cwd, args.root, args.days, mode=args.mode, grace=args.grace, keep=args.keep)
     if args.json:
         print(json.dumps(res, indent=2))
     else:
