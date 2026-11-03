@@ -156,6 +156,42 @@ class ApplyTests(unittest.TestCase):
         finally:
             os.environ.pop("CLAUDE_CONFIG_DIR", None)
 
+    def test_apply_never_overwrites_a_malformed_settings_file(self):
+        import apply
+        tmp = tempfile.mkdtemp()
+        os.environ["CLAUDE_CONFIG_DIR"] = tmp
+        old_home = os.environ.get("HOME")
+        os.environ["HOME"] = tmp  # ~/.claude-mem/settings.json lands under tmp
+        try:
+            path = os.path.join(tmp, "settings.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{not json")
+            with redirect_stdout(io.StringIO()):
+                with self.assertRaises(ValueError):
+                    apply.main(["--no-claude-mem", "--apply", "--style", "keep"])
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "{not json", "the broken file is left byte for byte as it was")
+            self.assertEqual(os.listdir(tmp), ["settings.json"], "no backup, no write")
+            # the same guarantee for the claude-mem settings
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{}")
+            mem_dir = os.path.join(tmp, ".claude-mem")
+            os.makedirs(mem_dir)
+            mem_path = os.path.join(mem_dir, "settings.json")
+            with open(mem_path, "w", encoding="utf-8") as f:
+                f.write("{not json")
+            with redirect_stdout(io.StringIO()):
+                with self.assertRaises(ValueError):
+                    apply.main(["--apply", "--style", "keep"])
+            with open(mem_path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "{not json")
+            self.assertEqual(os.listdir(mem_dir), ["settings.json"])
+        finally:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            if old_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = old_home
 
     def test_keep_agent_pins_records_them_and_drops_force(self):
         import apply

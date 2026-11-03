@@ -76,6 +76,10 @@ class DoctorChecksTest(unittest.TestCase):
         r = self.rows(hook=self.fake_hook("1.7.2"))
         self.assertEqual(r["pre-push-review"][0], "INFO")
         self.assertIn("1.8.0", r["pre-push-review"][2])
+        # a two-part version is compared padded, not by tuple length: "1.8" is not older than 1.8.0
+        self.assertEqual(doctor.version_tuple("1.8"), (1, 8, 0))
+        r = self.rows(hook=self.fake_hook("1.8"))
+        self.assertEqual(r["pre-push-review"][0], "PASS", r["pre-push-review"])
 
     def test_env_drift_is_reported_only_inside_claude_code(self):
         self.assertNotIn("env-drift", self.rows(env={"CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}))

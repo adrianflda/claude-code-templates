@@ -1,11 +1,13 @@
 """Tests for scripts/prompt_audit.py against a fake config dir and fake transcripts."""
 import importlib
+import io
 import json
 import os
 import sys
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
@@ -109,6 +111,20 @@ class PromptAuditTest(unittest.TestCase):
         self.assertEqual(saved["skillOverrides"]["already"], "off")
         self.assertEqual(saved["skillOverrides"]["idle-cmd"], "user-invocable-only")
         self.assertTrue(any(f.startswith("settings.json.bak-") for f in os.listdir(self.cfg)))
+
+    def test_apply_never_overwrites_a_malformed_settings_file(self):
+        path = os.path.join(self.cfg, "settings.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("{not json")
+        with redirect_stdout(io.StringIO()):
+            with self.assertRaises(ValueError):
+                self.pa.main(["--apply", "--cwd", self.tmp, "--root", self.root])
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "{not json", "the broken file is left byte for byte as it was")
+        self.assertFalse([n for n in os.listdir(self.cfg) if n.startswith("settings.json.bak-")], "no backup, no write")
+        # the read-only report still runs: a broken settings file only hides enabledPlugins
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(self.pa.main(["--json", "--cwd", self.tmp, "--root", self.root]), 0)
 
     def test_keep_excludes_names_from_suggestions(self):
         res = self.run_audit(keep=["idle-skill", "idle-plugin-skill"])

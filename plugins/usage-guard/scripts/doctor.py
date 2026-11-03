@@ -64,10 +64,13 @@ def hook_plugin_version(command):
 
 
 def version_tuple(version):
+    """'1.8.1' -> (1, 8, 1); padded to three parts so '1.8' compares equal to 1.8.0, not below it."""
     out = []
     for part in str(version).split("."):
         m = re.match(r"\d+", part)
         out.append(int(m.group()) if m else 0)
+    while len(out) < 3:
+        out.append(0)
     return tuple(out)
 
 

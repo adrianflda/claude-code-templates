@@ -221,7 +221,8 @@ def main(argv=None):
                     help="never suggest this skill (repeatable; a plugin skill by its full or bare name)")
     args = ap.parse_args(argv)
     settings_path = os.path.join(cc.config_dir(), "settings.json")
-    settings = cc.read_json(settings_path, {}) or {}
+    # --apply writes settings.json back: a broken file must stop here, never be replaced by the merge
+    settings = cc.read_json(settings_path, {}, strict=args.apply) or {}
     res = audit(settings, args.cwd, args.root, args.days, mode=args.mode, grace=args.grace, keep=args.keep)
     if args.json:
         print(json.dumps(res, indent=2))
