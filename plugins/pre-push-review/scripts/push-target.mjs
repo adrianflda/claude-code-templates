@@ -187,10 +187,14 @@ export function splitCommands(command) {
   return splitWithHeredocs(String(command ?? '')).map((s) => s.text);
 }
 
-/** Text of `$( ... )` and backtick substitutions that sit outside single quotes. */
-function substitutions(text) {
-  const bare = text.replace(/'[^']*'/g, "''");
-  const found = [...bare.matchAll(/`([^`]*)`/g)].map((m) => m[1]);
+/**
+ * `[start, end)` of the inner text of every `$( ... )` and backtick substitution that sits
+ * outside single quotes. The offsets index into `text` itself.
+ */
+export function substitutionSpans(text) {
+  // Blank single-quoted text but keep its length, so offsets stay valid in `text`.
+  const bare = text.replace(/'[^']*'/g, (q) => `'${' '.repeat(q.length - 2)}'`);
+  const spans = [...bare.matchAll(/`([^`]*)`/g)].map((m) => [m.index + 1, m.index + 1 + m[1].length]);
   for (let start = bare.indexOf('$('); start !== -1; ) {
     let depth = 1;
     let end = start + 2;
@@ -199,10 +203,15 @@ function substitutions(text) {
       else if (bare[end] === ')') depth -= 1;
       end += 1;
     }
-    found.push(bare.slice(start + 2, depth ? end : end - 1));
+    spans.push([start + 2, depth ? end : end - 1]);
     start = bare.indexOf('$(', end);
   }
-  return found;
+  return spans;
+}
+
+/** Text of the substitutions in `text`, with single-quoted text emptied. */
+function substitutions(text) {
+  return substitutionSpans(text).map(([s, e]) => text.slice(s, e).replace(/'[^']*'/g, "''"));
 }
 
 /** Index of `push` when tokens[at] is git and its verb is push; otherwise -1. */
