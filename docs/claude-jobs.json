@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-11-04T03:09:25.274633+00:00",
+  "lastUpdated": "2026-11-05T03:10:01.505697+00:00",
   "totalJobs": 103,
   "sources": [
     "Anthropic",
@@ -8,6 +8,48 @@
     "WeWorkRemotely"
   ],
   "jobs": [
+    {
+      "id": "hn-50373706",
+      "company": "ALBERT",
+      "position": "Software Engineer",
+      "location": "REMOTE, ALMOST ANYWHERE",
+      "remote": true,
+      "salary": "$750k",
+      "description": "Consumer fintech, 20M+ users, profitable 4+ years, 3.6-year average tenure. People stay because the work is good and the people are sharp. We hire like a barbell: exceptional builders at the top, exceptional builders at the start, nothing in the middle. NEW GRADS (0 to 2 years out): We don’t care...",
+      "applyUrl": "https://news.ycombinator.com/item?id=50373706",
+      "source": "HackerNews",
+      "sourceUrl": "https://news.ycombinator.com/item?id=50373706",
+      "postedAt": "2026-11-05T01:06:23+00:00",
+      "tags": [
+        "React",
+        "Python",
+        "PostgreSQL",
+        "React Native"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "hn-50365279",
+      "company": "Search Atlas",
+      "position": "Senior Full-Stack Engineer",
+      "location": "REMOTE (anywhere, EST hours)",
+      "remote": true,
+      "salary": "",
+      "description": "We're ~160 people building an AI marketing platform. Our main product, OTTO, runs a site's SEO on its own: it reads live search data and ships the technical and on-page fixes itself. Customers include Autotrader, Hyundai, P&G and Vendasta. Pods are 1 PM and 2-4 engineers. You own your pod's roadmap...",
+      "applyUrl": "https://news.ycombinator.com/item?id=50365279",
+      "source": "HackerNews",
+      "sourceUrl": "https://news.ycombinator.com/item?id=50365279",
+      "postedAt": "2026-11-04T13:31:28+00:00",
+      "tags": [
+        "React",
+        "Next.js",
+        "Python",
+        "Go",
+        "Claude Code",
+        "Django"
+      ],
+      "companyIcon": ""
+    },
     {
       "id": "hn-50357360",
       "company": "Thankly",
@@ -113,6 +155,26 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "rok-remote-tech-lead-ringbook-limited-1137673",
+      "company": "Ringbook Limited",
+      "position": "Tech lead",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "What You’ll Do ãDesign the architecture of the application and make key technical decisions. ãBuild and maintain scalable features across the Ringbook web application. ãIntegrate AI capabilities throughout the platform to create innovative features. ãDevelop clean, responsive, and intuitive...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-tech-lead-ringbook-limited-1137673",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-tech-lead-ringbook-limited-1137673",
+      "postedAt": "2026-11-03T14:53:55+00:00",
+      "tags": [
+        "React",
+        "TypeScript",
+        "PostgreSQL",
+        "AWS"
+      ],
+      "companyIcon": ""
     },
     {
       "id": "hn-50349129",
@@ -632,23 +694,6 @@
       "companyIcon": ""
     },
     {
-      "id": "rok-remote-graphic-designer-video-editor-bluetuskr-1137507",
-      "company": "BlueTuskr",
-      "position": "Graphic Designer & Video Editor",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Description BlueTuskr is a full-service e-commerce growth agency built exclusively for e-commerce brands. We combine paid media, owned media, creative, and analytics to help our clients scale profitably. Our team is made up of specialists who are deeply invested in their craft — and in the success...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-graphic-designer-video-editor-bluetuskr-1137507",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-graphic-designer-video-editor-bluetuskr-1137507",
-      "postedAt": "2026-10-13T00:00:06+00:00",
-      "tags": [
-        "Rust"
-      ],
-      "companyIcon": ""
-    },
-    {
       "id": "anth-5443331008",
       "company": "Anthropic",
       "position": "Manager, Applied AI Architect",
@@ -710,27 +755,6 @@
         "Azure",
         "Claude Code",
         "Cursor"
-      ],
-      "companyIcon": ""
-    },
-    {
-      "id": "rok-remote-product-design-lead-fuel50-1137474",
-      "company": "Fuel50",
-      "position": "Product Design Lead",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Fuel50 is a workforce transformation platform helping organisations understand workforce capability, build skills and enable internal mobility in an AI-driven world. Our products combine skills intelligence, talent marketplace experiences and responsible AI to help people and organisations take...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-product-design-lead-fuel50-1137474",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-product-design-lead-fuel50-1137474",
-      "postedAt": "2026-10-09T08:00:04+00:00",
-      "tags": [
-        "JavaScript",
-        "Rust",
-        "Claude Code",
-        "Cursor",
-        "Copilot"
       ],
       "companyIcon": ""
     },
@@ -1065,27 +1089,6 @@
         "GraphQL"
       ],
       "companyIcon": ""
-    },
-    {
-      "id": "anth-5439830008",
-      "company": "Anthropic",
-      "position": "Applied AI Architect, International Policy",
-      "location": "San Francisco, CA | New York City, NY | Washington, DC",
-      "remote": false,
-      "salary": "",
-      "description": "As a member of the International Policy Applied AI team at Anthropic, you will be a trusted technical advisor to governments, AI Safety Institutes (AISIs), and multilateral institutions. You'll use your technical skills and your experience with government partners to help them understand frontier...",
-      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5439830008",
-      "source": "Anthropic",
-      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5439830008",
-      "postedAt": "2026-09-30T11:40:43-04:00",
-      "tags": [
-        "Python",
-        "Rust",
-        "AWS",
-        "Claude Code",
-        "Anthropic"
-      ],
-      "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
       "id": "anth-5397654008",
@@ -1966,30 +1969,6 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
-      "id": "anth-5157847008",
-      "company": "Anthropic",
-      "position": "Staff+ Software Engineer, Platform",
-      "location": "San Francisco, CA | New York City, NY | Seattle, WA",
-      "remote": false,
-      "salary": "",
-      "description": "We are looking for experienced software engineers to join our Platform organization. We build the foundational primitives that accelerate product development across Anthropic, and own infrastructure and systems that teams depend on to ship reliably and at scale - either internally or by hundreds of...",
-      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5157847008",
-      "source": "Anthropic",
-      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5157847008",
-      "postedAt": "2026-04-08T12:56:33-04:00",
-      "tags": [
-        "Python",
-        "Rust",
-        "AWS",
-        "GCP",
-        "Azure",
-        "Kubernetes",
-        "Claude Code",
-        "Anthropic"
-      ],
-      "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
       "id": "anth-5146298008",
       "company": "Anthropic",
       "position": "Staff+ Software Engineer, Billing Platform",
@@ -2051,6 +2030,26 @@
       "tags": [
         "TypeScript",
         "Python",
+        "Rust",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5096878008",
+      "company": "Anthropic",
+      "position": "Research Product Manager, Labs",
+      "location": "San Francisco, CA | New York City, NY",
+      "remote": false,
+      "salary": "",
+      "description": "As a Research Product Manager for the Labs teams at Anthropic, you will own the ideation and development of new, moonshot products as we advance transformative, safe AI. The Labs team runs Anthropic's most ambitious experiments: new product categories that don't exist yet. The team focuses on...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5096878008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5096878008",
+      "postedAt": "2026-01-26T16:58:37-05:00",
+      "tags": [
         "Rust",
         "AWS",
         "Claude Code",
