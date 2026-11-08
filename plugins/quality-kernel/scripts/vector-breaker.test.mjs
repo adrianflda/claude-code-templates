@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 
-import { runContractProbe, runVectors, validateVectors } from "./vector-breaker.mjs";
+import { runContractProbe, runVectors, validateBatch, validateVector, validateVectors } from "./vector-breaker.mjs";
 
 let server;
 let base;
@@ -108,15 +108,25 @@ test("runVectors: the contract probe runs after every vector and can violate it"
   assert.equal((await runVectors({ vectors: three, blind: blind({ probeCmd: "qk-no-such-command-xyz" }) })).verdict, "INSTRUMENT-BROKEN");
 });
 
-test("runVectors: an invalid vector set is INSTRUMENT-BROKEN before anything runs", async () => {
+// Retargeted by EARS-V3 (spec: specs/qk-breaker-robust-input/spec.md): a per-vector-shaped problem
+// (here, an unknown `cmd` key) used to make the WHOLE batch INSTRUMENT-BROKEN before anything ran.
+// Per EARS-V3/V4 it now excludes only that one vector — the valid vector still runs — and is
+// reported in `dropped`; with only 1 executed result (below MIN_VECTORS) the verdict is
+// BREAKER_INDETERMINATE, not INSTRUMENT-BROKEN. The genuine "nothing runs" guarantee for an
+// actual batch-level problem is covered separately (see "runVectors (EARS-V2)" below).
+test("runVectors (EARS-V3): a per-vector-invalid vector is dropped, not batch-fatal — the valid one still runs", async () => {
   let ran = false;
   const out = await runVectors({
     vectors: [httpVector("INV-1", 1), { ...httpVector("INV-1", 1), cmd: "x" }],
     blind: blind(),
     httpRunner: async () => ((ran = true), { result: "HOLDS" }),
   });
-  assert.equal(out.verdict, "INSTRUMENT-BROKEN");
-  assert.equal(ran, false);
+  assert.equal(out.verdict, "BREAKER_INDETERMINATE");
+  assert.equal(out.executed, 1);
+  assert.equal(out.dropped.length, 1);
+  assert.equal(out.dropped[0].index, 1);
+  assert.match(out.dropped[0].reason, /unknown key/i);
+  assert.equal(ran, true);
 });
 
 test("runVectors: UI vectors go to the UI instrument with the system URL", async () => {
@@ -129,4 +139,126 @@ test("runVectors: UI vectors go to the UI instrument with the system URL", async
   assert.equal(calls[0].invariant, "INV-1");
   assert.deepEqual(calls[0].config, { k: 1 });
   assert.equal(calls[0].spec.assert.cmd, "text");
+});
+
+// --- EARS-V1-V5: per-vector problems drop only that vector and report it in `dropped`;
+// batch-level problems still reject the whole run; excluding every vector still forces
+// INSTRUMENT-BROKEN via EARS-V9's zero-executed rule (D1). The systemUrl below is deliberately
+// not local: the Host/origin scenarios are about the VALIDATION layer, so httpRunner/uiRunner are
+// stubbed and never touch the network or the isLocalTarget gate. ---
+
+const remoteBlind = (extra = {}) => ({
+  qaProcedure: "", invariants: [{ id: "EO-0", expected: "" }], probeCmd: null,
+  systemUrl: "https://mbvs-server-development.example.com", ...extra,
+});
+const okHttpRunner = async ({ invariant }) => ({ invariant, result: "HOLDS" });
+const anchoredHttp = (invariant = "EO-0") => ({ invariant, http: { requests: [{ method: "GET", path: "/" }], expect: { status: 200 } } });
+
+test("validateBatch: batch-level-only rules (EARS-V1)", () => {
+  assert.equal(validateBatch([], blind()), "vectors must be a non-empty array");
+  assert.ok(validateBatch("not an array", blind()));
+  assert.ok(validateBatch(Array.from({ length: 31 }, () => anchoredHttp()), blind()));
+  assert.equal(validateBatch([anchoredHttp()], blind()), null);
+  assert.ok(validateBatch([anchoredHttp()], blind({ systemUrl: "not a url" })));
+});
+
+test("validateVector: per-vector rules only, in the EARS-V4 fixed order", () => {
+  assert.equal(validateVector(anchoredHttp(), remoteBlind()), null);
+  assert.match(validateVector({ invariant: "EO-0" }, remoteBlind()), /http or ui/);
+  assert.match(validateVector({ invariant: "EO-UNDECLARED", http: anchoredHttp().http }, remoteBlind()), /anchored/);
+});
+
+test("runVectors (EARS-V3): one per-vector-invalid vector is dropped and reported, the rest still run", async () => {
+  const cases = [
+    [{ invariant: "EO-0", http: { requests: [{ method: "GET", path: "/", headers: { host: "evil.example.net" } }], expect: { status: 200 } } }, "host"],
+    [{ invariant: "EO-0", ui: { expected: "x", assert: { mode: "text", cmd: "text", args: ["#x"] }, steps: [{ cmd: "goto", args: ["http://other.example.com"] }] } }, "origin"],
+    [{ invariant: "EO-UNDECLARED", http: anchoredHttp().http }, "anchored"],
+  ];
+  for (const [bad, reasonSubstring] of cases) {
+    const vectors = [anchoredHttp(), anchoredHttp(), bad, anchoredHttp()];
+    const out = await runVectors({ vectors, blind: remoteBlind(), httpRunner: okHttpRunner, uiRunner: () => ({ result: "HOLDS" }) });
+    assert.equal(out.executed, 3, JSON.stringify(out));
+    assert.equal(out.dropped.length, 1);
+    assert.equal(out.dropped[0].index, 2);
+    assert.match(out.dropped[0].reason, new RegExp(reasonSubstring, "i"));
+    assert.equal(out.verdict, "BREAKER_PASS");
+  }
+});
+
+test("runVectors (EARS-V5/V9, D1): every vector per-vector-invalid drives executed to 0 — INSTRUMENT-BROKEN", async () => {
+  const bad = { invariant: "EO-0", http: { requests: [{ method: "GET", path: "/", headers: { host: "evil.example.net" } }], expect: { status: 200 } } };
+  const out = await runVectors({ vectors: [bad, bad, bad, bad], blind: remoteBlind(), httpRunner: okHttpRunner });
+  assert.equal(out.executed, 0);
+  assert.equal(out.dropped.length, 4);
+  for (const d of out.dropped) assert.match(d.reason, /host/i);
+  assert.equal(out.verdict, "INSTRUMENT-BROKEN");
+});
+
+test("runVectors (EARS-V6): a Host header matching the system's registrable domain is accepted, not dropped", async () => {
+  const vectors = [
+    { invariant: "EO-0", http: { requests: [{ method: "GET", path: "/", headers: { host: "develop.mbvs-server-development.example.com" } }], expect: { status: 200 } } },
+    anchoredHttp(), anchoredHttp(),
+  ];
+  const out = await runVectors({ vectors, blind: remoteBlind(), httpRunner: okHttpRunner });
+  assert.equal(out.executed, 3);
+  assert.deepEqual(out.dropped, []);
+  assert.equal(out.verdict, "BREAKER_PASS");
+});
+
+test("runVectors (EARS-V6): a Host header outside the registrable domain is dropped, not batch-fatal", async () => {
+  const vectors = [
+    { invariant: "EO-0", http: { requests: [{ method: "GET", path: "/", headers: { host: "mbvs-server-development.example.com.evil.net" } }], expect: { status: 200 } } },
+    anchoredHttp(), anchoredHttp(), anchoredHttp(),
+  ];
+  const out = await runVectors({ vectors, blind: remoteBlind(), httpRunner: okHttpRunner });
+  assert.equal(out.executed, 3);
+  assert.equal(out.dropped.length, 1);
+  assert.equal(out.dropped[0].index, 0);
+  assert.match(out.dropped[0].reason, /host/i);
+  assert.equal(out.verdict, "BREAKER_PASS");
+});
+
+test("runVectors (EARS-V6a): an IP-literal systemUrl requires an exact Host match", async () => {
+  const vectors = [
+    { invariant: "EO-0", http: { requests: [{ method: "GET", path: "/", headers: { host: "evil.0.1" } }], expect: { status: 200 } } },
+    anchoredHttp(), anchoredHttp(), anchoredHttp(),
+  ];
+  const out = await runVectors({ vectors, blind: remoteBlind({ systemUrl: "http://127.0.0.1:9" }), httpRunner: okHttpRunner });
+  assert.equal(out.dropped.length, 1);
+  assert.equal(out.dropped[0].index, 0);
+  assert.match(out.dropped[0].reason, /host/i);
+  assert.equal(out.verdict, "BREAKER_PASS");
+});
+
+test("runVectors (EARS-V6a): a single-label systemUrl ('localhost') requires an exact Host match too", async () => {
+  const vectors = [
+    { invariant: "EO-0", http: { requests: [{ method: "GET", path: "/", headers: { host: "evil.localhost" } }], expect: { status: 200 } } },
+    anchoredHttp(), anchoredHttp(), anchoredHttp(),
+  ];
+  const out = await runVectors({ vectors, blind: remoteBlind({ systemUrl: "http://localhost:9" }), httpRunner: okHttpRunner });
+  assert.equal(out.dropped.length, 1);
+  assert.equal(out.dropped[0].index, 0);
+  assert.match(out.dropped[0].reason, /host/i);
+});
+
+test("runVectors (EARS-V2): a batch-level problem still rejects the whole run", async () => {
+  let ran = false;
+  const vectors = Array.from({ length: 31 }, () => anchoredHttp());
+  const out = await runVectors({ vectors, blind: remoteBlind(), httpRunner: async (a) => ((ran = true), okHttpRunner(a)) });
+  assert.equal(out.verdict, "INSTRUMENT-BROKEN");
+  assert.equal(out.executed, 0);
+  assert.equal(ran, false);
+});
+
+// EARS-V4 step (4) plumbing (carried major #3, design.md): an HTTP vector with no expect and a
+// falsy blind.probeCmd is dropped per-vector, naming "expect"; the rest still run.
+test("runVectors (EARS-V4 step 4): a silent HTTP vector with no contract probe is dropped, not batch-fatal", async () => {
+  const silent = { invariant: "EO-0", http: { requests: [{ method: "GET", path: "/" }] } };
+  const vectors = [silent, anchoredHttp(), anchoredHttp(), anchoredHttp()];
+  const out = await runVectors({ vectors, blind: remoteBlind(), httpRunner: okHttpRunner });
+  assert.equal(out.executed, 3);
+  assert.equal(out.dropped.length, 1);
+  assert.equal(out.dropped[0].index, 0);
+  assert.match(out.dropped[0].reason, /expect/i);
+  assert.equal(out.verdict, "BREAKER_PASS");
 });

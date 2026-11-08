@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 
-import { jsonPointer, runHttpVector, validateHttpSpec } from "./http-probe.mjs";
+import { isAcceptableHost, jsonPointer, runHttpVector, validateHttpSpec } from "./http-probe.mjs";
 
 // A real local system: an in-memory cart with an idempotency bug on POST /cart/items.
 let server;
@@ -57,6 +57,9 @@ test("validateHttpSpec: refuses anything off the system's origin or outside the 
     spec([{ method: "GET", path: "/\\\\example.com" }]),
     spec([{ method: "GET", path: "cart" }]),
     spec([{ method: "TRACE", path: "/" }]),
+    // EARS-V6a: base's hostname (127.0.0.1) is an IP literal, so only an EXACT Host match is
+    // accepted — "example.com" still fails, now because it doesn't match the literal, not because
+    // every Host header is forbidden (that blanket rule is gone, see the EARS-V6/V6a tests below).
     spec([{ method: "GET", path: "/", headers: { host: "example.com" } }]),
     spec([{ method: "GET", path: "/", headers: { "x-a": 1 } }]),
     spec([{ method: "GET", path: "/", shell: "cat /etc/passwd" }]),
@@ -71,6 +74,47 @@ test("validateHttpSpec: refuses anything off the system's origin or outside the 
     spec([{ method: "GET", path: "//a b" }]),
   ];
   for (const s of bad) assert.notEqual(validateHttpSpec(s, base), null, JSON.stringify(s));
+});
+
+// --- EARS-V6/V6a: a Host header is checked against the systemUrl, not blanket-rejected ---
+
+test("isAcceptableHost (EARS-V6 branch a): exactly the systemUrl's own hostname is accepted", () => {
+  assert.equal(isAcceptableHost("mbvs-server-development.example.com", "https://mbvs-server-development.example.com"), true);
+});
+
+test("isAcceptableHost (EARS-V6 branch b): a subdomain of the registrable domain is accepted, an unrelated suffix is not", () => {
+  const url = "https://mbvs-server-development.example.com";
+  assert.equal(isAcceptableHost("develop.mbvs-server-development.example.com", url), true);
+  assert.equal(isAcceptableHost("mbvs-server-development.example.com.evil.net", url), false);
+  assert.equal(isAcceptableHost("mbvs-server-development.example.com:443", url), true); // port stripped
+});
+
+test("isAcceptableHost (EARS-V6a): an IP-literal systemUrl needs an exact Host match, no suffix widening", () => {
+  assert.equal(isAcceptableHost("127.0.0.1", "http://127.0.0.1:9"), true);
+  assert.equal(isAcceptableHost("evil.0.1", "http://127.0.0.1:9"), false); // the naive last-two-labels bug
+});
+
+test("isAcceptableHost (EARS-V6a): an IPv6-bracketed systemUrl needs an exact Host match too", () => {
+  assert.equal(isAcceptableHost("[::1]", "http://[::1]:9"), true);
+  assert.equal(isAcceptableHost("evil.1]", "http://[::1]:9"), false);
+});
+
+test("isAcceptableHost (EARS-V6a): a single-label systemUrl ('localhost') needs an exact Host match too", () => {
+  assert.equal(isAcceptableHost("localhost", "http://localhost:9"), true);
+  assert.equal(isAcceptableHost("evil.localhost", "http://localhost:9"), false);
+});
+
+test("validateHttpSpec (EARS-V6): an accepted Host header no longer makes the request invalid", () => {
+  assert.equal(validateHttpSpec(spec([{ method: "GET", path: "/", headers: { host: "127.0.0.1" } }]), base), null);
+});
+
+// --- EARS-V4 step (3) sub-order (carried major #2, design.md): shape/method/path checks run
+// before the Host loop — a vector failing BOTH wins on the method, pinning the order the code
+// already has (http-probe.mjs's method check precedes its headers loop). ---
+test("validateHttpSpec (EARS-V4 step 3 sub-order): an unknown method wins over a bad Host header", () => {
+  const reason = validateHttpSpec(spec([{ method: "TRACE", path: "/", headers: { host: "evil.net" } }]), base);
+  assert.match(reason, /method/i);
+  assert.doesNotMatch(reason, /host/i);
 });
 
 test("runHttpVector: HOLDS when the last response meets the expectation", async () => {
