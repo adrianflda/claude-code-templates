@@ -13,10 +13,12 @@ const put = (root, p, c) => { const d = join(root, p); mkdirSync(dirname(d), { r
 
 // Org guide (.claude/org-workspace/guide.json) listing `names` as apps, plus tools.json and
 // critical-surface.json for each under .quality-kernel/repos/<name>/ (nothing critical: exit 0 when green).
-export function writeGateConfig(org, names, tools = { verify: `node ${CHECK_FILE}`, productionGlobs: ['**/*.txt'] }) {
+export function writeGateConfig(org, names) {
   put(org, '.claude/org-workspace/guide.json', JSON.stringify({ version: 1, org: 'Org', repos: names.map((name) => ({ name, role: 'app', base: 'main' })), forbidden: [] }));
   for (const name of names) {
-    put(org, `.quality-kernel/repos/${name}/tools.json`, JSON.stringify(tools));
-    put(org, `.quality-kernel/repos/${name}/critical-surface.json`, JSON.stringify({ criticalGlobs: ['critical/**'], safeGlobs: [] }));
+    writeRepoGateFile(org, name, 'tools.json', { verify: `node ${CHECK_FILE}`, productionGlobs: ['**/*.txt'] });
+    writeRepoGateFile(org, name, 'critical-surface.json', { criticalGlobs: ['critical/**'], safeGlobs: [] });
   }
 }
+// One gate config file of repo `name` (tools.json or critical-surface.json), replaced.
+export const writeRepoGateFile = (org, name, file, obj) => put(org, `.quality-kernel/repos/${name}/${file}`, JSON.stringify(obj));

@@ -147,9 +147,11 @@ commits belong to which task.
      greater task id). Command: `qk-gate.mjs --repo <repo> --base <run base_sha> --head <head_sha>
      --org <org> --no-ledger`. `--no-ledger` because the referee's evidence ledger lives inside the
      product repo and resume never writes there (INV-6); the gate reads committed trees, never a worktree.
-   - Gate exit 1 → divergence `gate_red_now` (`{task_id, kind, repo, sha}`) and the task leaves `done`.
-     Exit 0 or 3 (referee green; exit 3 only says a critical surface still needs the live breaker,
-     which `gate_green` never claimed) → consistent. Any other exit or no exit → exit 2 (indeterminate).
+   - Gate exit 1 with its own verdict `fail` → divergence `gate_red_now` (`{task_id, kind, repo, sha}`)
+     and the task leaves `done`. Exit 0 `pass` or exit 3 `blocked-needs-breaker` (referee green; exit 3
+     only says a critical surface still needs the live breaker, which `gate_green` never claimed) →
+     consistent. Anything else — a crash (node exits 1 without a verdict), no exit, a verdict that does
+     not match the exit — → exit 2 (indeterminate).
    - Each run is reported in `regate`: `{repo, task_id, sha, exit, gate}`.
    - Limit: the other green tasks of the same repo (e.g. on other branches) are not re-gated; their
      SHAs are still checked against git in step 2.
@@ -208,5 +210,5 @@ opening the journal for write and writing is not closed against a path swap by a
 ## 9. Slices
 
 - **J1** — `run-journal.mjs` (`append`, `fold`, `resume` read-only reconcile) + INV-1/3/5/6 tests.
-- **J2** — re-gate in `resume` + INV-2/4. Built: `run-journal/regate.mjs`; 9/9 mutants of the re-gate killed.
+- **J2** — re-gate in `resume` + INV-2/4. Built: `run-journal/regate.mjs`; 16/16 mutants of the re-gate killed.
 - **J3** — `develop.md` integration, `QK-Task` trailer, short-lived task subagents, usage doc.

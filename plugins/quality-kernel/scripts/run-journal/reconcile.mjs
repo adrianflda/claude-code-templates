@@ -130,9 +130,8 @@ function unknownTaskCommits(state, dirs, bases) {
 }
 
 // -> { done, continue, blocked: [{ task_id, reason }], divergences, regate } ; throws Indeterminate.
-// The re-gate (§5.3) runs only on a run git already found consistent: a divergence stops the run
-// anyway, and the gate is the costly step (`regate: null` = not run).
-export function reconcile(org, state, { runGate } = {}) {
+// The re-gate (§5.3) runs only on a run git found consistent (`regate: null` = not run).
+export function reconcile(org, state) {
   if (!state.run) throw new Indeterminate('journal has no run_started');
   const dirs = resolveRepos(org, state.run.repos);
   const bases = Object.fromEntries(state.run.repos.map((r) => [r.name, r.base_sha]));
@@ -148,7 +147,8 @@ export function reconcile(org, state, { runGate } = {}) {
   plan.divergences.push(...unknownTaskCommits(state, dirs, bases));
   plan.regate = null;
   if (plan.divergences.length) return plan;
-  const g = regate(org, state, plan, dirs, bases, { runGate, indeterminate: (m) => new Indeterminate(m) });
+  const g = regate(org, state, plan.done, dirs, bases);
+  if (g.error) throw new Indeterminate(g.error);
   plan.regate = g.regate;
   plan.divergences.push(...g.divergences);
   const red = new Set(g.divergences.map((d) => d.task_id));

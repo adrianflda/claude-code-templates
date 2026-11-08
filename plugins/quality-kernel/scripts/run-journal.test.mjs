@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { createExclusive } from './process-safety/lock-store.mjs';
 import { processStart } from './process-safety/lock-liveness.mjs';
 import { emptyState, apply, validate } from './run-journal/schema.mjs';
-import { CHECK, CHECK_FILE, writeGateConfig } from './run-journal/test-fixture.mjs';
+import { CHECK, CHECK_FILE, writeGateConfig, writeRepoGateFile } from './run-journal/test-fixture.mjs';
+import { latestGreens, regate } from './run-journal/regate.mjs';
 
 // Contract: docs/agentic-harness/spec-run-journal.v1.md (§2 location, §3 records, §4 writer, §5 resume,
 // §7 invariants, §8 decisions). Every assertion names the spec clause it checks; exit codes and
@@ -485,8 +486,8 @@ test('INV-2: a commit for a task after its green SHA -> exit 1 (commits_after_gr
 
 // ---- §5.3 / §8.2 re-gate on resume (J2): the real qk-gate, once per repo, at the latest gate_green SHA ----
 
-const surface = (f, criticalGlobs) => writeFileSync(join(f.org, '.quality-kernel', 'repos', 'app', 'critical-surface.json'), JSON.stringify({ criticalGlobs, safeGlobs: [] }));
-const tools = (f, t) => writeFileSync(join(f.org, '.quality-kernel', 'repos', 'app', 'tools.json'), JSON.stringify(t));
+const surface = (f, criticalGlobs) => writeRepoGateFile(f.org, 'app', 'critical-surface.json', { criticalGlobs, safeGlobs: [] });
+const tools = (f, t) => writeRepoGateFile(f.org, 'app', 'tools.json', t);
 // A commit on another branch of `app`, made in the main checkout (which then returns to main).
 function commitOn(f, branch, msg, taskId) {
   const g = gitIn(f.app);
@@ -520,14 +521,41 @@ test('INV-4 RED control: the same journal without the broken file re-gates green
 
 test('§8.2: the gate runs once per repo, at the LATEST gate_green (by gate.at), not per task', () => {
   const f = fixture();
-  const old = commit(f, 'BROKEN', 't1'); // older green on feat/a: would be red, but is not the latest
-  const latest = commitOn(f, 'feat/b', 'fine', 't2');
-  seed(f, started(f), ...lifecycle(old),
-    ...lifecycle(latest, { task_id: 't2', branch: 'feat/b' }).map((r) => (r.gate ? { ...r, gate: { exit: 0, at: '2026-11-07T11:00:00Z' } } : r)));
+  // The latest green is t1 (11:00, on feat/b); t2 is older (10:00), journaled later, has the greater id
+  // and would be red — so picking by id, by journal order or by done order all re-gate the wrong task.
+  const latest = commitOn(f, 'feat/b', 'fine', 't1');
+  const old = commit(f, 'BROKEN', 't2');
+  seed(f, started(f), ...lifecycle(latest, { branch: 'feat/b' }).map((r) => (r.gate ? { ...r, gate: { exit: 0, at: '2026-11-07T11:00:00Z' } } : r)),
+    ...lifecycle(old, { task_id: 't2' }));
   const r = resume(f);
   assert.strictEqual(r.status, 0, r.stdout);
-  assert.deepStrictEqual(json(r).regate, [{ repo: 'app', task_id: 't2', sha: latest, exit: 0, gate: 'pass' }]);
+  assert.deepStrictEqual(json(r).regate, [{ repo: 'app', task_id: 't1', sha: latest, exit: 0, gate: 'pass' }]);
   assert.deepStrictEqual(json(r).done, ['t1', 't2']);
+});
+
+// In-process: the selection rule and the gate answers a real gate cannot be made to give on demand.
+const greenTask = (id, repo, at) => ({ task_id: id, repo, state: 'gate_green', head_sha: id.padEnd(40, '0'), gate: { exit: 0, at } });
+const stateOf = (...ts) => ({ tasks: Object.fromEntries(ts.map((t) => [t.task_id, t])) });
+
+test('§5.3: latest green per repo — equal gate.at goes to the greater task id; repos sorted by name', () => {
+  const s = stateOf(greenTask('ta', 'r2', AT), greenTask('tb', 'r2', AT), greenTask('tc', 'r1', '2026-11-07T09:00:00Z'));
+  assert.deepStrictEqual(latestGreens(s, ['tb', 'ta', 'tc']).map(([repo, t]) => [repo, t.task_id]), [['r1', 'tc'], ['r2', 'tb']]);
+  assert.deepStrictEqual(latestGreens(s, ['ta', 'tb', 'tc']).map(([repo, t]) => [repo, t.task_id]), [['r1', 'tc'], ['r2', 'tb']]);
+});
+
+test('§5.3: only the gate\'s own verdict counts — a crash (exit 1 without fail), no exit, or a mismatched verdict is indeterminate', () => {
+  const s = stateOf(greenTask('t1', 'app', AT));
+  const call = (answer) => regate('/org', s, ['t1'], { app: '/org/app' }, { app: FAKE_SHA }, { runGate: () => answer });
+  const ok = (exit, gate) => ({ regate: [{ repo: 'app', task_id: 't1', sha: s.tasks.t1.head_sha, exit, gate }] });
+  assert.deepStrictEqual(call({ status: 0, json: { gate: 'pass' } }), { ...ok(0, 'pass'), divergences: [] });
+  assert.deepStrictEqual(call({ status: 3, json: { gate: 'blocked-needs-breaker' } }), { ...ok(3, 'blocked-needs-breaker'), divergences: [] });
+  assert.deepStrictEqual(call({ status: 1, json: { gate: 'fail' } }).divergences, [{ task_id: 't1', kind: 'gate_red_now', repo: 'app', sha: s.tasks.t1.head_sha }]);
+  for (const [answer, why] of [
+    [{ status: 1, json: null }, /exit 1, verdict null/], // node's exit code for an uncaught exception
+    [{ status: null, json: null, error: 'killed by SIGKILL' }, /killed by SIGKILL/],
+    [{ status: 0, json: { gate: 'fail' } }, /exit 0, verdict fail/],
+    [{ status: 2, json: { gate: 'indeterminate', notes: ['org config moved'] } }, /org config moved/],
+  ]) assert.match(call(answer).error ?? '', why, JSON.stringify(answer));
 });
 
 test('§5.3: gate exit 3 (referee green, critical surface needs the breaker) is not a divergence', () => {
