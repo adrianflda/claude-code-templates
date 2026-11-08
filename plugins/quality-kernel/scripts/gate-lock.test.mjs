@@ -3,11 +3,11 @@ import { test, after } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, join } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, statSync, chmodSync, lstatSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync, symlinkSync, unlinkSync, statSync, chmodSync, lstatSync, renameSync, linkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { lockPathFor, processStart, classifyLock, acquireLock, defaultLockDir } from './process-safety/gate-lock.mjs';
-import { parseLock, readLock, writeTemp } from './process-safety/lock-store.mjs';
+import { parseLock, readLock, writeTemp, createExclusive } from './process-safety/lock-store.mjs';
 import { newRunId } from './process-safety/proc-tree.mjs';
 import { snapshotTable } from './process-safety/proc-descendants.mjs';
 import { takeOverStale, sweepStale, reapTempFiles } from './process-safety/lock-takeover.mjs';
@@ -251,6 +251,59 @@ test('PT-C6 — takeover puts back a lock that is not the one judged stale, leav
   assert.doesNotThrow(() => takeOverStale(join(dir, 'absent.lock'), judged[0]), 'a lock already gone is not an error');
 });
 
+test('PT-C6 — a racer that judged an old stale record never moves the live lock that replaced it, so a third racer cannot slip in', () => {
+  // harm (observed: six racers, two winners): B renamed away A's fresh live lock; while it was out, C created
+  // its own lock, B's put-back failed with EEXIST, and A and C both ran.
+  const dir = scratch(); const path = join(dir, 'qk-gate-x.lock');
+  const live = { pid: process.pid, lstart: processStart(process.pid), runId: newRunId(), repo: '/r', pgids: [], descendants: [] };
+  const judged = { pid: deadPid(), lstart: 'x', runId: newRunId(), repo: '/r', pgids: [], descendants: [] };
+  const racerC = { pid: process.pid, lstart: processStart(process.pid), runId: newRunId(), repo: '/r', pgids: [], descendants: [] };
+  writeFileSync(path, JSON.stringify(live));
+  const cWins = [];
+  const link = (from, to) => { cWins.push(createExclusive(path, racerC)); linkSync(from, to); };
+  takeOverStale(path, judged, { link, sweep: () => assert.fail('nothing is swept') });
+  cWins.push(createExclusive(path, racerC));
+  assert.deepStrictEqual(cWins.filter(Boolean), [], 'racer C never acquires');
+  assert.deepStrictEqual(readLock(path), live);
+  assert.deepStrictEqual(readdirSync(dir), ['qk-gate-x.lock']);
+});
+
+test('PT-C6 — while another live run holds the takeover token, a racer refuses as active and touches nothing', () => {
+  const { repo } = mkRepo(); const dir = scratch(); const path = lockPathFor(repo, dir);
+  const stale = { pid: deadPid(), lstart: 'x', runId: newRunId(), repo, pgids: [], descendants: [] };
+  const token = { pid: process.pid, lstart: processStart(process.pid), runId: newRunId(), repo: '', pgids: [], descendants: [] };
+  writeFileSync(path, JSON.stringify(stale)); writeFileSync(`${path}.takeover`, JSON.stringify(token));
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, false);
+  assert.match(got.reason, /another gate run is active/);
+  assert.deepStrictEqual(readLock(path), stale);
+  assert.deepStrictEqual(readLock(`${path}.takeover`), token);
+});
+
+test('PT-C6 — a takeover token left by a dead claimer is reaped; the stale lock is then taken over with no residue', () => {
+  const { repo } = mkRepo(); const dir = scratch(); const path = lockPathFor(repo, dir);
+  writeFileSync(path, JSON.stringify({ pid: deadPid(), lstart: 'x', runId: newRunId(), repo, pgids: [], descendants: [] }));
+  writeFileSync(`${path}.takeover`, JSON.stringify({ pid: deadPid(), lstart: 'x', runId: newRunId(), repo: '', pgids: [], descendants: [] }));
+  const runId = newRunId();
+  const got = acquireLock({ repo, runId, dir });
+  assert.strictEqual(got.ok, true, got.reason);
+  assert.deepStrictEqual(readdirSync(dir), [basename(path)]);
+  assert.strictEqual(readLock(path).runId, runId);
+  got.lock.release();
+  assert.deepStrictEqual(readdirSync(dir), []);
+});
+
+test('PT-C6 — a corrupt takeover token refuses the run and is left in place (never guess)', () => {
+  const { repo } = mkRepo(); const dir = scratch(); const path = lockPathFor(repo, dir);
+  const stale = { pid: deadPid(), lstart: 'x', runId: newRunId(), repo, pgids: [], descendants: [] };
+  writeFileSync(path, JSON.stringify(stale)); writeFileSync(`${path}.takeover`, '{corrupt');
+  const got = acquireLock({ repo, runId: newRunId(), dir });
+  assert.strictEqual(got.ok, false);
+  assert.match(got.reason, /takeover token .* unreadable, corrupt or untrusted/);
+  assert.deepStrictEqual(readLock(path), stale);
+  assert.strictEqual(readFileSync(`${path}.takeover`, 'utf8'), '{corrupt');
+});
+
 test('PT-C4 — a recorded group that ignores SIGTERM is still killed on takeover (SIGKILL)', async () => {
   const { repo } = mkRepo(); const dir = scratch(); const env = { ...process.env }; delete env.QK_RUN_ID;
   const c = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{});console.log('r');setTimeout(()=>{},60000)"], { detached: true, stdio: ['ignore', 'pipe', 'ignore'], env });
@@ -438,7 +491,11 @@ test('PT-C15 — takeover restores a moved-aside lock whose lstart differs from 
 test('PT-C15 — if the moved-aside lock cannot be put back, takeover reports it and keeps the record', () => {
   const live = { pid: process.pid, lstart: processStart(process.pid), runId: newRunId(), repo: '/r', pgids: [], descendants: [] };
   const dir = scratch(); const path = join(dir, 'qk-gate-x.lock'); writeFileSync(path, JSON.stringify(live));
-  const out = takeOverStale(path, { pid: deadPid(), lstart: 'x', runId: newRunId(), pgids: [], descendants: [] }, { link: () => { const e = new Error('exists'); e.code = 'EEXIST'; throw e; } });
+  const judged = { pid: deadPid(), lstart: 'x', runId: newRunId(), repo: '/r', pgids: [], descendants: [] };
+  writeFileSync(path, JSON.stringify(judged));
+  // The lock changes between the re-check under the token and the rename (defensive path of PT-C15).
+  const rename = (from, to) => { writeFileSync(from, JSON.stringify(live)); renameSync(from, to); };
+  const out = takeOverStale(path, judged, { rename, link: () => { const e = new Error('exists'); e.code = 'EEXIST'; throw e; } });
   assert.match(out, /could not be restored/);
   assert.ok(readdirSync(dir).some((f) => f.endsWith('.stale')), 'the displaced record is kept, not destroyed');
 });
@@ -450,7 +507,7 @@ test('PT-C15 — the stale run is swept while its record still exists, and the r
   let during;
   const out = takeOverStale(path, held, { sweep: () => { during = readdirSync(dir); } });
   assert.strictEqual(out, null);
-  assert.strictEqual(during.length, 1, 'the claimed record exists during the sweep');
+  assert.deepStrictEqual(during.sort(), [`qk-gate-x.lock.${process.pid}.stale`, 'qk-gate-x.lock.takeover'], 'the claimed record exists during the sweep, under the takeover token');
   assert.deepStrictEqual(readdirSync(dir), [], 'and is gone afterwards');
 });
 
