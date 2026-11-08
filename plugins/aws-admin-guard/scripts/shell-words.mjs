@@ -29,14 +29,17 @@ function lex(line) {
     if (op) { out.push({ op }); i += op.length; continue; }
     let text = '';
     let dynamic = false;
+    let quoted = false; // any quote or backslash: a quoted `do` is a program name, not a reserved word
     while (i < line.length && !' \t'.includes(line[i]) && !OPS.some((o) => line.startsWith(o, i))) {
       const ch = line[i];
       if (ch === "'") {
+        quoted = true;
         const end = line.indexOf("'", i + 1);
         if (end < 0) throw new ShellParseError('unbalanced quote');
         text += line.slice(i + 1, end);
         i = end + 1;
       } else if (ch === '"') {
+        quoted = true;
         // Inside double quotes bash removes the backslash only before $ ` " \ and newline.
         let j = i + 1;
         while (j < line.length && line[j] !== '"') {
@@ -52,6 +55,7 @@ function lex(line) {
         if (j >= line.length) throw new ShellParseError('unbalanced quote');
         i = j + 1;
       } else if (ch === '\\') {
+        quoted = true;
         text += line[i + 1] ?? '';
         i += 2;
       } else if (ch === '$' && line[i + 1] === '(') {
@@ -71,7 +75,7 @@ function lex(line) {
         i++;
       }
     }
-    out.push({ text, dynamic });
+    out.push({ text, dynamic, quoted });
   }
   return out;
 }
@@ -145,9 +149,23 @@ const WRAPPER_VALUE_OPTS = {
   time: new Set(),
 };
 
-/** The words of the program that actually runs (drops sudo/env/xargs/VAR=value prefixes and their options). */
+// Reserved words that only introduce the command after them (`do rm x`, `if grep ...`, `! test`).
+const PREFIX_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', '{']);
+// Reserved words whose simple command runs no program: loop and case headers (their words are only
+// expanded, never executed) and closers. Redirections on them are still read by the caller.
+const NO_PROGRAM = new Set(['for', 'select', 'case', 'done', 'fi', 'esac', '}']);
+
+/** The words of the program that actually runs (drops sudo/env/xargs/VAR=value prefixes and their
+ * options, and shell reserved words); [] when the simple command runs no program. */
 export function unwrap(words) {
   let i = 0;
+  // Reserved words count only in command position: before any assignment or wrapper (`env do` runs a
+  // program named do) and unquoted.
+  while (i < words.length && !words[i].quoted) {
+    if (NO_PROGRAM.has(words[i].text)) return [];
+    if (!PREFIX_WORDS.has(words[i].text)) break;
+    i++;
+  }
   while (i < words.length) {
     const t = words[i].text;
     if (/^\w+=/.test(t)) { i++; continue; }

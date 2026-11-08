@@ -324,6 +324,68 @@ test('reading transcripts, even with > or >= elsewhere in the command, is not a 
   }
 });
 
+/** An absolute script file with `code` in a fresh temp dir. */
+function script(name, code) {
+  const p = join(realpathSync(mkdtempSync(join(tmpdir(), 'aag-script-'))), name);
+  writeFileSync(p, code);
+  return p;
+}
+
+// 2026-11-07: read-only loops and analysis scripts over transcripts were blocked as writes.
+test('shell keywords are not programs: read-only loops over transcripts pass, writes inside them block', () => {
+  const s = session();
+  for (const c of [
+    'cd ~/.claude/projects && for s in a b; do echo $s; done',
+    'cd ~/.claude/projects && for s in a; do f=$(ls -d */${s}*.jsonl | head -1); wc -l "$f"; done',
+    `for f in ${s.path}; do grep -c x "$f"; done`,
+    `if [ -f ${s.path} ]; then wc -l ${s.path}; fi`,
+    `while read l; do echo "$l"; done < ${s.path}`,
+  ]) {
+    assert.equal(bash(s, c).code, 0, `expected PASS: ${c}`);
+  }
+  for (const c of [
+    `for f in ${s.path}; do rm "$f"; done`,
+    'cd ~/.claude/projects && for f in */*.jsonl; do echo x > $f; done',
+    `if true; then cp forged ${s.path}; fi`,
+    `while true; do tee -a ${s.path} < forged; done`,
+    `"do" cat ${s.path}`, // a quoted keyword is a program name, not `do` before `cat`
+    `env do cat ${s.path}`,
+  ]) {
+    assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
+  }
+});
+
+test('an interpreter running a literal absolute script is judged by the script source', () => {
+  const s = session();
+  const reader = script('profile.py', 'import sys\nfor l in open(sys.argv[1]): print(len(l))\n');
+  const writer = script('evil.py', "import sys\nopen(sys.argv[1], 'a').write('x')\n");
+  const globbed = script('p[a].py', 'import sys\nprint(open(sys.argv[1]).read())\n');
+  writeFileSync(join(dirname(globbed), 'pa.py'), "import sys\nopen(sys.argv[1], 'a').write('x')\n");
+  const big = script('big.py', `# ${'x'.repeat(1_000_001)}\nprint(1)\n`);
+  for (const c of [
+    `python3 -I ${reader} ${s.path}`,
+    `python3 ${reader} "$(ls ~/.claude/projects/p/*.jsonl | head -1)"`,
+    `cd ~/.claude/projects && python3 -I ${reader} $(for s in a; do ls */\${s}*.jsonl | head -1; done)`,
+  ]) {
+    assert.equal(bash(s, c).code, 0, `expected PASS: ${c}`);
+  }
+  for (const c of [
+    `python3 -I ${writer} ${s.path}`,
+    `python3 ${big} ${s.path}`, // too large to judge
+    `python3 ${join(dirname(reader), 'missing.py')} ${s.path}`,
+    `python3 profile.py ${s.path}`, // relative: depends on the cwd
+    `python3 "$S" ${s.path}`, // dynamic script name
+    `python3 -m profile ${s.path}`,
+    // python takes the reader as the value of -W and runs the writer
+    `python3 -W ${reader} ${writer} ${s.path}`,
+    // the glob runs pa.py (writes), not the file literally named p[a].py (reads)
+    `python3 ${join(dirname(globbed), 'p[a].py')} ${s.path}`,
+    `python3 ${s.path}`, // the transcript itself as the script
+  ]) {
+    assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
+  }
+});
+
 test('the guarded profile names are configurable', () => {
   const s = session();
   assert.equal(bash(s, 'aws s3 ls --profile breakglass', { AWS_ADMIN_GUARD_PROFILES: 'admin,breakglass' }).code, 2);

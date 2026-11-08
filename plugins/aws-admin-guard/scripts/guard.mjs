@@ -13,10 +13,13 @@
  *     file tools. Reading transcripts is allowed.
  *
  * Limits: a command that reaches the profile indirectly (a script that sets it internally,
- * a variable expanded at run time) is not seen. This guard stops accidents and shortcuts,
+ * a variable expanded at run time) is not seen. A script file handed a transcript is judged by its
+ * own text, so code it imports from elsewhere, or a change to the file after the check, is not seen. This guard stops accidents and shortcuts,
  * not a determined adversary.
  */
 import { config, esc, grantState, humanPrompts } from './consent-core.mjs';
+import { lstatSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, ShellParseError, simpleCommands, unwrap } from './shell-words.mjs';
 
 function readStdin() {
@@ -124,6 +127,28 @@ function transcriptLike(word, transcriptPath) {
     (/\.jsonl$/.test(t) && !/^[/~]/.test(t));
 }
 
+const writingCode = (c) => WRITE_CODE.test(c) || (SPAWNS.test(c) && WRITE_INTENT.test(c));
+// Value-less interpreter flags that may precede a script path (python -I -u -B ...). Anything else
+// before the script (node --import x, python -m mod, -X opt) leaves the code unknown.
+const PRE_SCRIPT_FLAGS = /^-[IuBEsSOqbdv]+$/;
+const MAX_SCRIPT_BYTES = 1_000_000;
+/** The source of the script an interpreter runs, when it can be known before it runs: a literal
+ * absolute (or ~/) path to a regular file of at most 1 MB, preceded only by value-less flags, that is
+ * not itself transcript-like. null = unknown (the caller treats it as a write). */
+function scriptSource(args, hit) {
+  const at = args.findIndex((w) => !PRE_SCRIPT_FLAGS.test(w.text));
+  const w = args[at];
+  // hit() is true for every dynamic word (a glob or expansion may name another file than the text says)
+  if (!w || w.text.startsWith('-') || hit(w)) return null;
+  const path = w.text.startsWith('~/') ? homedir() + w.text.slice(1) : w.text;
+  if (!path.startsWith('/')) return null; // relative to a cwd a `cd` may have changed
+  try {
+    const st = lstatSync(path);
+    if (!st.isFile() || st.size > MAX_SCRIPT_BYTES) return null;
+    return readFileSync(path, 'utf8');
+  } catch { return null; }
+}
+
 function writesIn(command, transcriptPath, depth) {
   const hit = (w) => transcriptLike(w, transcriptPath);
   for (const cmd of simpleCommands(command)) {
@@ -166,8 +191,14 @@ function writesIn(command, transcriptPath, depth) {
       const code = [];
       args.forEach((w, i) => { if (/^-[a-z]*[cep]$|^--eval$/.test(w.text) && args[i + 1]) code.push(args[i + 1].text); });
       if (cmd.heredoc) code.push(cmd.heredoc);
-      if (code.some((c) => WRITE_CODE.test(c) || (SPAWNS.test(c) && WRITE_INTENT.test(c)))) return true;
-      if (!code.length && operands.length && args.some(hit)) return true; // a script file handed a transcript
+      if (code.some(writingCode)) return true;
+      if (!code.length && operands.length && args.some(hit)) {
+        // A script file handed a transcript: judged by its code like inline code when that code can be
+        // read now; otherwise unknown, so a write.
+        const source = scriptSource(args, hit);
+        if (source === null || writingCode(source)) return true;
+        continue;
+      }
       if (!code.length && !operands.length && (WRITE_CODE.test(command) || WRITE_INTENT.test(command))) {
         return true; // code arrives on stdin (`echo ... | python3`): judge the whole command broadly
       }
