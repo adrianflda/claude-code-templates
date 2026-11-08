@@ -113,7 +113,10 @@ human review", not "the code cannot be malicious." Every attack above is reprodu
 Per repo, once, create and **commit** `.quality-kernel/tools.json` (copy `config/tools.example.json`):
 `{ "verify": "npm test", "productionGlobs": ["src/**"], "acceptance": null }` — `verify` is your test
 command (`pytest -q`, `node --test`, ...); `productionGlobs` declares your production source; set
-`verifySetup` (e.g. `npm ci --ignore-scripts`) if the suite needs dependencies. Also commit
+`verifySetup` (e.g. `npm ci --ignore-scripts`) if the suite needs dependencies. With colocated tests
+(`src/x.test.ts` next to `src/x.ts`), add `"productionExclude": ["**/*.test.ts"]` and declare the same
+paths in `testGlobs`; exclude wins over `productionGlobs`, and an excluded path that is not a declared
+test is indeterminate, never skipped. Also commit
 `.quality-kernel/critical-surface.json` (copy `config/critical-surface.example.json` and author its
 globs from the repo's own past incidents). Both are read from the base ref, so they must be committed.
 Then:
