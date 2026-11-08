@@ -1,0 +1,58 @@
+=== step 2 ===
+{"verdict":"BREAKER_PASS","executed":3,"vectors":[1,2,3],"blindInputKeys":["qaProcedure","invariants","probeCmd","systemUrl"]}
+exit=0
+=== step 3 ===
+9:## 1. Context / problem
+13:## 2. Non-goals (explicitly out of scope)
+17:## 3. EARS acceptance criteria
+21:## 4. Gherkin scenarios
+29:## 5. End-to-end QA procedure (UI-only — browser, no internal API)
+30:## 6. External Observable Invariants
+37:## 7. Rollback
+{"verdict":"INSTRUMENT-BROKEN","reason":"qaProcedure is empty — headings found: ## 1. Context / problem | ## 2. Non-goals (explicitly out of scope) | ## 3. EARS acceptance criteria | ## 4. Gherkin scenarios | ## 5. End-to-end QA procedure (UI-only — browser, no internal API) | ## 6. External Observable Invariants | ## 7. Rollback"}
+exit=2
+=== step 4 ===
+{"verdict":"INSTRUMENT-BROKEN","executed":0,"vectors":[{"invariant":"EO-0","result":"INSTRUMENT-BROKEN","reason":"target is not local: http://example.com — the autonomous breaker only drives local test/staging systems"},{"invariant":"EO-0","result":"INSTRUMENT-BROKEN","reason":"target is not local: http://example.com — the autonomous breaker only drives local test/staging systems"},{"invariant":"EO-0","result":"INSTRUMENT-BROKEN","reason":"target is not local: http://example.com — the autonomous breaker only drives local test/staging systems"}],"dropped":[{"index":0,"reason":"requests[0].headers.host is not an accepted Host value: evil.example.net"}],"blindInputKeys":["qaProcedure","invariants","probeCmd","systemUrl"]}
+exit=2
+=== step 5 ===
+{"verdict":"BREAKER_INDETERMINATE","reason":"breaker exited 1 — a verdict from a failed breaker process is not trusted"}
+exit=2
+=== step 5 (retry, same directory so the relative import resolves) ===
+{"verdict":"BREAKER_INDETERMINATE","reason":"breaker exited 1 — a verdict from a failed breaker process is not trusted"}
+exit=2
+=== step 5 (retry 2, .mjs extension) ===
+{"verdict":"INSTRUMENT-BROKEN","executed":0,"vectors":[{"invariant":"EO-0","result":"INSTRUMENT-BROKEN","reason":"target is not local: http://example.com — the autonomous breaker only drives local test/staging systems"},{"invariant":"EO-0","result":"INSTRUMENT-BROKEN","reason":"target is not local: http://example.com — the autonomous breaker only drives local test/staging systems"},{"invariant":"EO-0","result":"INSTRUMENT-BROKEN","reason":"target is not local: http://example.com — the autonomous breaker only drives local test/staging systems"},{"invariant":"EO-0","result":"INSTRUMENT-BROKEN","reason":"target is not local: http://example.com — the autonomous breaker only drives local test/staging systems"}],"dropped":[],"blindInputKeys":["qaProcedure","invariants","probeCmd","systemUrl"]}
+exit=2
+=== step 6 ===
+{"gate":"breaker-indeterminate","refereeGate":{"gate":"blocked-needs-breaker","refereePass":true,"tier":"critical","requiresBreaker":true,"requiresHumanReview":false,"referee":{"pass":true,"evidence":{"verify":"node --test x.test.mjs","toolsSource":{"source":"repo","ref":"010727da2ba01f29222496037f08a3ee678cbde3"},"trustedExit":0,"headExit":0,"acceptance":null,"acceptanceExit":null,"base":"010727da2ba01f29222496037f08a3ee678cbde3","head":"f102ef3457800f660f9fd19d55747eb49cdd005e","overlaidTests":[]},"reason":"verified: base harness × head production green + head-as-is green (re-executed)"},"route":{"tierFloor":"critical","tier":"critical","requiresBreaker":true,"criticalFiles":["src/auth/thing.ts"],"deletedTests":[],"changedTests":[],"reason":"critical surface touched: src/auth/thing.ts","configSource":{"source":"repo","ref":"010727da2ba01f29222496037f08a3ee678cbde3"}},"notes":["CRITICAL surface: the live breaker is required before merge and is NOT enforced in this invocation. Re-run through breaker-gate.mjs with --breaker to enforce it. Exit 3 = do-not-merge until it passes."]},"breaker":{"verdict":"INSTRUMENT-BROKEN","reason":"vectors must be a non-empty array","executed":0,"vectors":[],"blindInputKeys":["qaProcedure","invariants","probeCmd","systemUrl"]},"contractLint":{"ok":true,"anchor":"worktree","declared":["INV-ADD-1","INV-ADD-2"],"checked":["INV-ADD-1","INV-ADD-2"]}}
+exit=2
+{"schemaVersion":1,"ts":"2026-11-08T20:03:37.841Z","verdict":"INSTRUMENT-BROKEN","reason":"vectors must be a non-empty array","contract":"plugins/quality-kernel/scripts/fixtures/m2/contracts/example.md","executed":0}
+=== step 7 (PASS) ===
+exit=0
+file exists: no
+=== step 7 (INDETERMINATE, after re-seeding BROKEN) ===
+seeded, file exists: yes
+exit=2
+file exists: no
+=== step 8 (write failure) ===
+exit=2
+--- stderr ---
+breaker-not-executed record could not be synced: EACCES: permission denied, open '/var/folders/b4/1ckcs4zx2nxg2sp5rwk69gmc0000gn/T/tmp.yLLTxQx9EV/.quality-kernel/breaker-not-executed.json.13427-595f5a1c9eb6.tmp'
+=== step 9 ===
+{"gate":"pass","refereeGate":{"gate":"blocked-needs-breaker","refereePass":true,"tier":"critical","requiresBreaker":true,"requiresHumanReview":false,"referee":{"pass":true,"evidence":{"verify":"node --test x.test.mjs","toolsSource":{"source":"repo","ref":"68b5269582c70f6a7d3056f073a7eb8e37f0f298"},"trustedExit":0,"headExit":0,"acceptance":null,"acceptanceExit":null,"base":"68b5269582c70f6a7d3056f073a7eb8e37f0f298","head":"bdc325694b988c5611bc8f08858876b741ea621c","overlaidTests":[]},"reason":"verified: base harness × head production green + head-as-is green (re-executed)"},"route":{"tierFloor":"critical","tier":"critical","requiresBreaker":true,"criticalFiles":["src/auth/thing.ts"],"deletedTests":[],"changedTests":[],"reason":"critical surface touched: src/auth/thing.ts","configSource":{"source":"repo","ref":"68b5269582c70f6a7d3056f073a7eb8e37f0f298"}},"notes":["CRITICAL surface: the live breaker is required before merge and is NOT enforced in this invocation. Re-run through breaker-gate.mjs with --breaker to enforce it. Exit 3 = do-not-merge until it passes."]},"breaker":{"verdict":"BREAKER_PASS","executed":3,"vectors":[1,2,3],"blindInputKeys":["qaProcedure","invariants","probeCmd","systemUrl"]},"contractLint":{"ok":true,"anchor":"worktree","declared":["EO-0","EO-6"],"checked":["EO-0","EO-6"]}}
+exit=0
+
+=== NOTE on steps 4-5 (OBSERVED discrepancy, not a regression from this slice) ===
+Steps 4 and 5 as literally written use --url http://example.com. The EARS-V6 Host-header
+drop/accept logic itself is OBSERVED correct in both runs (step 4: dropped=[{index:0,
+reason:'...host...'}]; step 5 with the Host edited to sub.example.com: dropped=[]), matching
+the spec's documented Host-header assertion exactly. However the literal 'executed: 3'/
+'executed: 4' + 'overall verdict BREAKER_PASS' text in steps 4/5 cannot be reproduced against
+the real network, because http-probe.mjs's pre-existing, unmodified isLocalTarget gate
+(DEFAULT_LOCAL_PATTERN = '^(?:localhost|127\.0\.0\.1|\[::1\])$|\.test$|\.localhost$',
+scripts/resolvers/gstack-browse.mjs:25, out of this slice's scope) rejects 'example.com' as
+non-local before any request is sent, so every runnable http vector's own result is
+INSTRUMENT-BROKEN ('target is not local'), driving executed to 0 regardless of the Host rule.
+This is intrinsic to combining --url http://example.com with the pre-existing local-only
+boundary; it is not something this slice's EARS-V1-V9 work introduced or can fix without
+touching an out-of-scope file. Reported here rather than silently reproduced as a false match.
