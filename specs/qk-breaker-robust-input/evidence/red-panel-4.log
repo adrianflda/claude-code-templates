@@ -1,0 +1,35 @@
+Item 4 (breaker-gate.test.mjs EARS-M5 chmod test, panel finding LOW): this is a test-robustness
+fix (a false-pass hazard under root), not a production-code bug, so there is no "RED against the
+current behavior" to show in this repo — in this environment (OBSERVED: `id` -> uid=501, no
+passwordless sudo) the test genuinely exercises the chmod write-failure path and passes for real,
+with or without the guard.
+
+Proved the guard is not vacuous by SIMULATING a root uid (no real root available here): a
+throwaway harness overrides process.getuid() to return 0, then imports breaker-gate.test.mjs.
+Result: the EARS-M5 test is reported SKIPPED with the stated reason; the other 13 tests still run
+and pass (13 pass / 0 fail / 1 skipped) — the guard genuinely changes behavior under root instead
+of being dead code.
+breaker-not-executed record could not be synced: simulated crash before rename completes
+breaker-not-executed record could not be synced: simulated rename failure
+✔ breaker-gate — critical + green referee + NO breaker -> exit 3 (still unenforced) (759.020334ms)
+✔ breaker-gate — critical + green referee + breaker PASS -> exit 0 (868.32425ms)
+✔ breaker-gate — critical + green referee + breaker FAIL -> exit 1 (856.655584ms)
+✔ breaker-gate (RED) — a contract with no invariants blocks even with a PASSing breaker (769.574291ms)
+✔ breaker-gate (RED) — a PASSing breaker does NOT clear the human-review cause of exit 3 (858.528666ms)
+✔ breaker-gate (carried major #1) — refereeGate is qk-gate.mjs's own verdict, passed through verbatim (1398.4235ms)
+✔ breaker-gate (EARS-M1) — an INSTRUMENT-BROKEN verdict writes the record atomically and exits 2 (872.48725ms)
+✔ breaker-gate (EARS-M3) — a later BREAKER_INDETERMINATE verdict clears the stale record (exit code still 2) (1650.735375ms)
+✔ breaker-gate (EARS-M3) — a later passing breaker clears the stale record and exits 0 (1660.290708ms)
+✔ breaker-gate (EARS-M4) — a pre-seeded malformed record never affects the gate decision, and is removed on PASS (863.154667ms)
+﹣ breaker-gate (EARS-M5) — a write failure never changes the exit code and is reported on stderr, not thrown (0.042125ms) # running as root: chmod 0o555 does not deny root writes, so this test cannot exercise a real write failure here
+✔ syncNotExecutedRecord (EARS-M1, crash before rename) — an interruption between the temp write and the rename leaves the target untouched, never truncated (4.036833ms)
+✔ syncNotExecutedRecord (EARS-M5, orphan cleanup, RED) — a rename failure unlinks the orphaned temp file (0.701541ms)
+✔ breaker-gate (EARS-M1, concurrency) — two concurrent runs never collide; the record ends up valid, never byte-interleaved (888.698ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 11518.298417

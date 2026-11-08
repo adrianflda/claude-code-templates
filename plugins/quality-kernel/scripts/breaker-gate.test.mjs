@@ -174,7 +174,12 @@ test('breaker-gate (EARS-M4) — a pre-seeded malformed record never affects the
   } finally { [tmp, pass.tmp].forEach((d) => rmSync(d, { recursive: true, force: true })); }
 });
 
-test('breaker-gate (EARS-M5) — a write failure never changes the exit code and is reported on stderr, not thrown', () => {
+// Panel finding (LOW, breaker-gate.test.mjs:163): chmod 0o555 denies writes only for a non-root
+// user — running as root (common in CI containers), chmod-based permission denial has no effect,
+// so writeFileSync would silently succeed and this test would pass without ever exercising the
+// write-failure path it claims to cover. Skip with a clear reason rather than false-passing.
+const runningAsRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+test('breaker-gate (EARS-M5) — a write failure never changes the exit code and is reported on stderr, not thrown', { skip: runningAsRoot && 'running as root: chmod 0o555 does not deny root writes, so this test cannot exercise a real write failure here' }, () => {
   const { tmp, base, head } = criticalRepo();
   mkdirSync(join(tmp, '.quality-kernel'), { recursive: true });
   chmodSync(join(tmp, '.quality-kernel'), 0o555);
