@@ -1,0 +1,66 @@
+✔ contractIds — reads ids from the Invariants table only (1.149708ms)
+✔ acceptanceIds — reads ids referenced by the acceptance suite (0.088417ms)
+✔ diff — flags a missing assertion and an orphan assertion (0.064333ms)
+✔ CLI — the shipped example contract is in lockstep (exit 0) (54.6705ms)
+✔ CLI (RED) — an acceptance suite missing one invariant fails (exit 1) (50.846625ms)
+✔ acceptanceIds (RED) — a bare `// INV-X` comment does NOT satisfy the lockstep (0.060625ms)
+✔ acceptanceIds — executable references still count, and a URL is not read as a comment (0.055125ms)
+✔ diff (RED) — an invariant only mentioned in a comment is reported as missing (0.048292ms)
+✖ contractIds (EARS-H8) — a numbered "## N. ... Invariants" heading with bold ids is recognized (0.981416ms)
+✖ CLI (EARS-H8/INV-14) — the numbered-heading fixture is no longer "no invariants declared" (exit 0) (52.538042ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 8
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 231.392709
+
+✖ failing tests:
+
+test at scripts/contract-lint.test.mjs:66:1
+✖ contractIds (EARS-H8) — a numbered "## N. ... Invariants" heading with bold ids is recognized (0.981416ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   'EO-0'
+  - ]
+  
+      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/contract-lint.test.mjs:68:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ 'EO-0' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/contract-lint.test.mjs:71:1
+✖ CLI (EARS-H8/INV-14) — the numbered-heading fixture is no longer "no invariants declared" (exit 0) (52.538042ms)
+  AssertionError [ERR_ASSERTION]: {"ok":false,"error":"no invariants declared in the contract (## Invariants table)"}
+  
+  2 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/contract-lint.test.mjs:74:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
