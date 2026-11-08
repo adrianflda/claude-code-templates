@@ -231,6 +231,40 @@ test('syncNotExecutedRecord (EARS-M5, orphan cleanup, RED) — a rename failure 
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
+// --- review item A: EARS-M1 says the system SHALL create <repo>/.quality-kernel/ if it does not
+// exist. Every other test above pre-creates the dir (criticalRepo()'s w() calls mkdirSync for
+// tools.json); this is the first test that calls syncNotExecutedRecord against a repo where
+// `.quality-kernel/` genuinely does not exist yet, so a missing mkdir would ENOENT on write(),
+// be swallowed by EARS-M5's catch, and leave the record never written. ---
+test('syncNotExecutedRecord (EARS-M1, RED) — creates .quality-kernel/ when it does not exist yet, then writes the record', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'qk-bgate-nodir-'));
+  try {
+    const dir = join(tmp, '.quality-kernel');
+    assert.ok(!existsSync(dir), 'precondition: the dir does not exist yet');
+    syncNotExecutedRecord(tmp, { verdict: 'INSTRUMENT-BROKEN', reason: 'vectors must be a non-empty array', executed: 0 }, 'c.md');
+    assert.ok(existsSync(dir), 'EARS-M1: the dir must be created');
+    assert.ok(existsSync(notExecutedPath(tmp)));
+    const rec = JSON.parse(readFileSync(notExecutedPath(tmp), 'utf8'));
+    assert.strictEqual(rec.schemaVersion, 1);
+    assert.strictEqual(rec.verdict, 'INSTRUMENT-BROKEN');
+    assert.strictEqual(rec.reason, 'vectors must be a non-empty array');
+    assert.strictEqual(rec.contract, 'c.md');
+    assert.strictEqual(rec.executed, 0);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('syncNotExecutedRecord (EARS-M5) — a directory-creation failure is swallowed, never thrown, never writes the record', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'qk-bgate-mkdirfail-'));
+  try {
+    assert.doesNotThrow(() => {
+      syncNotExecutedRecord(tmp, { verdict: 'INSTRUMENT-BROKEN', reason: 'x', executed: 0 }, 'c.md', {
+        mkdir: () => { throw new Error('simulated mkdir failure'); },
+      });
+    });
+    assert.ok(!existsSync(notExecutedPath(tmp)));
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
 test('breaker-gate (EARS-M1, concurrency) — two concurrent runs never collide; the record ends up valid, never byte-interleaved', async () => {
   const { tmp, base, head } = criticalRepo();
   const broken = stubJson({ verdict: 'INSTRUMENT-BROKEN', reason: 'concurrent', executed: 0, vectors: [] });

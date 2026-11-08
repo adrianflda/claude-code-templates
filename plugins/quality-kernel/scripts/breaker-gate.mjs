@@ -14,7 +14,7 @@
 import { spawnSync } from 'node:child_process';
 import { dirname, join, basename, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { diff as contractDiff } from './contract-lint.mjs';
 import { showAtRef } from './route.mjs';
@@ -36,7 +36,7 @@ export function notExecutedPath(repoDir) { return join(repoDir, '.quality-kernel
 //
 // fs calls are injectable (same pattern as vector-breaker.mjs's uiRunner/httpRunner) so a test can
 // simulate a crash between the temp-file write and the rename without mocking the node:fs module.
-export function syncNotExecutedRecord(repoDir, nestedVerdict, contractPath, { write = writeFileSync, rename = renameSync, unlink = unlinkSync } = {}) {
+export function syncNotExecutedRecord(repoDir, nestedVerdict, contractPath, { write = writeFileSync, rename = renameSync, unlink = unlinkSync, mkdir = mkdirSync } = {}) {
   const target = notExecutedPath(repoDir);
   try {
     if (nestedVerdict && nestedVerdict.verdict === 'INSTRUMENT-BROKEN') {
@@ -48,6 +48,10 @@ export function syncNotExecutedRecord(repoDir, nestedVerdict, contractPath, { wr
         contract: contractPath,
         executed: nestedVerdict.executed ?? 0,
       };
+      // EARS-M1: create <repo>/.quality-kernel/ if it does not exist yet — without this, write()
+      // below fails ENOENT on a repo that has never had the dir created, and EARS-M5's catch
+      // swallows that failure, so the record would silently never be written.
+      mkdir(dirname(target), { recursive: true });
       // Atomic: write to a unique temp file beside the target, then rename — a reader never
       // observes a partial file, and two concurrent runs never share the same temp file.
       const tmpPath = `${target}.${process.pid}-${randomBytes(6).toString('hex')}.tmp`;
