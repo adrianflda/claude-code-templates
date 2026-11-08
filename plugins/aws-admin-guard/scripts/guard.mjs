@@ -151,8 +151,8 @@ const ASSIGNING_EXPANSION = /\$\(\(|\$\[|\$\{[^}]*=/;
  * lowercase variable, or a reserved word -- with no output other than /dev/null. A longer loop name
  * may be special: zsh ties `path` to PATH and keeps `functions`, `aliases`, `commands` (what a name
  * runs) and `fpath`/`module_path` (what it loads); no shell has a one-letter lowercase special. A
- * test/[ argument holding a subscript (X[PATH=0]) is not quiet: bash's test -v evaluates it as
- * arithmetic, which assigns. */
+ * test/[ with a subscript (X[PATH=0]) or any expansion (a glob or $f may expand to one) is not
+ * quiet: bash's test -v evaluates a subscript as arithmetic, which assigns. */
 function quietNeighbors(cmds, self) {
   const absolutePath = (process.env.PATH ?? '').split(':').every((d) => d.startsWith('/'));
   return cmds.every((c) => {
@@ -164,7 +164,8 @@ function quietNeighbors(cmds, self) {
     if (!words.length) return onlyReserved(c.words); // not a bare assignment (PATH=...) or wrapper
     const p = words[0];
     if (p.dynamic && p.text !== '[') return false; // a lone [ is no glob: bash keeps it literal
-    if ((p.text === 'test' || p.text === '[') && words.slice(1).some((w) => w.text !== ']' && w.text.includes('['))) {
+    if ((p.text === 'test' || p.text === '[') &&
+        words.slice(1).some((w) => w.dynamic || (w.text !== ']' && w.text.includes('[')))) {
       return false;
     }
     return p.text === 'cd' ? absolutePath : QUIET_NEIGHBORS.has(p.text);

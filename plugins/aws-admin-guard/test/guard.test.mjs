@@ -512,6 +512,9 @@ test('an interpreter running a literal absolute script is judged by the script s
     // bash's test -v evaluates a subscript as arithmetic, which assigns
     `test -v 'BASH_VERSINFO[PATH=0]'; python3 -I ${reader} ${s.path}`,
     `[ -v 'a[PATH=0]' ]; python3 -I ${reader} ${s.path}`,
+    `test -v *; python3 -I ${reader} ${s.path}`, // a planted file named a[PATH=0] expands there
+    `for f in *; do test -v $f; done; python3 -I ${reader} ${s.path}`,
+    `test * ; python3 -I ${reader} ${s.path}`, // files named -v and a[PATH=0]
     // arithmetic and ${x:=} assign variables wherever they sit: PATH=0 resolves python3 from ./0/
     `echo $((PATH=0)); python3 -I ${reader} ${s.path}`,
     `echo $[PATH=0]; python3 -I ${reader} ${s.path}`,
