@@ -1,0 +1,44 @@
+breaker-not-executed record could not be synced: simulated crash before rename completes
+breaker-not-executed record could not be synced: simulated rename failure
+✔ breaker-gate — critical + green referee + NO breaker -> exit 3 (still unenforced) (756.66675ms)
+✔ breaker-gate — critical + green referee + breaker PASS -> exit 0 (862.461417ms)
+✔ breaker-gate — critical + green referee + breaker FAIL -> exit 1 (856.215875ms)
+✔ breaker-gate (RED) — a contract with no invariants blocks even with a PASSing breaker (760.683417ms)
+✔ breaker-gate (RED) — a PASSing breaker does NOT clear the human-review cause of exit 3 (874.59575ms)
+✔ breaker-gate (carried major #1) — refereeGate is qk-gate.mjs's own verdict, passed through verbatim (1388.917041ms)
+✔ breaker-gate (EARS-M1) — an INSTRUMENT-BROKEN verdict writes the record atomically and exits 2 (872.183416ms)
+✔ breaker-gate (EARS-M3) — a later BREAKER_INDETERMINATE verdict clears the stale record (exit code still 2) (1656.586083ms)
+✔ breaker-gate (EARS-M3) — a later passing breaker clears the stale record and exits 0 (1672.507917ms)
+✔ breaker-gate (EARS-M4) — a pre-seeded malformed record never affects the gate decision, and is removed on PASS (886.532084ms)
+✔ breaker-gate (EARS-M5) — a write failure never changes the exit code and is reported on stderr, not thrown (930.429625ms)
+✔ syncNotExecutedRecord (EARS-M1, crash before rename) — an interruption between the temp write and the rename leaves the target untouched, never truncated (1.607458ms)
+✖ syncNotExecutedRecord (EARS-M5, orphan cleanup, RED) — a rename failure unlinks the orphaned temp file (0.968875ms)
+✔ breaker-gate (EARS-M1, concurrency) — two concurrent runs never collide; the record ends up valid, never byte-interleaved (898.351375ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 13
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12489.097667
+
+✖ failing tests:
+
+test at breaker-gate.test.mjs:215:1
+✖ syncNotExecutedRecord (EARS-M5, orphan cleanup, RED) — a rename failure unlinks the orphaned temp file (0.968875ms)
+  AssertionError [ERR_ASSERTION]: orphaned temp file must be cleaned up on rename failure: 
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:225:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

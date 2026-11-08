@@ -48,7 +48,15 @@ export function syncNotExecutedRecord(repoDir, nestedVerdict, contractPath, { wr
       // observes a partial file, and two concurrent runs never share the same temp file.
       const tmpPath = `${target}.${process.pid}-${randomBytes(6).toString('hex')}.tmp`;
       write(tmpPath, JSON.stringify(record));
-      rename(tmpPath, target);
+      try {
+        rename(tmpPath, target);
+      } catch (renameErr) {
+        // The temp file already exists on disk at this point; a failed rename would otherwise
+        // orphan it permanently (nothing else sweeps these). Best-effort cleanup, errors ignored —
+        // the outer catch below still logs renameErr and keeps the gate's exit code unaffected.
+        try { unlink(tmpPath); } catch { /* best-effort; ignore */ }
+        throw renameErr;
+      }
     } else {
       try { unlink(target); } catch (err) { if (err.code !== 'ENOENT') throw err; }
     }

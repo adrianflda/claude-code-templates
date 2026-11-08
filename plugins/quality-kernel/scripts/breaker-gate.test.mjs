@@ -209,6 +209,23 @@ test('syncNotExecutedRecord (EARS-M1, crash before rename) — an interruption b
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
+// --- panel finding (MEDIUM, breaker-gate.mjs:36): a rename() failure AFTER write() already
+// created the temp file orphans it permanently — nothing else in the codebase sweeps stray
+// `.quality-kernel/breaker-not-executed.json.<pid>-<hex>.tmp` files. ---
+test('syncNotExecutedRecord (EARS-M5, orphan cleanup, RED) — a rename failure unlinks the orphaned temp file', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'qk-bgate-orphan-'));
+  try {
+    mkdirSync(join(tmp, '.quality-kernel'), { recursive: true });
+    let capturedTmpPath = null;
+    syncNotExecutedRecord(tmp, { verdict: 'INSTRUMENT-BROKEN', reason: 'x', executed: 0 }, 'c.md', {
+      write: (p, data) => { capturedTmpPath = p; writeFileSync(p, data); }, // real write, so the temp file genuinely exists on disk
+      rename: () => { throw new Error('simulated rename failure'); },
+    });
+    assert.ok(capturedTmpPath, 'precondition: write() was called with a temp path');
+    assert.ok(!existsSync(capturedTmpPath), `orphaned temp file must be cleaned up on rename failure: ${capturedTmpPath}`);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
 test('breaker-gate (EARS-M1, concurrency) — two concurrent runs never collide; the record ends up valid, never byte-interleaved', async () => {
   const { tmp, base, head } = criticalRepo();
   const broken = stubJson({ verdict: 'INSTRUMENT-BROKEN', reason: 'concurrent', executed: 0, vectors: [] });
