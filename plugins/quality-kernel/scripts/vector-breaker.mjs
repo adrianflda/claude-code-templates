@@ -67,21 +67,40 @@ export function validateBatch(vectors, blind) {
   return null;
 }
 
+// EARS-V4 step (1)/(2): shape/unknown keys, then exactly one of http/ui.
+function vectorShapeError(v) {
+  if (!isObject(v)) return "must be an object";
+  const extra = Object.keys(v).filter((k) => !VECTOR_KEYS.has(k));
+  if (extra.length) return `has unknown key(s): ${extra.join(", ")}`;
+  return ("http" in v) === ("ui" in v) ? "needs exactly one of http or ui" : null;
+}
+
+// EARS-V4 step (4): an HTTP vector with no expect and no contract probe asserts nothing.
+function vectorAssertsNothingError(v, blind) {
+  return "http" in v && !v.http.expect && !blind.probeCmd
+    ? "asserts nothing: add http.expect (there is no contract probe)"
+    : null;
+}
+
+// EARS-V4 step (5): anchoring.
+function vectorAnchorError(v, blind) {
+  const [unanchored] = unanchoredVectors([v], blind.invariants ?? []);
+  return unanchored ? `vector not anchored to a contract invariant: ${unanchored}` : null;
+}
+
 // EARS-V4: a vector's per-vector rules, evaluated in this fixed order, stopping at (and
 // returning) the first failing reason: (1) shape/unknown keys, (2) exactly one of http/ui, (3)
 // the type-specific HTTP/UI rules (method/command sets, origin checks, the Host rule), (4) an
 // HTTP vector with no expect when there is no contract probe, (5) anchoring. null when runnable.
 export function validateVector(v, blind) {
-  if (!isObject(v)) return "must be an object";
-  const extra = Object.keys(v).filter((k) => !VECTOR_KEYS.has(k));
-  if (extra.length) return `has unknown key(s): ${extra.join(", ")}`;
-  if (("http" in v) === ("ui" in v)) return "needs exactly one of http or ui";
-  const why = "http" in v ? validateHttpSpec(v.http, blind.systemUrl) : validateUi(v.ui, blind.systemUrl);
-  if (why) return why;
-  if ("http" in v && !v.http.expect && !blind.probeCmd) return "asserts nothing: add http.expect (there is no contract probe)";
-  const [unanchored] = unanchoredVectors([v], blind.invariants ?? []);
-  if (unanchored) return `vector not anchored to a contract invariant: ${unanchored}`;
-  return null;
+  const shapeError = vectorShapeError(v);
+  if (shapeError) return shapeError;
+  // step (3): the type-specific HTTP/UI rules, dispatched once shape guarantees exactly one key.
+  const typeError = "http" in v ? validateHttpSpec(v.http, blind.systemUrl) : validateUi(v.ui, blind.systemUrl);
+  if (typeError) return typeError;
+  const assertsNothingError = vectorAssertsNothingError(v, blind);
+  if (assertsNothingError) return assertsNothingError;
+  return vectorAnchorError(v, blind);
 }
 
 // Flat diagnostic over BOTH kinds of rule (EARS-V1), batch-level and per-vector, for callers that
