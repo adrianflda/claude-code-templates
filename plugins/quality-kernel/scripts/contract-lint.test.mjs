@@ -81,6 +81,19 @@ test('CLI (EARS-H8/INV-14) — the numbered-heading fixture is no longer "no inv
 // so ordinary uppercase-hyphen prose tokens that are NOT invariant ids at all (`Content-Type`,
 // `UTF-8`) now match too. diff() must not let those become spurious orphanAssertion entries for a
 // contract that only declares INV- ids. ---
+// --- review item B: the declaredPrefixes filter hides a cross-family orphan. A contract that
+// migrated from legacy `INV-` ids to the specifier's `EO-` ids (EARS-H4) can still carry a stale
+// `INV-1` reference in its acceptance suite; declaredPrefixes = {EO} alone silently drops that
+// token before orphanAssertion ever sees it. The accepted prefixes must be the declared prefixes
+// UNION the historical default `INV`, so a stale cross-family id is still flagged. ---
+test('diff (RED) — a contract declaring only EO-0 still flags a stale cross-family INV-1 reference as orphan', () => {
+  const md = '## Invariants\n| id | d | expected |\n| EO-0 | x | 1 |\n\n## QA procedure\n- do it';
+  const src = "test('EO-0 : holds', () => {}); test('INV-1 : stale leftover reference', () => {});";
+  const d = diff(md, src);
+  assert.deepStrictEqual(d.missingAssertion, []);
+  assert.deepStrictEqual(d.orphanAssertion, ['INV-1']);
+});
+
 test('diff (RED) — ordinary uppercase-hyphen tokens (Content-Type, UTF-8) are not treated as referenced ids', () => {
   const md = '## Invariants\n| INV-1 | x | y |\n';
   const src = "test('INV-1: sets Content-Type header and UTF-8 charset correctly', () => {});";

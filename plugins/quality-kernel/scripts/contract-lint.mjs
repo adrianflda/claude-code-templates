@@ -69,7 +69,15 @@ export function diff(md, src) {
   // this contract actually declares — everything else is prose, not a reference, and must not
   // become a spurious orphanAssertion.
   const declaredPrefixes = new Set([...declared].map(idPrefix));
-  const checked = new Set([...acceptanceIds(src)].filter((id) => declaredPrefixes.has(idPrefix(id))));
+  // Review item B: the declared families alone would hide a cross-family orphan — a contract that
+  // migrated from the legacy `INV-` ids to the specifier's own ids (e.g. `EO-`) can still carry a
+  // stale `INV-1` reference in its acceptance suite; declaredPrefixes = {EO} alone would silently
+  // drop that token before orphanAssertion ever saw it. Accept the declared families UNION the
+  // historical default `INV`, so a stale cross-family id is still flagged as an orphan, while a
+  // plain `INV-` contract (every id already in declaredPrefixes) and ordinary prose outside both
+  // families behave exactly as before.
+  const acceptedPrefixes = new Set([...declaredPrefixes, 'INV']);
+  const checked = new Set([...acceptanceIds(src)].filter((id) => acceptedPrefixes.has(idPrefix(id))));
   const missingAssertion = [...declared].filter((id) => !checked.has(id));  // invariant with no check
   const orphanAssertion = [...checked].filter((id) => !declared.has(id));   // check with no invariant
   return { declared: [...declared], checked: [...checked], missingAssertion, orphanAssertion };
