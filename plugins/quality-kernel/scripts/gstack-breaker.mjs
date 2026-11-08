@@ -22,6 +22,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { runProbe } from './gstack-probe.mjs';
 import { buildBlindInput } from './breaker-invoke.mjs';
+import { scanSections, emptySectionReason } from './contract-sections.mjs';
 import { isMain } from './is-main.mjs';
 
 export const MIN_VECTORS = 3;
@@ -53,7 +54,13 @@ export function runBreaker({ contractPath, url, vectorsFile, bin = null, config 
   if (!contractPath || !existsSync(contractPath)) return broken(`contract not found: ${contractPath}`);
   if (!vectorsFile || !existsSync(vectorsFile)) return broken(`vectors not found: ${vectorsFile}`);
 
-  const { invariants } = buildBlindInput(readFileSync(contractPath, 'utf8'), {});
+  const md = readFileSync(contractPath, 'utf8');
+  // EARS-H9: same empty-section guard as breaker-invoke.mjs's EARS-H6 — an empty qaProcedure or
+  // invariants set means the breaker never ran, not "nothing wrong found"; fail closed before even
+  // reading/validating the vectors file.
+  const emptyReason = emptySectionReason(scanSections(md));
+  if (emptyReason) return broken(emptyReason);
+  const { invariants } = buildBlindInput(md, {});
   let vectors;
   try { vectors = JSON.parse(readFileSync(vectorsFile, 'utf8')); } catch (e) { return broken(`bad vectors json: ${e.message}`); }
   if (!Array.isArray(vectors) || vectors.length === 0) return broken('vectors must be a non-empty array');

@@ -152,6 +152,23 @@ test('runBreaker — an unanchored vector is refused → INSTRUMENT-BROKEN (cont
   } finally { rmSync(tmp, { recursive: true, force: true }); rmSync(lt, { recursive: true, force: true }); }
 });
 
+// --- EARS-H9 (INV-15): runBreaker's own empty-section guard, same rule as breaker-invoke.mjs's
+// EARS-H6 — an empty qaProcedure/invariants is reported as INSTRUMENT-BROKEN BEFORE validating or
+// running the vectors file, instead of proceeding (today's gap, OBSERVED proceeds-to-validate). ---
+test('runBreaker (EARS-H9) — an empty QA-procedure section is INSTRUMENT-BROKEN before vectors run', () => {
+  const emptyQa = ['# Contract', '## Invariants', '| INV-UI-1 | x | 5 |', '## QA procedure', ''].join('\n');
+  const dir = mkdtempSync(join(tmpdir(), 'qk-brk-h9-'));
+  const c = join(dir, 'contract.md');
+  const v = join(dir, 'vectors.json');
+  writeFileSync(c, emptyQa);
+  writeFileSync(v, JSON.stringify([vec('INV-UI-1', '5'), vec('INV-UI-1', '5'), vec('INV-UI-1', '5')]));
+  try {
+    const out = runBreaker({ contractPath: c, url: 'http://127.0.0.1/', vectorsFile: v, bin: 'this-should-never-run' });
+    assert.strictEqual(out.verdict, 'INSTRUMENT-BROKEN');
+    assert.match(out.reason, /qaProcedure/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('CLI — exit codes map to the verdict (PASS→0)', () => {
   const { tmp, script } = stubBin();
   const { tmp: lt, bin } = launcher(script);
