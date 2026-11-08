@@ -21,7 +21,6 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { runProbe } from './gstack-probe.mjs';
-import { buildBlindInput } from './breaker-invoke.mjs';
 import { scanSections, emptySectionReason } from './contract-sections.mjs';
 import { isMain } from './is-main.mjs';
 
@@ -57,10 +56,10 @@ const broken = (reason) => ({ verdict: 'INSTRUMENT-BROKEN', reason });
 // success, { error } on failure — never both.
 function readContractInvariants(contractPath) {
   if (!contractPath || !existsSync(contractPath)) return { error: `contract not found: ${contractPath}` };
-  const md = readFileSync(contractPath, 'utf8');
-  const emptyReason = emptySectionReason(scanSections(md));
+  const sections = scanSections(readFileSync(contractPath, 'utf8'));
+  const emptyReason = emptySectionReason(sections);
   if (emptyReason) return { error: emptyReason };
-  return { invariants: buildBlindInput(md, {}).invariants };
+  return { invariants: sections.invariants };
 }
 
 // Vectors-side half of runBreaker's preconditions: the file must exist, parse as JSON, and be a
