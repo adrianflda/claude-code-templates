@@ -156,10 +156,15 @@ const anchoredHttp = (invariant = "EO-0") => ({ invariant, http: { requests: [{ 
 
 test("validateBatch: batch-level-only rules (EARS-V1)", () => {
   assert.equal(validateBatch([], blind()), "vectors must be a non-empty array");
-  assert.ok(validateBatch("not an array", blind()));
-  assert.ok(validateBatch(Array.from({ length: 31 }, () => anchoredHttp()), blind()));
+  // Panel finding (LOW, vector-breaker.test.mjs:156): these three used bare `assert.ok(...)`,
+  // only checking the result was truthy — a wrong branch returning the wrong error message (or
+  // the wrong branch's message entirely, e.g. the oversized-array check accidentally returning
+  // the not-an-array message) would still pass. Pinned to the exact reason, matching the
+  // precision the sibling `assert.equal` lines already use.
+  assert.match(validateBatch("not an array", blind()), /non-empty array/);
+  assert.match(validateBatch(Array.from({ length: 31 }, () => anchoredHttp()), blind()), /at most 30 vectors/);
   assert.equal(validateBatch([anchoredHttp()], blind()), null);
-  assert.ok(validateBatch([anchoredHttp()], blind({ systemUrl: "not a url" })));
+  assert.match(validateBatch([anchoredHttp()], blind({ systemUrl: "not a url" })), /system URL is not a URL: not a url/);
 });
 
 test("validateVector: per-vector rules only, in the EARS-V4 fixed order", () => {

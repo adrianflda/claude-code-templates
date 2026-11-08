@@ -1,0 +1,30 @@
+✔ validateVectors: accepts anchored HTTP and UI vectors (3.873375ms)
+✔ validateVectors: refuses unanchored, unknown-keyed, mixed or oversized vector sets (0.164083ms)
+✔ validateVectors: UI steps are allowlisted and stay on the system's origin (0.107416ms)
+✔ validateVectors: an unparseable system URL is a validation error, not a crash (0.068083ms)
+✔ validateVectors: an HTTP vector must assert something when there is no contract probe (0.070459ms)
+✔ runVectors: HTTP vectors get the configured local pattern (0.270584ms)
+✔ runContractProbe: exit 0 holds, other exits violate, missing command or timeout is broken (215.960375ms)
+✔ runVectors: BREAKER_PASS needs at least 3 vectors that all hold (26.574625ms)
+✔ runVectors: one violated vector fails the run (3.058833ms)
+✔ runVectors: the contract probe runs after every vector and can violate it (30.781625ms)
+✔ runVectors (EARS-V3): a per-vector-invalid vector is dropped, not batch-fatal — the valid one still runs (0.215333ms)
+✔ runVectors: UI vectors go to the UI instrument with the system URL (0.106916ms)
+✔ validateBatch: batch-level-only rules (EARS-V1) (0.090417ms)
+✔ validateVector: per-vector rules only, in the EARS-V4 fixed order (0.054042ms)
+✔ runVectors (EARS-V3): one per-vector-invalid vector is dropped and reported, the rest still run (0.273ms)
+✔ runVectors (EARS-V5/V9, D1): every vector per-vector-invalid drives executed to 0 — INSTRUMENT-BROKEN (0.125584ms)
+✔ runVectors (EARS-V6): a Host header matching the system's registrable domain is accepted, not dropped (0.058ms)
+✔ runVectors (EARS-V6): a Host header outside the registrable domain is dropped, not batch-fatal (0.056667ms)
+✔ runVectors (EARS-V6a): an IP-literal systemUrl requires an exact Host match (0.066583ms)
+✔ runVectors (EARS-V6a): a single-label systemUrl ('localhost') requires an exact Host match too (0.051708ms)
+✔ runVectors (EARS-V2): a batch-level problem still rejects the whole run (0.043083ms)
+✔ runVectors (EARS-V4 step 4): a silent HTTP vector with no contract probe is dropped, not batch-fatal (0.053625ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 370.419958

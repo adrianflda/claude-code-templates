@@ -1,0 +1,57 @@
+✔ validateVectors: accepts anchored HTTP and UI vectors (3.441584ms)
+✔ validateVectors: refuses unanchored, unknown-keyed, mixed or oversized vector sets (0.143042ms)
+✔ validateVectors: UI steps are allowlisted and stay on the system's origin (0.128417ms)
+✔ validateVectors: an unparseable system URL is a validation error, not a crash (0.084375ms)
+✔ validateVectors: an HTTP vector must assert something when there is no contract probe (0.057709ms)
+✔ runVectors: HTTP vectors get the configured local pattern (0.28575ms)
+✔ runContractProbe: exit 0 holds, other exits violate, missing command or timeout is broken (214.035083ms)
+✔ runVectors: BREAKER_PASS needs at least 3 vectors that all hold (34.791125ms)
+✔ runVectors: one violated vector fails the run (3.494042ms)
+✔ runVectors: the contract probe runs after every vector and can violate it (32.926291ms)
+✔ runVectors (EARS-V3): a per-vector-invalid vector is dropped, not batch-fatal — the valid one still runs (0.195625ms)
+✔ runVectors: UI vectors go to the UI instrument with the system URL (0.111209ms)
+✖ validateBatch: batch-level-only rules (EARS-V1) (0.799625ms)
+✔ validateVector: per-vector rules only, in the EARS-V4 fixed order (0.061708ms)
+✔ runVectors (EARS-V3): one per-vector-invalid vector is dropped and reported, the rest still run (0.256458ms)
+✔ runVectors (EARS-V5/V9, D1): every vector per-vector-invalid drives executed to 0 — INSTRUMENT-BROKEN (0.119459ms)
+✔ runVectors (EARS-V6): a Host header matching the system's registrable domain is accepted, not dropped (0.062417ms)
+✔ runVectors (EARS-V6): a Host header outside the registrable domain is dropped, not batch-fatal (0.065958ms)
+✔ runVectors (EARS-V6a): an IP-literal systemUrl requires an exact Host match (0.056875ms)
+✔ runVectors (EARS-V6a): a single-label systemUrl ('localhost') requires an exact Host match too (0.064125ms)
+✔ runVectors (EARS-V2): a batch-level problem still rejects the whole run (0.043166ms)
+✔ runVectors (EARS-V4 step 4): a silent HTTP vector with no contract probe is dropped, not batch-fatal (0.05775ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 21
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 376.006667
+
+✖ failing tests:
+
+test at vector-breaker.test.mjs:157:1
+✖ validateBatch: batch-level-only rules (EARS-V1) (0.799625ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /at most 30 vectors/. Input:
+  
+  'TEMP-MUTATION wrong branch message'
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/vector-breaker.test.mjs:165:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'TEMP-MUTATION wrong branch message',
+    expected: /at most 30 vectors/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+--- Note: RED produced by a TEMPORARY mutation of validateBatch's two branch messages in
+vector-breaker.mjs (reverted immediately after; `git diff` on that file is empty, confirmed) —
+proof that the new assert.match() oracles are anchored to the exact reason string, not
+tautological. Production code itself had no bug; this is a test-precision strengthening
+(panel finding LOW, vector-breaker.test.mjs:156). ---
