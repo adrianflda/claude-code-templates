@@ -168,7 +168,7 @@ The orchestrator never continues past exit ≠ 0.
 - Each task runs in a **short-lived subagent** that receives only `task_id` + journal path + its
   worktree, and exits after commit + gate. The orchestrator context stays small; the journal is what
   lives for days.
-- Launch guidance in `docs/agentic-harness/usage.v1.md`: long runs under `tmux` + `caffeinate -i`.
+- Launch guidance in `docs/agentic-harness/long-runs.v1.md`: long runs under `tmux` + `caffeinate -i`.
 
 ## 7. External Observable Invariants
 
