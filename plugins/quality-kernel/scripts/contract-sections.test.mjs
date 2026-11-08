@@ -92,6 +92,17 @@ test('EARS-H5: expected is the LAST cell regardless of how many cells are in bet
   assert.deepEqual(s, [{ id: 'INV-A', expected: '42' }]);
 });
 
+// Panel finding (MEDIUM, contract-sections.mjs:27): EARS-H5's escaped-pipe rule had no DIRECT test —
+// the only prior pipe-escaping coverage (above, and contract-sections.prop.mjs) exercised a `\|`
+// INSIDE backticks, where the backtick-protection guard alone already blocks the boundary regardless
+// of the backslash check. This covers an escaped `\|` OUTSIDE backticks, where only the backslash
+// rule can save the cell from being split in two.
+test('EARS-H5: a literal `\\|` OUTSIDE backticks is kept as one cell, not a boundary', () => {
+  const row = '| INV-A | a\\|b | 1 |';
+  const cells = splitRow(row).map((c) => c.trim()).filter((c) => c !== '');
+  assert.deepEqual(cells, ['INV-A', 'a\\|b', '1']);
+});
+
 // --- EARS-H6: empty section fails closed, naming which is empty and listing headings ---
 test('EARS-H6: an empty QA-procedure body is reported as empty, naming headings found', () => {
   const md = ['## 5. End-to-end QA procedure', '', '## 6. External Observable Invariants', '| INV-A | d | 1 |'].join('\n');
