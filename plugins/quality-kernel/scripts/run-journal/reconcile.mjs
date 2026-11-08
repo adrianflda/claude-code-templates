@@ -6,6 +6,7 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { orgRepoDir } from '../org.mjs';
 import { git as journalGit } from './git.mjs';
+import { regate } from './regate.mjs';
 
 // Thrown for anything that makes the verdict unverifiable (exit 2), as opposed to a divergence (exit 1).
 export class Indeterminate extends Error {}
@@ -128,8 +129,10 @@ function unknownTaskCommits(state, dirs, bases) {
   return [...found.keys()].sort().map((id) => ({ task_id: id, kind: 'orphan_commits', commits: [...found.get(id)] }));
 }
 
-// -> { done, continue, blocked: [{ task_id, reason }], divergences } ; throws Indeterminate.
-export function reconcile(org, state) {
+// -> { done, continue, blocked: [{ task_id, reason }], divergences, regate } ; throws Indeterminate.
+// The re-gate (§5.3) runs only on a run git already found consistent: a divergence stops the run
+// anyway, and the gate is the costly step (`regate: null` = not run).
+export function reconcile(org, state, { runGate } = {}) {
   if (!state.run) throw new Indeterminate('journal has no run_started');
   const dirs = resolveRepos(org, state.run.repos);
   const bases = Object.fromEntries(state.run.repos.map((r) => [r.name, r.base_sha]));
@@ -143,5 +146,12 @@ export function reconcile(org, state) {
     else plan.continue.push(t.task_id);
   }
   plan.divergences.push(...unknownTaskCommits(state, dirs, bases));
+  plan.regate = null;
+  if (plan.divergences.length) return plan;
+  const g = regate(org, state, plan, dirs, bases, { runGate, indeterminate: (m) => new Indeterminate(m) });
+  plan.regate = g.regate;
+  plan.divergences.push(...g.divergences);
+  const red = new Set(g.divergences.map((d) => d.task_id));
+  plan.done = plan.done.filter((id) => !red.has(id)); // a task the gate now rejects is not done
   return plan;
 }

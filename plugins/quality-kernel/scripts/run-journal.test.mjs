@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { createExclusive } from './process-safety/lock-store.mjs';
 import { processStart } from './process-safety/lock-liveness.mjs';
 import { emptyState, apply, validate } from './run-journal/schema.mjs';
+import { CHECK, CHECK_FILE, writeGateConfig } from './run-journal/test-fixture.mjs';
 
 // Contract: docs/agentic-harness/spec-run-journal.v1.md (§2 location, §3 records, §4 writer, §5 resume,
 // §7 invariants, §8 decisions). Every assertion names the spec clause it checks; exit codes and
@@ -30,13 +31,15 @@ const json = (r) => JSON.parse(r.stdout);
 const runDirOf = (org) => join(org, '.quality-kernel', 'runs', RUN);
 const journalFile = (org) => join(runDirOf(org), 'journal.jsonl');
 
-// An org folder with one repo `app` (main + branch feat/a) and a linked worktree `app-wt` on feat/a.
+// An org folder with one repo `app` (main + branch feat/a) and a linked worktree `app-wt` on feat/a,
+// gated by the org (guide + tools.json) so that resume can re-run the real gate (§5.3).
 function fixture() {
   const org = realpathSync(mkdtempSync(join(tmpdir(), 'qk-rj-'))); dirs.push(org);
   const app = join(org, 'app'); mkdirSync(app);
   const git = gitIn(app);
   git('init', '-q', '-b', 'main'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
-  writeFileSync(join(app, 'a.txt'), 'a'); git('add', '-A'); git('commit', '-qm', 'init');
+  writeFileSync(join(app, 'a.txt'), 'a'); writeFileSync(join(app, CHECK_FILE), CHECK); git('add', '-A'); git('commit', '-qm', 'init');
+  writeGateConfig(org, ['app']);
   const base = sh(app, 'rev-parse', 'HEAD');
   git('branch', 'feat/a');
   git('worktree', 'add', '-q', join(org, 'app-wt'), 'feat/a');
@@ -248,7 +251,7 @@ test('§2: a run id that is not 16 hex characters is refused (exit 2)', () => {
 test('§2: a symlinked runs directory or journal is refused (exit 2) and nothing is written through it', () => {
   const f = fixture();
   const outside = realpathSync(mkdtempSync(join(tmpdir(), 'qk-rj-out-'))); dirs.push(outside);
-  mkdirSync(join(f.org, '.quality-kernel'));
+  mkdirSync(join(f.org, '.quality-kernel'), { recursive: true }); // holds the org gate config already
   symlinkSync(outside, join(f.org, '.quality-kernel', 'runs'));
   assert.strictEqual(append(f, 0, started(f)).status, 2);
   assert.strictEqual(existsSync(join(outside, RUN)), false);
@@ -448,6 +451,7 @@ test('§5: a consistent run resumes with exit 0 and lists done, continuable and 
   assert.deepStrictEqual(json(r), {
     ok: true, torn_tail: false, done: ['t1'], continue: ['t2'],
     blocked: [{ task_id: 't3', reason: 'needs credentials' }, { task_id: 't4', reason: 'journaled' }], divergences: [],
+    regate: [{ repo: 'app', task_id: 't1', sha, exit: 0, gate: 'pass' }], // §5.3: the real gate, re-run at the green SHA
   });
 });
 
@@ -477,6 +481,104 @@ test('INV-2: a commit for a task after its green SHA -> exit 1 (commits_after_gr
   const r = resume(f);
   assert.strictEqual(r.status, 1, r.stdout);
   assert.deepStrictEqual(json(r).divergences, [{ task_id: 't1', kind: 'commits_after_green', commits: [extra] }]);
+});
+
+// ---- §5.3 / §8.2 re-gate on resume (J2): the real qk-gate, once per repo, at the latest gate_green SHA ----
+
+const surface = (f, criticalGlobs) => writeFileSync(join(f.org, '.quality-kernel', 'repos', 'app', 'critical-surface.json'), JSON.stringify({ criticalGlobs, safeGlobs: [] }));
+const tools = (f, t) => writeFileSync(join(f.org, '.quality-kernel', 'repos', 'app', 'tools.json'), JSON.stringify(t));
+// A commit on another branch of `app`, made in the main checkout (which then returns to main).
+function commitOn(f, branch, msg, taskId) {
+  const g = gitIn(f.app);
+  g('switch', '-q', '-c', branch);
+  writeFileSync(join(f.app, `${msg}.txt`), msg); g('add', '-A'); g('commit', '-qm', msg, '--trailer', `QK-Task: ${taskId}`);
+  const sha = sh(f.app, 'rev-parse', 'HEAD');
+  g('switch', '-q', 'main');
+  return sha;
+}
+
+test('INV-4: journal says green but the gate is red at that SHA now -> exit 1 gate_red_now naming the task, not done', () => {
+  const f = fixture();
+  const sha = commit(f, 'BROKEN', 't1'); // the base check fails on any *.txt containing BROKEN
+  seed(f, started(f), ...lifecycle(sha));
+  const r = resume(f);
+  assert.strictEqual(r.status, 1, r.stdout);
+  const p = json(r);
+  assert.deepStrictEqual(p.divergences, [{ task_id: 't1', kind: 'gate_red_now', repo: 'app', sha }]);
+  assert.deepStrictEqual(p.done, []);
+  assert.deepStrictEqual(p.regate, [{ repo: 'app', task_id: 't1', sha, exit: 1, gate: 'fail' }]);
+});
+
+test('INV-4 RED control: the same journal without the broken file re-gates green (exit 0)', () => {
+  const f = fixture();
+  const sha = commit(f, 'fine', 't1');
+  seed(f, started(f), ...lifecycle(sha));
+  const r = resume(f);
+  assert.strictEqual(r.status, 0, r.stdout);
+  assert.deepStrictEqual(json(r).regate, [{ repo: 'app', task_id: 't1', sha, exit: 0, gate: 'pass' }]);
+});
+
+test('§8.2: the gate runs once per repo, at the LATEST gate_green (by gate.at), not per task', () => {
+  const f = fixture();
+  const old = commit(f, 'BROKEN', 't1'); // older green on feat/a: would be red, but is not the latest
+  const latest = commitOn(f, 'feat/b', 'fine', 't2');
+  seed(f, started(f), ...lifecycle(old),
+    ...lifecycle(latest, { task_id: 't2', branch: 'feat/b' }).map((r) => (r.gate ? { ...r, gate: { exit: 0, at: '2026-11-07T11:00:00Z' } } : r)));
+  const r = resume(f);
+  assert.strictEqual(r.status, 0, r.stdout);
+  assert.deepStrictEqual(json(r).regate, [{ repo: 'app', task_id: 't2', sha: latest, exit: 0, gate: 'pass' }]);
+  assert.deepStrictEqual(json(r).done, ['t1', 't2']);
+});
+
+test('§5.3: gate exit 3 (referee green, critical surface needs the breaker) is not a divergence', () => {
+  const f = fixture();
+  surface(f, ['*.txt']);
+  const sha = commit(f, 'c1', 't1');
+  seed(f, started(f), ...lifecycle(sha));
+  const r = resume(f);
+  assert.strictEqual(r.status, 0, r.stdout);
+  assert.deepStrictEqual(json(r).regate, [{ repo: 'app', task_id: 't1', sha, exit: 3, gate: 'blocked-needs-breaker' }]);
+  assert.deepStrictEqual(json(r).divergences, []);
+});
+
+test('§5.3: a re-gate that cannot decide (gate exit 2) makes resume indeterminate (exit 2), never green', () => {
+  const f = fixture();
+  tools(f, { verify: `node ${CHECK_FILE}`, productionGlobs: ['src/**'] }); // the changed *.txt is unclassifiable
+  const sha = commit(f, 'c1', 't1');
+  seed(f, started(f), ...lifecycle(sha));
+  const r = resume(f);
+  assert.strictEqual(r.status, 2, r.stdout);
+  assert.match(json(r).error, /re-gate of app at [0-9a-f]{40} \(task t1\) is indeterminate/);
+});
+
+test('§5.3: no re-gate on a run git already found divergent (regate: null); no gate without a green task (regate: [])', () => {
+  const f = fixture();
+  const sha = commit(f, 'BROKEN', 't1');
+  seed(f, started(f), ...lifecycle(sha));
+  commit(f, 'c2', 't1'); // commits_after_green
+  const r = resume(f);
+  assert.strictEqual(r.status, 1, r.stdout);
+  assert.strictEqual(json(r).regate, null);
+  assert.deepStrictEqual(json(r).divergences.map((d) => d.kind), ['commits_after_green']);
+  const g = fixture();
+  seed(g, started(g), task('pending'));
+  assert.deepStrictEqual(json(resume(g)).regate, []);
+});
+
+test('INV-2 probe: after a resumed run, `git rev-list <green>..<branch> --grep QK-Task: <id>` is empty', () => {
+  const f = fixture();
+  const sha = commit(f, 'c1', 't1');
+  seed(f, started(f), ...lifecycle(sha), task('pending', { task_id: 't2' }), task('in_progress', { task_id: 't2' }));
+  const r = resume(f);
+  assert.strictEqual(r.status, 0, r.stdout);
+  assert.deepStrictEqual([json(r).done, json(r).continue], [['t1'], ['t2']]); // t1 is done: nothing re-runs it
+  const c2 = commit(f, 'c2', 't2'); // the resumed run goes on with t2 on the same branch, and journals it
+  assert.strictEqual(append(f, 7, task('committed', { task_id: 't2', head_sha: c2 })).status, 0);
+  const probe = (id, green) => sh(f.app, 'rev-list', `${green}..feat/a`, '--grep', `QK-Task: ${id}`);
+  assert.strictEqual(probe('t1', sha), '');
+  const bad = commit(f, 'c3', 't1'); // a run that re-did t1 after resume breaks INV-2 ...
+  assert.strictEqual(probe('t1', sha), bad);
+  assert.deepStrictEqual(json(resume(f)).divergences, [{ task_id: 't1', kind: 'commits_after_green', commits: [bad] }]); // ... and resume says so
 });
 
 test('§5.2: commits for a task without head_sha (crash between commit and journal) -> orphan_commits', () => {
@@ -1046,7 +1148,7 @@ test('§2: when git cannot be run, the org check refuses the append (exit 2) and
   const r = cli(['append', '--org', f.org, '--run', RUN, '--expect-seq', '0', '--record', JSON.stringify(started(f))], { PATH: join(f.org, 'no-bin') });
   assert.strictEqual(r.status, 2, r.stdout + r.stderr);
   assert.match(json(r).error, /cannot run git/);
-  assert.strictEqual(existsSync(join(f.org, '.quality-kernel')), false);
+  assert.strictEqual(existsSync(join(f.org, '.quality-kernel', 'runs')), false);
 });
 
 // ---- review rework 2: git as the oracle cannot be bent by the caller's environment or the repo ----

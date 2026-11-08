@@ -1,6 +1,6 @@
 # Spec — run journal: long-running runs survive a crash (v1, design)
 
-Status: APPROVED (2026-11-07, decisions in §8; §8.4–8.6 added the same day after the J1 quality gate). J1 in progress.
+Status: APPROVED (2026-11-07, decisions in §8; §8.4–8.6 added the same day after the J1 quality gate). J1 and J2 built; J3 in progress.
 
 ## 1. Goal
 
@@ -141,8 +141,20 @@ commits belong to which task.
      → exit 2 by code, not covered by a test.
 3. Re-run `qk-gate.mjs` once per repo on the **latest** `gate_green` SHA (not per task, to bound cost).
    Journal green + gate now red → divergence.
+   - Only when step 2 found no divergence (a divergent run stops anyway; the gate is the costly step):
+     `regate` is `null` when skipped, `[]` when the run has no confirmed green task.
+   - Per repo, among the tasks git confirmed `done`, the one with the latest `gate.at` (ties: the
+     greater task id). Command: `qk-gate.mjs --repo <repo> --base <run base_sha> --head <head_sha>
+     --org <org> --no-ledger`. `--no-ledger` because the referee's evidence ledger lives inside the
+     product repo and resume never writes there (INV-6); the gate reads committed trees, never a worktree.
+   - Gate exit 1 → divergence `gate_red_now` (`{task_id, kind, repo, sha}`) and the task leaves `done`.
+     Exit 0 or 3 (referee green; exit 3 only says a critical surface still needs the live breaker,
+     which `gate_green` never claimed) → consistent. Any other exit or no exit → exit 2 (indeterminate).
+   - Each run is reported in `regate`: `{repo, task_id, sha, exit, gate}`.
+   - Limit: the other green tasks of the same repo (e.g. on other branches) are not re-gated; their
+     SHAs are still checked against git in step 2.
 4. Output a resume plan (JSON): `done` and `continue` (task ids), `blocked` (`{task_id, reason}`),
-   `divergences` (`{task_id, kind, ...}`), `torn_tail`.
+   `divergences` (`{task_id, kind, ...}`), `regate`, `torn_tail`.
    Exit 0 = consistent, continue · 1 = divergence, STOP and report · 2 = indeterminate.
 
 The orchestrator never continues past exit ≠ 0.
@@ -164,9 +176,9 @@ a deliberately broken resume (one that trusts the journal blindly) before it is 
 | ID | Predicate | Probe |
 |---|---|---|
 | INV-1 | After `kill -9` of the orchestrator at any phase, `resume` reports exactly the set of tasks that were `gate_green` before the kill, each with its SHA reachable from its branch. | `run-journal.crash.test.mjs` — fixture org with 2 repos; a scripted orchestrator paused at each step (append or commit) and SIGKILLed there; compare resume against the orchestrator's own log of confirmed appends (not the journal itself) and against git |
-| INV-2 | A task `gate_green` before the crash gets zero new commits after resume. | `git rev-list <green_sha>..<branch> --grep 'QK-Task: <id>'` is empty after a resumed run |
+| INV-2 | A task `gate_green` before the crash gets zero new commits after resume. | `git rev-list <green_sha>..<branch> --grep 'QK-Task: <id>'` is empty after a resumed run (resume lists the task in `done`, never `continue`); a commit that breaks it is reported as `commits_after_green` (`run-journal.test.mjs`, "INV-2 probe") |
 | INV-3 | A torn last line is reported and ignored; it never changes state. | truncate journal mid-line; `resume` exit 0 + `torn_tail: true`; fold equals fold without the line |
-| INV-4 | Journal says green but the SHA is gone or the gate is red → `resume` exits 1 naming the task. | rewrite the fixture branch / break a test at the green SHA |
+| INV-4 | Journal says green but the SHA is gone or the gate is red → `resume` exits 1 naming the task. | rewrite the fixture branch (`sha_unreachable`) / a green SHA the real gate rejects (`gate_red_now`): the fixture org's verify fails on a `*.txt` holding `BROKEN`; seen RED by a resume that skips the re-gate |
 | INV-5 | Two writers appending at the same `--expect-seq` → exactly one succeeds, the other exits 3; the journal gains exactly one record. | spawn two `append` processes with the same seq |
 | INV-6 | `resume` never modifies a worktree (no stash/reset/clean/checkout). | every resume in `run-journal.test.mjs`: walk of the org folder (mode, size, mtime of each entry, the journal's directory excluded) identical before and after; plus the dirty-worktree snapshot |
 
@@ -196,5 +208,5 @@ opening the journal for write and writing is not closed against a path swap by a
 ## 9. Slices
 
 - **J1** — `run-journal.mjs` (`append`, `fold`, `resume` read-only reconcile) + INV-1/3/5/6 tests.
-- **J2** — re-gate in `resume` + INV-2/4.
+- **J2** — re-gate in `resume` + INV-2/4. Built: `run-journal/regate.mjs`; 9/9 mutants of the re-gate killed.
 - **J3** — `develop.md` integration, `QK-Task` trailer, short-lived task subagents, usage doc.

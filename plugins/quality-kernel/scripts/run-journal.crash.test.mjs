@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpa
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHECK, CHECK_FILE, writeGateConfig } from './run-journal/test-fixture.mjs';
 
 // INV-1 (spec-run-journal.v1.md §7): after kill -9 of the orchestrator at any phase, `resume` reports
 // exactly the tasks that were gate_green before the kill, each with its SHA reachable from its branch.
@@ -29,11 +30,12 @@ function fixture() {
     const dir = join(org, name); mkdirSync(dir);
     const g = gitIn(dir);
     g('init', '-q', '-b', 'main'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't');
-    writeFileSync(join(dir, 'a.txt'), 'a'); g('add', '-A'); g('commit', '-qm', 'init');
+    writeFileSync(join(dir, 'a.txt'), 'a'); writeFileSync(join(dir, CHECK_FILE), CHECK); g('add', '-A'); g('commit', '-qm', 'init');
     g('branch', 'feat/a');
     g('worktree', 'add', '-q', join(org, `${name}-wt`), 'feat/a');
     return { name, task, dir, wt: join(org, `${name}-wt`), base: g('rev-parse', 'HEAD').stdout.trim() };
   });
+  writeGateConfig(org, REPOS.map((r) => r.name)); // resume re-runs the real gate (§5.3)
   return { org, repos, log: join(org, 'orchestrator.log') };
 }
 
