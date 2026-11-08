@@ -1,0 +1,41 @@
+breaker-not-executed record could not be synced: simulated crash before rename completes
+breaker-not-executed record could not be synced: simulated rename failure
+breaker-not-executed record could not be synced: simulated mkdir failure
+✔ breaker-gate — critical + green referee + NO breaker -> exit 3 (still unenforced) (825.96825ms)
+✔ breaker-gate — critical + green referee + breaker PASS -> exit 0 (868.515834ms)
+✔ breaker-gate — critical + green referee + breaker FAIL -> exit 1 (853.332041ms)
+✔ breaker-gate (RED) — a contract with no invariants blocks even with a PASSing breaker (771.092458ms)
+✔ breaker-gate (RED) — a PASSing breaker does NOT clear the human-review cause of exit 3 (858.842625ms)
+✔ breaker-gate (carried major #1) — refereeGate is qk-gate.mjs's own verdict, passed through verbatim (1388.262541ms)
+✔ breaker-gate (EARS-M1) — an INSTRUMENT-BROKEN verdict writes the record atomically and exits 2 (941.325416ms)
+✔ breaker-gate (EARS-M6, end to end) — a nonexistent --breaker command writes the breaker-not-executed record, same exit code as today (841.630292ms)
+✔ breaker-gate (EARS-M3) — a later BREAKER_INDETERMINATE verdict clears the stale record (exit code still 2) (1660.452042ms)
+✔ breaker-gate (EARS-M3) — a later passing breaker clears the stale record and exits 0 (1645.272584ms)
+✔ breaker-gate (EARS-M4) — a pre-seeded malformed record never affects the gate decision, and is removed on PASS (877.32125ms)
+✔ breaker-gate (EARS-M5) — a write failure never changes the exit code and is reported on stderr, not thrown (886.387833ms)
+✔ syncNotExecutedRecord (EARS-M1, crash before rename) — an interruption between the temp write and the rename leaves the target untouched, never truncated (1.65175ms)
+✔ syncNotExecutedRecord (EARS-M5, orphan cleanup, RED) — a rename failure unlinks the orphaned temp file (0.738ms)
+✔ syncNotExecutedRecord (EARS-M1, RED) — creates .quality-kernel/ when it does not exist yet, then writes the record (0.607ms)
+✔ syncNotExecutedRecord (EARS-M5) — a directory-creation failure is swallowed, never thrown, never writes the record (0.500417ms)
+✔ breaker-gate (EARS-M1, concurrency) — two concurrent runs never collide; the record ends up valid, never byte-interleaved (903.911625ms)
+✔ P5 boundary — the blind input contains ONLY contract + probe, never the diff/tests/reasoning (1.266875ms)
+✔ CLI — a stub breaker returning BREAKER_FAIL -> exit 1 (107.046167ms)
+✔ CLI — a stub breaker returning BREAKER_PASS -> exit 0, and it received no diff (101.800208ms)
+✔ CLI (EARS-M6) — a nonexistent breaker command -> exit 2, verdict INSTRUMENT-BROKEN (54.662167ms)
+✔ CLI (RED) — missing --probe/--url fails closed (exit 2) even with a PASSing breaker (51.711708ms)
+✔ CLI (EARS-M6 regression guard) — missing --breaker arg stays BREAKER_INDETERMINATE, exit 2 (51.617584ms)
+✔ CLI (RED, EARS-M6) — a breaker printing BREAKER_PASS but exiting non-zero is INSTRUMENT-BROKEN, not BREAKER_INDETERMINATE (103.089791ms)
+✔ EARS-H1 (INV-1) — numbered/parenthetical headings parse: stub observes non-empty qaProcedure/invariants (100.443ms)
+✔ EARS-H7 (INV-2) — legacy headings/ids still parse end to end through the CLI (105.175833ms)
+✔ EARS-H4 (INV-3/4) — a bold, parenthetical, non-INV- id normalizes, and a piped probe-command cell does not shift "expected" (102.887167ms)
+✔ EARS-H2b (INV-12) — a second, genuinely-matching heading never overrides the first (dup.md) (109.76475ms)
+✔ EARS-H6 (INV-5) — an empty QA-procedure body fails closed, exit 2, breaker never runs (52.841542ms)
+✔ EARS-H6 (INV-6) — an empty invariants table fails closed, exit 2, breaker never runs (52.481958ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13394.580667

@@ -46,9 +46,17 @@ test('CLI — a stub breaker returning BREAKER_PASS -> exit 0, and it received n
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('CLI — a breaker that cannot run -> exit 2 (fail-closed)', () => {
-  const r = spawnSync('node', [cli, '--contract', exampleMd, '--breaker', 'this-cmd-does-not-exist-xyz'], { encoding: 'utf8' });
+// EARS-M6 (decided by Adrian 2026-11-08): the breaker PROCESS itself did not run — here, the shell
+// cannot find the command (exits 127) — so breaker-invoke.mjs must print INSTRUMENT-BROKEN (not
+// BREAKER_INDETERMINATE), naming the failure in `reason`. --probe/--url are supplied so the run
+// reaches the spawnSync call instead of bailing earlier on the argument-error path (which stays
+// BREAKER_INDETERMINATE, asserted separately below).
+test('CLI (EARS-M6) — a nonexistent breaker command -> exit 2, verdict INSTRUMENT-BROKEN', () => {
+  const r = spawnSync('node', [cli, '--contract', exampleMd, '--probe', 'true', '--url', 'http://x', '--breaker', 'this-cmd-does-not-exist-xyz'], { encoding: 'utf8' });
+  const out = JSON.parse(r.stdout.trim());
   assert.strictEqual(r.status, 2);
+  assert.strictEqual(out.verdict, 'INSTRUMENT-BROKEN');
+  assert.match(out.reason, /breaker exited/);
 });
 
 // --- review regression (#25): a breaker with no live target, or a failed process, cannot green ---
@@ -56,17 +64,33 @@ test('CLI (RED) — missing --probe/--url fails closed (exit 2) even with a PASS
   const { tmp, cmd } = stub('BREAKER_PASS');
   try {
     const r = spawnSync('node', [cli, '--contract', exampleMd, '--breaker', cmd], { encoding: 'utf8' });
+    const out = JSON.parse(r.stdout.trim());
     assert.strictEqual(r.status, 2);
-    assert.match(JSON.parse(r.stdout.trim()).reason, /--probe/);
+    assert.match(out.reason, /--probe/);
+    // EARS-M6: an argument error (missing --probe/--url) keeps the old verdict — the breaker
+    // command never even gets a chance to run, so this is not "the breaker process did not run".
+    assert.strictEqual(out.verdict, 'BREAKER_INDETERMINATE');
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
-test('CLI (RED) — a breaker printing BREAKER_PASS but exiting non-zero does not green the gate', () => {
+// EARS-M6 regression guard: a missing --breaker argument is still an argument error, never the
+// "breaker process did not run" case — it must keep BREAKER_INDETERMINATE.
+test('CLI (EARS-M6 regression guard) — missing --breaker arg stays BREAKER_INDETERMINATE, exit 2', () => {
+  const r = spawnSync('node', [cli, '--contract', exampleMd, '--probe', 'true', '--url', 'http://x'], { encoding: 'utf8' });
+  const out = JSON.parse(r.stdout.trim());
+  assert.strictEqual(r.status, 2);
+  assert.strictEqual(out.verdict, 'BREAKER_INDETERMINATE');
+  assert.match(out.reason, /--breaker/);
+});
+test('CLI (RED, EARS-M6) — a breaker printing BREAKER_PASS but exiting non-zero is INSTRUMENT-BROKEN, not BREAKER_INDETERMINATE', () => {
   const tmp = mkdtempSync(join(tmpdir(), 'qk-brk-'));
   try {
     const p = join(tmp, 'crash.mjs');
-    writeFileSync(p, "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({verdict:'BREAKER_PASS'}));process.exit(7);});");
+    writeFileSync(p, "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({verdict:'BREAKER_PASS'}));process.exit(3);});");
     const r = spawnSync('node', [cli, '--contract', exampleMd, '--probe', 'true', '--url', 'http://x', '--breaker', `node ${p}`], { encoding: 'utf8' });
+    const out = JSON.parse(r.stdout.trim());
     assert.strictEqual(r.status, 2);
+    assert.strictEqual(out.verdict, 'INSTRUMENT-BROKEN');
+    assert.match(out.reason, /breaker exited 3/);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 

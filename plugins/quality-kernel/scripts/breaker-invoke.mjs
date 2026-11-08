@@ -34,6 +34,12 @@ if (isMain(import.meta.url)) {
     else if (args[i] === '--breaker') breaker = args[++i];
   }
   const bail = (reason) => { process.stdout.write(JSON.stringify({ verdict: 'BREAKER_INDETERMINATE', reason }) + '\n'); process.exit(2); };
+  // EARS-M6 (decided by Adrian 2026-11-08): the breaker PROCESS itself did not run — could not be
+  // spawned, produced no exit status, or exited non-zero — is INSTRUMENT-BROKEN, never
+  // BREAKER_INDETERMINATE. The gate layer's own record-sync step (EARS-M1/M3) keys the
+  // breaker-not-executed record off this exact nested verdict string, so a reader can later tell
+  // "the breaker never ran" apart from "it ran and could not decide". Exit code stays 2 either way.
+  const instrumentBroken = (reason) => { process.stdout.write(JSON.stringify({ verdict: 'INSTRUMENT-BROKEN', reason }) + '\n'); process.exit(2); };
   const given = (v) => typeof v === 'string' && v.trim() !== '';
   if (!given(contract) || !given(breaker)) bail('need --contract <md> --breaker "<cmd>"');
   // A breaker with no live target is not a breaker: without a probe and a system URL it can only
@@ -56,10 +62,10 @@ if (isMain(import.meta.url)) {
 
   const input = { qaProcedure: sections.qaProcedure, invariants: sections.invariants, probeCmd: probe, systemUrl: url };
   const r = spawnSync(breaker, { input: JSON.stringify(input), shell: true, encoding: 'utf8', timeout: 600000 });
-  if (r.error || r.status === null) bail(`breaker could not run: ${r.error ? r.error.message : 'no exit'}`);
+  if (r.error || r.status === null) instrumentBroken(`breaker could not run: ${r.error ? r.error.message : 'no exit'}`);
   // A breaker that printed BREAKER_PASS but exited non-zero did not complete cleanly; trusting the
   // text over the exit status would let a crashed/killed breaker green the gate. Fail closed.
-  if (r.status !== 0) bail(`breaker exited ${r.status} — a verdict from a failed breaker process is not trusted`);
+  if (r.status !== 0) instrumentBroken(`breaker exited ${r.status} — a verdict from a failed breaker process is not trusted`);
   let verdict;
   try { verdict = JSON.parse((r.stdout || '').trim().split('\n').filter(Boolean).pop()); } catch { bail('breaker produced no JSON verdict'); }
   process.stdout.write(JSON.stringify({ ...verdict, blindInputKeys: Object.keys(input) }) + '\n');

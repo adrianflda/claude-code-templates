@@ -135,6 +135,24 @@ test('breaker-gate (EARS-M1) — an INSTRUMENT-BROKEN verdict writes the record 
   } finally { [tmp, s.tmp].forEach((d) => rmSync(d, { recursive: true, force: true })); }
 });
 
+// EARS-M6 end to end: the breaker command itself cannot run (no stub — a genuinely nonexistent
+// command), so breaker-invoke.mjs's nested verdict is INSTRUMENT-BROKEN, not BREAKER_INDETERMINATE.
+// breaker-gate.mjs's own exit code must stay exactly what it is today for this case (2); only the
+// nested verdict — and therefore whether the breaker-not-executed record is written — changes.
+test('breaker-gate (EARS-M6, end to end) — a nonexistent --breaker command writes the breaker-not-executed record, same exit code as today', () => {
+  const { tmp, base, head } = criticalRepo();
+  try {
+    assert.ok(!existsSync(notExecutedPath(tmp)), 'precondition: no stale record');
+    const r = run(tmp, base, head, ['--breaker', 'this-command-does-not-exist-xyz', '--contract', contract, '--probe', 'true', '--url', 'http://x']);
+    assert.strictEqual(r.status, 2, 'exit code unchanged from today');
+    assert.strictEqual(json(r).gate, 'breaker-indeterminate', 'gate field unchanged from today (default-deny)');
+    assert.ok(existsSync(notExecutedPath(tmp)), 'EARS-M1: the record is written, not skipped, for a breaker that could not run');
+    const rec = JSON.parse(readFileSync(notExecutedPath(tmp), 'utf8'));
+    assert.strictEqual(rec.verdict, 'INSTRUMENT-BROKEN');
+    assert.match(rec.reason, /breaker exited/);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
 test('breaker-gate (EARS-M3) — a later BREAKER_INDETERMINATE verdict clears the stale record (exit code still 2)', () => {
   const { tmp, base, head } = criticalRepo();
   const broken = stubJson({ verdict: 'INSTRUMENT-BROKEN', reason: 'x', executed: 0, vectors: [] });
