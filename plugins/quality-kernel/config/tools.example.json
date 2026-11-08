@@ -5,6 +5,7 @@
   "verify": "node --test",
   "productionGlobs": ["src/**", "lib/**", "app/**", "templates/**", "prompts/**", "assets/**", "config/**"],
   "$docsNote": "Declare docs/**, **/*.md here ONLY if production reads them at runtime AND no test reads their content as an expected value. If your tests assert on README/docs content (doctests, 'the examples are tested'), those files are ORACLE, not production — declaring them in productionGlobs would let a change re-golden them from head. Keep such files out of productionGlobs, or declare them in testGlobs.",
+  "$productionExcludeHelp": "Optional. Globs carved OUT of productionGlobs (exclude wins, as in tsconfig/Vitest/Stryker). Use it for colocated tests and fixtures, e.g. [\"**/*.test.ts\", \"**/__fixtures__/**\"]; declare the same paths in testGlobs so they are executed. An excluded path is never skipped: if it is not a declared test it is indeterminate.",
   "testGlobs": ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "tests/**", "test/**"],
   "$testGlobsHelp": "The immutable suite THIS repo declares — stays at base (never overlaid) and is executed. Kept separate from route's broad tier heuristic so a production file merely NAMED like a test (lib/spec/**, *-test.*) is not silently treated as harness.",
   "timeoutSeconds": 300,

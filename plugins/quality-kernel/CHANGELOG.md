@@ -5,6 +5,26 @@ All notable changes to the **quality-kernel** plugin are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`productionExclude` in `tools.json`** (optional, read at base like the rest of the contract):
+  include + exclude semantics for production code, exclude wins — the same model as tsconfig
+  `exclude`, Vitest `exclude` and Stryker's `!` entries in `mutate`. It lets a repo with colocated
+  tests (`src/x.test.ts` next to `src/x.ts`) declare `"productionGlobs": ["src/**"]` plus
+  `"productionExclude": ["**/*.test.ts"]`. Before, every change touching such a test was
+  indeterminate ("ambiguous"), because an include-only glob cannot carve tests out of `src/**`.
+  An excluded path is not production and still needs its own disposition (declared test, manifest
+  or indeterminate) — excluding never skips. A malformed value (not an array of non-empty strings)
+  or a degenerate entry (`**`) is indeterminate, never ignored. Without the key, behavior is
+  unchanged. Regression tests: the `EXCLUDE` block in `scripts/attacks.test.mjs`.
+
+### Fixed
+- **ESLint flat config is harness.** `**/eslint.config.*` (the default config format since
+  ESLint 9) joins `.eslintrc*` in the never-overlay set, so a change can no longer overlay a
+  weakened lint config from head when `verify` runs the linter. A flat config listed in
+  `productionGlobs` is now ambiguous (fail-closed), like the other runner configs.
+
 ## [0.12.0] - 2026-10-28
 
 ### Added
