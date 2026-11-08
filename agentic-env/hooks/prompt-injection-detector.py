@@ -104,7 +104,7 @@ def main():
                 sys.exit(0)
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content_to_check = f.read()
-            source_label = f'archivo: {file_path}'
+            source_label = f'file: {file_path}'
         except Exception:
             sys.exit(0)
 
