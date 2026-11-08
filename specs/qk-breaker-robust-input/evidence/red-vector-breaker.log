@@ -1,4 +1,4 @@
-file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/vector-breaker.test.mjs:5
+file://<repo>/plugins/quality-kernel/scripts/vector-breaker.test.mjs:5
 import { runContractProbe, runVectors, validateBatch, validateVector, validateVectors } from "./vector-breaker.mjs";
                                        ^^^^^^^^^^^^^
 SyntaxError: The requested module './vector-breaker.mjs' does not provide an export named 'validateBatch'

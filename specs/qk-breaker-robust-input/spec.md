@@ -4,7 +4,7 @@
 
 Three real failures from one tier-1 ("T1": single-contributor change, below the quality-kernel
 pipeline's multi-stage tier-2 threshold) run (2026-11-06), root-caused against the plugin's current
-code (`/Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/`):
+code (`<repo>/plugins/quality-kernel/scripts/`):
 
 - OBSERVED `breaker.log`/`breaker2.log`: `{"verdict":"INSTRUMENT-BROKEN","reason":"vectors must be a
   non-empty array",...}` — `breaker-invoke.mjs`'s `section()`/`invariants()` (lines 18-35) match only

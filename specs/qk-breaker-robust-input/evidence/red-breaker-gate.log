@@ -26,7 +26,7 @@ test at scripts/breaker-gate.test.mjs:107:1
   
     assert.ok(existsSync(notExecutedPath(tmp)))
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-gate.test.mjs:113:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:113:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -44,7 +44,7 @@ test at scripts/breaker-gate.test.mjs:107:1
 test at scripts/breaker-gate.test.mjs:124:1
 ✖ breaker-gate (EARS-M3) — a later BREAKER_INDETERMINATE verdict clears the stale record (exit code still 2) (928.997333ms)
   AssertionError [ERR_ASSERTION]: precondition: the stale record exists
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-gate.test.mjs:130:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:130:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -65,7 +65,7 @@ test at scripts/breaker-gate.test.mjs:138:1
   
     assert.ok(existsSync(notExecutedPath(tmp)))
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-gate.test.mjs:144:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:144:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -86,7 +86,7 @@ test at scripts/breaker-gate.test.mjs:151:1
   
     assert.ok(!existsSync(notExecutedPath(tmp)))
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-gate.test.mjs:159:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:159:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -107,7 +107,7 @@ test at scripts/breaker-gate.test.mjs:163:1
   
   ''
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-gate.test.mjs:171:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:171:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -128,7 +128,7 @@ test at scripts/breaker-gate.test.mjs:176:1
   
     assert.ok(existsSync(notExecutedPath(tmp)))
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-gate.test.mjs:185:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:185:12)
       at async Test.run (node:internal/test_runner/test:1208:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
     generatedMessage: true,

@@ -1,4 +1,4 @@
-file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/http-probe.test.mjs:5
+file://<repo>/plugins/quality-kernel/scripts/http-probe.test.mjs:5
 import { isAcceptableHost, jsonPointer, runHttpVector, validateHttpSpec } from "./http-probe.mjs";
          ^^^^^^^^^^^^^^^^
 SyntaxError: The requested module './http-probe.mjs' does not provide an export named 'isAcceptableHost'

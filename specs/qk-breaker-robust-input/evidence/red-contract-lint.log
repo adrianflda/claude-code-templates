@@ -29,7 +29,7 @@ test at scripts/contract-lint.test.mjs:66:1
   -   'EO-0'
   - ]
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/contract-lint.test.mjs:68:10)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/contract-lint.test.mjs:68:10)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -50,7 +50,7 @@ test at scripts/contract-lint.test.mjs:71:1
   
   2 !== 0
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/contract-lint.test.mjs:74:10)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/contract-lint.test.mjs:74:10)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)

@@ -15,7 +15,7 @@
 test at scripts/fixtures/qk-breaker-robust-input/vector-author-prompt.test.mjs:18:1
 ✖ EARS-V8(a): a paragraph mentions both "Host" and "registrable" (case-insensitive) (0.785ms)
   AssertionError [ERR_ASSERTION]: no paragraph of vector-author.md mentions both "Host" and "registrable"
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/fixtures/qk-breaker-robust-input/vector-author-prompt.test.mjs:20:10)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/fixtures/qk-breaker-robust-input/vector-author-prompt.test.mjs:20:10)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.start (node:internal/test_runner/test:1096:17)
@@ -31,7 +31,7 @@ test at scripts/fixtures/qk-breaker-robust-input/vector-author-prompt.test.mjs:1
 test at scripts/fixtures/qk-breaker-robust-input/vector-author-prompt.test.mjs:23:1
 ✖ EARS-V8(b): the literal substring "only that vector" is present (0.053875ms)
   AssertionError [ERR_ASSERTION]: vector-author.md is missing the literal phrase "only that vector"
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/fixtures/qk-breaker-robust-input/vector-author-prompt.test.mjs:24:10)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/fixtures/qk-breaker-robust-input/vector-author-prompt.test.mjs:24:10)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)

@@ -25,7 +25,7 @@
 test at scripts/gstack-breaker.test.mjs:158:1
 ✖ runBreaker (EARS-H9) — an empty QA-procedure section is INSTRUMENT-BROKEN before vectors run (1.397625ms)
   AssertionError [ERR_ASSERTION]: The "string" argument must be of type string. Received type undefined (undefined)
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/gstack-breaker.test.mjs:168:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/gstack-breaker.test.mjs:168:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)

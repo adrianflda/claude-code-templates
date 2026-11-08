@@ -2,7 +2,7 @@ node:internal/modules/esm/resolve:271
     throw new ERR_MODULE_NOT_FOUND(
           ^
 
-Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/contract-sections.mjs' imported from /Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/contract-sections.test.mjs
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '<repo>/plugins/quality-kernel/scripts/contract-sections.mjs' imported from <repo>/plugins/quality-kernel/scripts/contract-sections.test.mjs
     at finalizeResolution (node:internal/modules/esm/resolve:271:11)
     at moduleResolve (node:internal/modules/esm/resolve:861:10)
     at defaultResolve (node:internal/modules/esm/resolve:988:11)
@@ -14,7 +14,7 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Users/adrian/Projects/persona
     at ModuleJob.syncLink (node:internal/modules/esm/module_job:160:33)
     at ModuleJob.link (node:internal/modules/esm/module_job:245:17) {
   code: 'ERR_MODULE_NOT_FOUND',
-  url: 'file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/contract-sections.mjs'
+  url: 'file://<repo>/plugins/quality-kernel/scripts/contract-sections.mjs'
 }
 
 Node.js v25.8.0

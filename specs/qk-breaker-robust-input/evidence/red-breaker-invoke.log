@@ -29,7 +29,7 @@ test at scripts/breaker-invoke.test.mjs:87:1
   + 'INSTRUMENT-BROKEN'
   - 'BREAKER_PASS'
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:92:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:92:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -47,7 +47,7 @@ test at scripts/breaker-invoke.test.mjs:87:1
 test at scripts/breaker-invoke.test.mjs:109:1
 ✖ EARS-H4 (INV-3/4) — a bold, parenthetical, non-INV- id normalizes, and a piped probe-command cell does not shift "expected" (104.313959ms)
   AssertionError [ERR_ASSERTION]: EO-6 missing from parsed invariants
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:115:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:115:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -75,7 +75,7 @@ test at scripts/breaker-invoke.test.mjs:121:1
   -   }
   - ]
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:128:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:128:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -98,7 +98,7 @@ test at scripts/breaker-invoke.test.mjs:140:1
   + 'BREAKER_INDETERMINATE'
   - 'INSTRUMENT-BROKEN'
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:151:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:151:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
@@ -121,7 +121,7 @@ test at scripts/breaker-invoke.test.mjs:158:1
   + 'BREAKER_INDETERMINATE'
   - 'INSTRUMENT-BROKEN'
   
-      at TestContext.<anonymous> (file:///Users/adrian/Projects/personal/cct-qk-breaker-fix/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:169:12)
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:169:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1201:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
