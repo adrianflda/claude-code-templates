@@ -19,7 +19,7 @@
  */
 import { config, esc, grantState, humanPrompts } from './consent-core.mjs';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
-import { basename, plainPrefix, ShellParseError, simpleCommands, unwrap } from './shell-words.mjs';
+import { basename, runsUnwrapped, ShellParseError, simpleCommands, unwrap } from './shell-words.mjs';
 
 function readStdin() {
   // Read until EOF, bounded three ways: size (8 MB), idle time (5 s) and total time (15 s).
@@ -131,11 +131,14 @@ const writingCode = (c) => WRITE_CODE.test(c) || (SPAWNS.test(c) && WRITE_INTENT
 // before the script (-m mod, -W/-X with a value) leaves the code unknown.
 const PRE_SCRIPT_FLAGS = /^-[IuBEsSOqbdvP]+$/;
 const MAX_SCRIPT_BYTES = 1_000_000;
-// Environment that injects code into a process the script never imports. Under -I python ignores
-// every PYTHON* variable, which leaves the loader's.
-const ENV_INJECTION = /\b(LD|DYLD)_\w*=|\b(export|declare|typeset)\b/;
+// Statements that change which binary a bare `python3` resolves to (PATH, hash, alias, a function,
+// a sourced file) or inject code into it the script never imports (the loader's variables; under -I
+// python ignores every PYTHON* one).
+const RUNTIME_CHANGES = /\b(LD|DYLD)_\w*=|\bPATH=|\b(export|declare|typeset|hash|alias|enable|function|source)\b|\w\s*\(\s*\)|(^|[;&|(]\s*)\.\s/;
 /** The source of the script python runs, when it can be known before it runs. Every condition
  * below exists because without it the file read here may not be the code that runs:
+ * - a bare literal `python`, `python3` or `python3.N`: a path (./python3, /tmp/x/python3) may be any
+ *   program, and nothing in the command may change what the bare name resolves to;
  * - python only: other interpreters' flags differ (perl/ruby -I takes a value) and their code can be
  *   injected through the environment (NODE_OPTIONS, PERL5OPT, RUBYOPT);
  * - isolated mode (-I): no PYTHON* variables, no user site, no script directory on sys.path;
@@ -144,8 +147,9 @@ const ENV_INJECTION = /\b(LD|DYLD)_\w*=|\b(export|declare|typeset)\b/;
  *   not dynamic and not transcript-like, to a regular file (not a symlink) of at most 1 MB.
  * null = unknown (the caller treats it as a write). Imported modules, and changes to the file after
  * this check, are not seen. */
-function scriptSource(name, plainPrefix, args, hit, command) {
-  if (!/^python[\d.]*$/.test(name) || !plainPrefix || ENV_INJECTION.test(command)) return null;
+function scriptSource(program, unwrapped, args, hit, command) {
+  if (!/^python(3(\.\d+)?)?$/.test(program.text) || program.dynamic || !unwrapped ||
+      RUNTIME_CHANGES.test(command)) return null;
   const at = args.findIndex((w) => !PRE_SCRIPT_FLAGS.test(w.text));
   if (!args.slice(0, at).some((w) => w.text.includes('I'))) return null;
   const w = args[at];
@@ -158,10 +162,10 @@ function scriptSource(name, plainPrefix, args, hit, command) {
     fd = openSync(w.text, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const st = fstatSync(fd);
     if (!st.isFile() || st.size > MAX_SCRIPT_BYTES) return null;
-    const buf = Buffer.alloc(MAX_SCRIPT_BYTES + 1);
+    const buf = Buffer.alloc(st.size + 1);
     let n = 0;
     for (let r; n < buf.length && (r = readSync(fd, buf, n, buf.length - n, n)) > 0;) n += r;
-    return n > MAX_SCRIPT_BYTES ? null : buf.toString('utf8', 0, n); // grew after the fstat
+    return n > st.size ? null : buf.toString('utf8', 0, n); // grew after the fstat
   } catch { return null; } finally { if (fd !== undefined) closeSync(fd); }
 }
 
@@ -211,7 +215,7 @@ function writesIn(command, transcriptPath, depth) {
       if (!code.length && operands.length && args.some(hit)) {
         // A script file handed a transcript: judged by its code like inline code when that code can be
         // read now; otherwise unknown, so a write.
-        const source = scriptSource(name, plainPrefix(cmd.words, words), args, hit, command);
+        const source = scriptSource(words[0], runsUnwrapped(cmd.words), args, hit, command);
         if (source === null || writingCode(source)) return true;
         continue;
       }

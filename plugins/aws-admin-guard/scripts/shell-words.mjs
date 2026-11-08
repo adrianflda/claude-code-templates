@@ -158,14 +158,8 @@ const NO_PROGRAM = new Set(['for', 'select', 'case', 'done', 'fi', 'esac', '}'])
 /** The words of the program that actually runs (drops sudo/env/xargs/VAR=value prefixes and their
  * options, and shell reserved words); [] when the simple command runs no program. */
 export function unwrap(words) {
-  let i = 0;
-  // Reserved words count only in command position: before any assignment or wrapper (`env do` runs a
-  // program named do) and unquoted.
-  while (i < words.length && !words[i].quoted) {
-    if (NO_PROGRAM.has(words[i].text)) return [];
-    if (!PREFIX_WORDS.has(words[i].text)) break;
-    i++;
-  }
+  let i = skipReserved(words);
+  if (i < 0) return [];
   while (i < words.length) {
     const t = words[i].text;
     if (/^\w+=/.test(t)) { i++; continue; }
@@ -179,10 +173,24 @@ export function unwrap(words) {
   return words.slice(i);
 }
 
-/** True when unwrap dropped only reserved words from `all` to reach `program`: no VAR=value and no
- * wrapper (env, sudo, xargs ...) that could change the environment the program runs with. */
-export function plainPrefix(all, program) {
-  return all.slice(0, all.length - program.length).every((w) => !w.quoted && PREFIX_WORDS.has(w.text));
+/** Index of the first word after the leading reserved words; -1 when the simple command runs no
+ * program. Reserved words count only in command position: before any assignment or wrapper
+ * (`env do` runs a program named do) and unquoted. */
+function skipReserved(words) {
+  let i = 0;
+  while (i < words.length && !words[i].quoted) {
+    if (NO_PROGRAM.has(words[i].text)) return -1;
+    if (!PREFIX_WORDS.has(words[i].text)) break;
+    i++;
+  }
+  return i;
+}
+
+/** True when the program runs with nothing but reserved words before it: no VAR=value and no
+ * wrapper (env, sudo, xargs ...) that could change the environment it runs with. */
+export function runsUnwrapped(words) {
+  const i = skipReserved(words);
+  return i >= 0 && i < words.length && unwrap(words)[0] === words[i];
 }
 
 export const basename = (p) => p.split('/').pop();

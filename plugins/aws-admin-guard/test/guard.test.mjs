@@ -401,6 +401,13 @@ test('an interpreter running a literal absolute script is judged by the script s
     `env FOO=1 python3 -I ${reader} ${s.path}`,
     `export DYLD_INSERT_LIBRARIES=/tmp/w.dylib; python3 -I ${reader} ${s.path}`,
     `DYLD_INSERT_LIBRARIES=/tmp/w.dylib; python3 -I ${reader} ${s.path}`,
+    // the program is not the python the name says: a path, or a bare name the command re-resolves
+    `./python3 -I ${reader} ${s.path}`,
+    `${dirname(writer)}/python3 -I ${reader} ${s.path}`,
+    `PATH=${dirname(writer)}:$PATH; python3 -I ${reader} ${s.path}`,
+    `hash -p ${writer} python3; python3 -I ${reader} ${s.path}`,
+    `python3() { ${writer}; }; python3 -I ${reader} ${s.path}`, // the function ignores its arguments
+    `. ${writer}; python3 -I ${reader} ${s.path}`,
     // ~ expands from $HOME, which the command can reassign
     `HOME=${dirname(writer)}; python3 -I ~/evil.py ${s.path}`,
     // a symlink is not read through (it may be swapped for a FIFO or /dev/zero)
