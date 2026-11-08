@@ -42,12 +42,22 @@ It sees the command line, not what a script does inside. A tool that switches to
 profile internally, or a profile name built at run time, is not caught. It stops accidents and
 shortcuts, not a determined adversary.
 
+The code inside `$(...)`, backticks and process substitutions `<(...)`/`>(...)` (also within double
+quotes and unquoted heredocs) is judged like any other command, wherever it sits. `$((...))` counts
+as arithmetic only where bash reads it so (`$((rm f);(echo))` is code). `<>` counts as a write. A
+substitution that spans lines, or one holding `case` (whose arm `)` defeats paren counting), cannot be
+read; such a command is judged by the broad check (any `>`, `tee`, `rm`, `cp` ... counts as a write).
+
 A script handed a transcript counts as a write unless it is read now and its source writes
 nothing. Only `python3 -I /absolute/script.py` qualifies: a bare `python`/`python3`/`python3.N` (not
 a path), a literal absolute script path (no `~/`, glob or variable) to a regular file of at most
-1 MB, no assignment or wrapper on the command, and nothing in the command line that changes what
-runs (`PATH=`, `LD_*`/`DYLD_*`, `export`, `hash`, `alias`, a function, a sourced file). Modules the script imports, and changes to the
-file after the check, are not seen. Any other interpreter running a script on a transcript blocks.
+1 MB, no assignment or wrapper on the command, not inside `bash -c`/`eval`, and every other command
+in the line from a short allowlist of readers (`cat`, `head`, `grep`, `jq`, `wc`, `ls`, `echo`,
+`test` ...), `cd` (only while `PATH` has no relative entry), a loop over a lowercase variable or a
+reserved word, with no output other than `/dev/null`. Anything else in the line (an assignment,
+`export`, `read`, `printf -v`, `alias`, a function, a sourced file, a write) leaves the script
+unjudged, so it blocks. Modules the script imports are not seen. Any other interpreter running a
+script on a transcript blocks.
 
 ## Tests
 

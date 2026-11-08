@@ -19,7 +19,7 @@
  */
 import { config, esc, grantState, humanPrompts } from './consent-core.mjs';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
-import { basename, runsUnwrapped, ShellParseError, simpleCommands, unwrap } from './shell-words.mjs';
+import { basename, loopVariable, onlyReserved, runsUnwrapped, ShellParseError, simpleCommands, unwrap } from './shell-words.mjs';
 
 function readStdin() {
   // Read until EOF, bounded three ways: size (8 MB), idle time (5 s) and total time (15 s).
@@ -131,10 +131,35 @@ const writingCode = (c) => WRITE_CODE.test(c) || (SPAWNS.test(c) && WRITE_INTENT
 // before the script (-m mod, -W/-X with a value) leaves the code unknown.
 const PRE_SCRIPT_FLAGS = /^-[IuBEsSOqbdvP]+$/;
 const MAX_SCRIPT_BYTES = 1_000_000;
-// Statements that change which binary a bare `python3` resolves to (PATH, hash, alias, a function,
-// a sourced file) or inject code into it the script never imports (the loader's variables; under -I
-// python ignores every PYTHON* one).
-const RUNTIME_CHANGES = /\b(LD|DYLD)_\w*=|\bPATH=|\b(export|declare|typeset|hash|alias|enable|function|source)\b|\w\s*\(\s*\)|(^|[;&|(]\s*)\.\s/;
+// The only programs that may share a command line with a script judged by its source. They read and
+// print: none changes the shell (an assignment, PATH, an alias, a function, hash, a sourced file or a
+// loader variable could change which python runs or inject code into it) or writes a file (it could
+// rewrite the script after this check). An allowlist: whatever is not here leaves the script unjudged.
+// Left out on purpose: printf (-v assigns), rg (--pre runs a program), xxd/tree/file (write with an
+// option or a second operand), sort (-o), less/more (run commands), yq (-i).
+const QUIET_NEIGHBORS = new Set(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'jq', 'wc', 'cut', 'tr', 'nl',
+  'column', 'diff', 'cmp', 'comm', 'paste', 'fold', 'tac', 'rev', 'zcat', 'strings', 'od', 'hexdump', 'md5',
+  'md5sum', 'shasum', 'sha256sum', 'cksum', 'stat', 'du', 'ls', 'echo', ':', 'true', 'false', 'test', '[',
+  'realpath', 'readlink', 'dirname', 'basename']);
+
+/** True when every simple command of the line other than `self` is quiet: a known reader, cd (only
+ * while PATH has no relative entry a new cwd could resolve python from), a loop over a lowercase
+ * variable (no loader or PATH variable is lowercase), or a reserved word -- with no output other
+ * than /dev/null. */
+function quietNeighbors(cmds, self) {
+  const absolutePath = (process.env.PATH ?? '').split(':').every((d) => d.startsWith('/'));
+  return cmds.every((c) => {
+    if (c === self) return true;
+    if (c.outputs.some((o) => o.dynamic || o.text !== '/dev/null')) return false;
+    const loopVar = loopVariable(c.words);
+    if (loopVar) return !loopVar.dynamic && !loopVar.quoted && /^[a-z_][a-z0-9_]*$/.test(loopVar.text);
+    const words = unwrap(c.words);
+    if (!words.length) return onlyReserved(c.words); // not a bare assignment (PATH=...) or wrapper
+    const p = words[0];
+    if (p.dynamic && p.text !== '[') return false; // a lone [ is no glob: bash keeps it literal
+    return p.text === 'cd' ? absolutePath : QUIET_NEIGHBORS.has(p.text);
+  });
+}
 /** The source of the script python runs, when it can be known before it runs. Every condition
  * below exists because without it the file read here may not be the code that runs:
  * - a bare literal `python`, `python3` or `python3.N`: a path (./python3, /tmp/x/python3) may be any
@@ -142,14 +167,16 @@ const RUNTIME_CHANGES = /\b(LD|DYLD)_\w*=|\bPATH=|\b(export|declare|typeset|hash
  * - python only: other interpreters' flags differ (perl/ruby -I takes a value) and their code can be
  *   injected through the environment (NODE_OPTIONS, PERL5OPT, RUBYOPT);
  * - isolated mode (-I): no PYTHON* variables, no user site, no script directory on sys.path;
- * - no assignment or wrapper on the command, and no loader variable set or exported anywhere in it;
+ * - no assignment or wrapper on the command, every other command of the line quiet (quietNeighbors),
+ *   and not inside a nested shell (bash -c, eval), whose environment the outer line may change;
  * - a literal absolute path (not ~/: the shell expands it from a $HOME the command may reassign),
  *   not dynamic and not transcript-like, to a regular file (not a symlink) of at most 1 MB.
  * null = unknown (the caller treats it as a write). Imported modules, and changes to the file after
  * this check, are not seen. */
-function scriptSource(program, unwrapped, args, hit, command) {
-  if (!/^python(3(\.\d+)?)?$/.test(program.text) || program.dynamic || !unwrapped ||
-      RUNTIME_CHANGES.test(command)) return null;
+function scriptSource(cmd, cmds, depth, hit) {
+  const [program, ...args] = unwrap(cmd.words);
+  if (depth > 0 || !/^python(3(\.\d+)?)?$/.test(program.text) || program.dynamic ||
+      !runsUnwrapped(cmd.words) || !quietNeighbors(cmds, cmd)) return null;
   const at = args.findIndex((w) => !PRE_SCRIPT_FLAGS.test(w.text));
   if (!args.slice(0, at).some((w) => w.text.includes('I'))) return null;
   const w = args[at];
@@ -171,7 +198,8 @@ function scriptSource(program, unwrapped, args, hit, command) {
 
 function writesIn(command, transcriptPath, depth) {
   const hit = (w) => transcriptLike(w, transcriptPath);
-  for (const cmd of simpleCommands(command)) {
+  const cmds = simpleCommands(command);
+  for (const cmd of cmds) {
     if (cmd.outputs.some(hit)) return true;
     const words = unwrap(cmd.words);
     if (!words.length) continue;
@@ -215,7 +243,7 @@ function writesIn(command, transcriptPath, depth) {
       if (!code.length && operands.length && args.some(hit)) {
         // A script file handed a transcript: judged by its code like inline code when that code can be
         // read now; otherwise unknown, so a write.
-        const source = scriptSource(words[0], runsUnwrapped(cmd.words), args, hit, command);
+        const source = scriptSource(cmd, cmds, depth, hit);
         if (source === null || writingCode(source)) return true;
         continue;
       }

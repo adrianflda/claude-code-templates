@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -356,8 +356,60 @@ test('shell keywords are not programs: read-only loops over transcripts pass, wr
     `case x in a) rm ${s.path};; esac`,
     `case x in *) cp forged ${s.path};; esac`,
     `select f in ${s.path}; do rm "$f"; done`,
+    // a redirection on a closer writes the whole compound command's output
+    `for f in a; do :; done > ${s.path}`,
+    `if true; then :; fi >> ${s.path}`,
+    `{ echo x; } > ${s.path}`,
+    `case x in *) :;; esac > ${s.path}`,
   ]) {
     assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
+  }
+});
+
+// 2026-11-08: the code of a command substitution runs wherever the substitution sits; it was kept as
+// one opaque word and never judged (`cat $(rm T)` passed; the 3c fix also let loop headers pass).
+test('the code inside $(...) and backticks is judged as commands of its own', () => {
+  const s = session();
+  for (const c of [
+    `cat $(rm ${s.path})`,
+    `for f in $(rm ${s.path}); do :; done`,
+    `case $(rm ${s.path}) in *) :;; esac`,
+    `select f in $(rm ${s.path}); do :; done`,
+    `echo "$(rm ${s.path})"`,
+    `echo \`rm ${s.path}\``,
+    `echo "\`cp forged ${s.path}\`"`,
+    `echo $(echo $(rm ${s.path}))`,
+    `echo $(( $(rm ${s.path}) + 1 ))`,
+    `echo "$(echo ")"; rm ${s.path})"`, // a paren inside quotes does not close the substitution
+    `cat <<EOF\n$(rm ${s.path})\nEOF`, // an unquoted heredoc expands its body
+    `cat <<< $(rm ${s.path})`,
+    `wc -l < $(rm ${s.path})`,
+    `echo x > "$(cp forged ${s.path}; echo /tmp/o)"`,
+    `echo $(rm ${s.path}`, // unbalanced: the broad fallback
+    `echo $((rm ${s.path});(echo))`, // not arithmetic: the inner paren closes before a ;
+    `echo $((a)|(rm ${s.path}))`,
+    `echo $(case x in a) rm ${s.path};; esac)`, // a case arm's ) would close $( early
+    `cat <(rm ${s.path})`, // process substitution runs its code
+    `echo x | tee >(cat > ${s.path})`,
+    `cat < <(rm ${s.path})`,
+    `cat forged <> ${s.path}`, // <> opens its target read-write
+    `cat forged 1<> ${s.path}`,
+  ]) {
+    assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
+  }
+  for (const c of [
+    `wc -l $(ls ${s.path})`,
+    `echo '$(rm ${s.path})'`, // single quotes expand nothing
+    `cat <<'EOF'\n$(rm ${s.path})\nEOF`, // a quoted heredoc tag expands nothing
+    `n=$(( $(wc -l < ${s.path}) + 1 )); echo $n`,
+    `echo "lines: $(wc -l < ${s.path})"`,
+    `echo $(( 1 + $(wc -l < ${s.path}) ))`,
+    `diff <(jq -c . ${s.path}) <(head -2 ${s.path})`,
+    // a paren inside quotes inside $(...) does not close it (a misread falls back to the broad check,
+    // which the > here would block)
+    `echo "$(echo ")")" > /tmp/o; wc -l ${s.path}`,
+  ]) {
+    assert.equal(bash(s, c).code, 0, `expected PASS: ${c}`);
   }
 });
 
@@ -370,11 +422,20 @@ test('an interpreter running a literal absolute script is judged by the script s
   const big = script('big.py', `# ${'x'.repeat(1_000_001)}\nprint(1)\n`);
   const linked = join(dirname(writer), 'link.py');
   symlinkSync(reader, linked);
+  const fifo = join(dirname(writer), 'fifo.py');
+  execFileSync('mkfifo', [fifo]);
+  const pkg = join(dirname(writer), 'pkg');
+  mkdirSync(pkg);
+  writeFileSync(join(pkg, '__main__.py'), "import sys\nopen(sys.argv[1], 'a').write('x')\n");
   for (const c of [
     `python3 -I ${reader} ${s.path}`,
     `python3 -I ${reader} "$(ls ~/.claude/projects/p/*.jsonl | head -1)"`,
     `python3 -u -I -B ${reader} ${s.path}`,
     `cd ~/.claude/projects && python3 -I ${reader} $(for s in a; do ls */\${s}*.jsonl | head -1; done)`,
+    // quiet neighbors: readers, loops over a lowercase variable, reserved words, output to /dev/null
+    `for f in ${s.path}; do python3 -I ${reader} "$f"; done`,
+    `if [ -f ${s.path} ]; then python3 -I ${reader} ${s.path}; fi`,
+    `python3 -I ${reader} ${s.path} 2>/dev/null | head -3`,
   ]) {
     assert.equal(bash(s, c).code, 0, `expected PASS: ${c}`);
   }
@@ -412,11 +473,35 @@ test('an interpreter running a literal absolute script is judged by the script s
     `HOME=${dirname(writer)}; python3 -I ~/evil.py ${s.path}`,
     // a symlink is not read through (it may be swapped for a FIFO or /dev/zero)
     `python3 -I ${linked} ${s.path}`,
+    `python3 -I ${fifo} ${s.path}`, // a FIFO would hang the hook
+    `python3 -I ${pkg} ${s.path}`, // a directory: python runs its __main__.py
+    `python3 -I /dev/fd/0 ${s.path} < ${writer}`, // not a regular file: here it reads the writer
+    // a write inside a loop or if body is still a write
+    `for f in ${s.path}; do python3 -I ${writer} "$f"; done`,
+    `if true; then python3 -I ${writer} ${s.path}; fi`,
+    // only quiet neighbors: anything that may change the shell, or write the script, leaves it unjudged
+    `read -r PATH < /tmp/p; python3 -I ${reader} ${s.path}`,
+    `printf -v PATH %s ${dirname(writer)}; python3 -I ${reader} ${s.path}`,
+    `set -a; python3 -I ${reader} ${s.path}`,
+    `for PATH in ${dirname(writer)}; do python3 -I ${reader} ${s.path}; done`,
+    `source ${writer}; python3 -I ${reader} ${s.path}`,
+    `function python3 { ${writer}; }; python3 -I ${reader} ${s.path}`,
+    `declare -x LD_PRELOAD=/tmp/w.so; python3 -I ${reader} ${s.path}`,
+    `enable -f /tmp/w.so python3; python3 -I ${reader} ${s.path}`,
+    `alias python3=${writer}; python3 -I ${reader} ${s.path}`,
+    `cat ${writer} > ${reader}; python3 -I ${reader} ${s.path}`, // rewrites the script after the check
+    `python3 -I ${reader} $(cp forged ${s.path})`,
+    `bash -c "python3 -I ${reader} ${s.path}"`, // a nested shell: the outer line sets its environment
+    `PATH=${dirname(writer)} bash -c "python3 -I ${reader} ${s.path}"`,
   ]) {
     assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
   }
   // Even when ~ is where the reader is, a ~/ script blocks: the shell may expand ~ from another $HOME.
   assert.equal(bash(s, `python3 -I ~/profile.py ${s.path}`, { HOME: dirname(reader) }).code, 2);
+  // cd is quiet only while PATH has no relative entry the new cwd could resolve python3 from
+  const cd = `cd ${dirname(writer)} && python3 -I ${reader} ${s.path}`;
+  assert.equal(bash(s, cd).code, 0);
+  assert.equal(bash(s, cd, { PATH: `.:${process.env.PATH}` }).code, 2);
 });
 
 test('the guarded profile names are configurable', () => {
