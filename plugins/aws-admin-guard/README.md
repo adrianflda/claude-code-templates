@@ -53,7 +53,7 @@ nothing. Only `python3 -I /absolute/script.py` qualifies: a bare `python`/`pytho
 a path), a literal absolute script path (no `~/`, glob or variable) to a regular file of at most
 1 MB, no assignment or wrapper on the command, not inside `bash -c`/`eval`, and every other command
 in the line from a short allowlist of readers (`cat`, `head`, `grep`, `jq`, `wc`, `ls`, `echo`,
-`test` ...), `cd` (only while `PATH` has no relative entry), a loop over a lowercase variable or a
+`test` ...), `cd` (only while `PATH` has no relative entry), a loop over a one-letter lowercase variable (zsh ties `path` to `PATH`) or a
 reserved word, with no output other than `/dev/null`, and no arithmetic (`$((...))`, `$[...]`) or
 `${x:=...}` anywhere in the line (each may assign `PATH`). The script must be UTF-8 text without NUL
 bytes: python also runs a zip archive or bytecode, which cannot be read. Anything else in the line (an assignment,

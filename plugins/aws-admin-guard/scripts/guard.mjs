@@ -142,25 +142,31 @@ const QUIET_NEIGHBORS = new Set(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep'
   'md5sum', 'shasum', 'sha256sum', 'cksum', 'stat', 'du', 'ls', 'echo', ':', 'true', 'false', 'test', '[',
   'realpath', 'readlink', 'dirname', 'basename']);
 
-/** True when every simple command of the line other than `self` is quiet: a known reader, cd (only
- * while PATH has no relative entry a new cwd could resolve python from), a loop over a lowercase
- * variable (no loader or PATH variable is lowercase), or a reserved word -- with no output other
- * than /dev/null. */
 // Expansions that can assign a variable anywhere in the line, a heredoc or a redirection target included:
 // arithmetic ($((PATH=0)), $[PATH=0]) and parameter defaults (${PATH:=0}, ${PATH=0}).
 const ASSIGNING_EXPANSION = /\$\(\(|\$\[|\$\{[^}]*=/;
 
+/** True when every simple command of the line other than `self` is quiet: a known reader, cd (only
+ * while PATH has no relative entry a new cwd could resolve python from), a loop over a one-letter
+ * lowercase variable, or a reserved word -- with no output other than /dev/null. A longer loop name
+ * may be special: zsh ties `path` to PATH and keeps `functions`, `aliases`, `commands` (what a name
+ * runs) and `fpath`/`module_path` (what it loads); no shell has a one-letter lowercase special. A
+ * test/[ argument holding a subscript (X[PATH=0]) is not quiet: bash's test -v evaluates it as
+ * arithmetic, which assigns. */
 function quietNeighbors(cmds, self) {
   const absolutePath = (process.env.PATH ?? '').split(':').every((d) => d.startsWith('/'));
   return cmds.every((c) => {
     if (c === self) return true;
     if (c.outputs.some((o) => o.dynamic || o.text !== '/dev/null')) return false;
     const loopVar = loopVariable(c.words);
-    if (loopVar) return !loopVar.dynamic && !loopVar.quoted && /^[a-z_][a-z0-9_]*$/.test(loopVar.text);
+    if (loopVar) return !loopVar.dynamic && !loopVar.quoted && /^[a-z]$/.test(loopVar.text);
     const words = unwrap(c.words);
     if (!words.length) return onlyReserved(c.words); // not a bare assignment (PATH=...) or wrapper
     const p = words[0];
     if (p.dynamic && p.text !== '[') return false; // a lone [ is no glob: bash keeps it literal
+    if ((p.text === 'test' || p.text === '[') && words.slice(1).some((w) => w.text !== ']' && w.text.includes('['))) {
+      return false;
+    }
     return p.text === 'cd' ? absolutePath : QUIET_NEIGHBORS.has(p.text);
   });
 }

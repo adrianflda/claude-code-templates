@@ -367,7 +367,7 @@ test('shell keywords are not programs: read-only loops over transcripts pass, wr
 });
 
 // 2026-11-08: the code of a command substitution runs wherever the substitution sits; it was kept as
-// one opaque word and never judged (`cat $(rm T)` passed; the 3c fix also let loop headers pass).
+// one opaque word and never judged (`cat $(rm T)` passed; the reserved-word fix above also let loop headers pass).
 test('the code inside $(...) and backticks is judged as commands of its own', () => {
   const s = session();
   for (const c of [
@@ -399,20 +399,24 @@ test('the code inside $(...) and backticks is judged as commands of its own', ()
   ]) {
     assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
   }
+  // every case writes /tmp/o, which the broad fallback blocks: a PASS proves the line was read
+  const sentinel = '; echo ok > /tmp/o';
   for (const c of [
     `wc -l $(ls ${s.path})`,
     `echo '$(rm ${s.path})'`, // single quotes expand nothing
-    `cat <<'EOF'\n$(rm ${s.path})\nEOF`, // a quoted heredoc tag expands nothing
+    `cat <<'EOF'${sentinel}\n$(rm ${s.path})\nEOF`, // a quoted heredoc tag expands nothing
     `n=$(( $(wc -l < ${s.path}) + 1 )); echo $n`,
     `echo "lines: $(wc -l < ${s.path})"`,
     `echo $(( 1 + $(wc -l < ${s.path}) ))`,
     `diff <(jq -c . ${s.path}) <(head -2 ${s.path})`,
-    // a paren inside quotes inside $(...) does not close it (a misread falls back to the broad check,
-    // which the > here would block)
-    `echo "$(echo ")")" > /tmp/o; wc -l ${s.path}`,
+    `echo "$(echo ")")"; wc -l ${s.path}`, // a paren inside quotes inside $(...) does not close it
+    `echo ${'$(echo '.repeat(16)}wc -l ${s.path}${')'.repeat(16)}`, // MAX_NESTING levels are read
   ]) {
-    assert.equal(bash(s, c).code, 0, `expected PASS: ${c}`);
+    const line = c.includes('<<') ? c : c + sentinel;
+    assert.equal(bash(s, line).code, 0, `expected PASS: ${line}`);
   }
+  // one level deeper than MAX_NESTING is unreadable: the broad check blocks the write to /tmp/o
+  assert.equal(bash(s, `echo ${'$(echo '.repeat(17)}wc -l ${s.path}${')'.repeat(17)}${sentinel}`).code, 2);
 });
 
 test('an interpreter running a literal absolute script is judged by the script source', () => {
@@ -431,6 +435,7 @@ test('an interpreter running a literal absolute script is judged by the script s
   writeFileSync(join(pkg, '__main__.py'), "import sys\nopen(sys.argv[1], 'a').write('x')\n");
   // python runs a zip's __main__.py; deflated, its code is not readable text
   const zipped = join(dirname(writer), 'z.py');
+  const nul = script('nul.py', 'print(1)\n\0\n'); // valid UTF-8, but python source never holds NUL
   execFileSync('python3', ['-I', '-c', "import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED)\n" +
     "z.writestr('__main__.py', \"import sys\\nopen(sys.argv[1], 'a').write('x')\\n\" * 20)\nz.close()", zipped]);
   for (const c of [
@@ -500,6 +505,13 @@ test('an interpreter running a literal absolute script is judged by the script s
     `bash -c "python3 -I ${reader} ${s.path}"`, // a nested shell: the outer line sets its environment
     `PATH=${dirname(writer)} bash -c "python3 -I ${reader} ${s.path}"`,
     `python3 -I ${zipped} ${s.path}`,
+    `python3 -I ${nul} ${s.path}`,
+    // zsh ties path to PATH (and keeps functions, aliases, commands): only one-letter loop names are quiet
+    `for path in ${dirname(writer)}; do python3 -I ${reader} ${s.path}; done`,
+    `for functions in x; do python3 -I ${reader} ${s.path}; done`,
+    // bash's test -v evaluates a subscript as arithmetic, which assigns
+    `test -v 'BASH_VERSINFO[PATH=0]'; python3 -I ${reader} ${s.path}`,
+    `[ -v 'a[PATH=0]' ]; python3 -I ${reader} ${s.path}`,
     // arithmetic and ${x:=} assign variables wherever they sit: PATH=0 resolves python3 from ./0/
     `echo $((PATH=0)); python3 -I ${reader} ${s.path}`,
     `echo $[PATH=0]; python3 -I ${reader} ${s.path}`,

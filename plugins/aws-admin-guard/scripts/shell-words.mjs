@@ -60,7 +60,7 @@ function endOfParen(text, i) {
 
 /** The code of a $(...), <(...) or >(...) that spans text[from, to). A case arm's `)` may close
  * the substitution early when counting parens, so code holding `case` is not read: the broad check. */
-function parenCode(text, from, to, subs) {
+function pushReadableCode(text, from, to, subs) {
   const code = text.slice(from, to);
   if (/(^|[\s;&|(`])case(\s|$)/.test(code)) throw new ShellParseError('case inside a substitution');
   subs.push(code);
@@ -80,7 +80,7 @@ function substitution(text, i, subs) {
   if (text.startsWith('$((', i) && endOfParen(text, i + 1) === end - 1) {
     substitutionsIn(text.slice(i + 3, end - 2), subs);
   } else {
-    parenCode(text, i + 2, end - 1, subs);
+    pushReadableCode(text, i + 2, end - 1, subs);
   }
   return end;
 }
@@ -110,7 +110,7 @@ function lex(line, subs) {
     if ((line[i] === '<' || line[i] === '>') && line[i + 1] === '(') {
       // process substitution: a word whose value is a path; its code runs alongside the command
       const end = endOfParen(line, i);
-      parenCode(line, i + 2, end - 1, subs);
+      pushReadableCode(line, i + 2, end - 1, subs);
       out.push({ text: line.slice(i, end), dynamic: true, quoted: false });
       i = end;
       continue;
@@ -172,7 +172,8 @@ function lex(line, subs) {
   return out;
 }
 
-/** Simple commands: [{ words: [{text, dynamic}], outputs: [{text, dynamic}], heredoc: string|null }].
+/** Simple commands: [{ words, outputs, heredoc: string|null }], words and outputs as lex makes them
+ * ({ text, dynamic, quoted }).
  * The code of every command substitution ($(...), `...`, also inside double quotes and unquoted
  * heredocs) follows as simple commands of its own: it runs too, wherever it sits (a for or case
  * header, an argument, a redirection target). */
