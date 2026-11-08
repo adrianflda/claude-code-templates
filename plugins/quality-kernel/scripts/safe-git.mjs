@@ -4,22 +4,29 @@
 //   under the ORIGINAL object id — one porcelain command forged a PASS.
 // - core.fsmonitor=false: a command local config can set; some git calls run it.
 // - GIT_ATTR_NOSYSTEM: system gitattributes are not part of the committed tree.
-// - inherited GIT_DIR-style variables would point every `-C <repo>` call at another repository.
+// - inherited GIT_* variables: every one is dropped except GIT_CONFIG_GLOBAL / GIT_CONFIG_NOSYSTEM
+//   (they only choose which user/system config file is read — the same trust as ~/.gitconfig, and
+//   the tests pin them). GIT_DIR-style variables would point every `-C <repo>` call at another
+//   repository; GIT_CONFIG_PARAMETERS / GIT_CONFIG_COUNT (set by any outer `git -c`) inject config;
+//   GIT_GRAFT_FILE rewrites ancestry.
+// - GIT_GRAFT_FILE=/dev/null: an empty graft file, so `.git/info/grafts` is never read either.
+// - core.commitGraph=false: ancestry (merge-base, base..head) is read from the commits themselves,
+//   not from a commit-graph file that code the gate ran could have rewritten.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { devNull } from 'node:os';
 
-const REDIRECT_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
-  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE'];
+const KEPT_GIT_VARS = new Set(['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM']);
 
 export function gateGitEnv(base = process.env) {
-  const env = { ...base, GIT_NO_REPLACE_OBJECTS: '1', GIT_ATTR_NOSYSTEM: '1' };
-  for (const k of REDIRECT_VARS) delete env[k];
-  return env;
+  const env = Object.fromEntries(Object.entries(base).filter(([k]) => !k.startsWith('GIT_') || KEPT_GIT_VARS.has(k)));
+  return { ...env, GIT_NO_REPLACE_OBJECTS: '1', GIT_ATTR_NOSYSTEM: '1', GIT_GRAFT_FILE: devNull };
 }
 
 const ENV = gateGitEnv();
+const PINS = ['-c', 'core.fsmonitor=false', '-c', 'core.commitGraph=false'];
 export function git(repo, args, opts = {}) {
-  return spawnSync('git', ['-C', repo, '-c', 'core.fsmonitor=false', ...args], { encoding: 'utf8', ...opts, env: ENV });
+  return spawnSync('git', ['-C', repo, ...PINS, ...args], { encoding: 'utf8', ...opts, env: ENV });
 }
 
 // Read a committed file whose bytes decide the verdict (a gate config), checked against its object
