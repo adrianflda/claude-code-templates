@@ -22,14 +22,18 @@ import { isMain } from './is-main.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-// --- EARS-M1-M5: the breaker-not-executed record (specs/qk-breaker-robust-input/spec.md §1.3) ---
-// A non-gating diagnostic artifact — it is never read back to decide pass/fail (EARS-M4), it only
-// tells a human "the breaker itself never produced a verdict" when the nested breaker.verdict is
-// INSTRUMENT-BROKEN (EARS-M1), and it is cleared the moment a later run's nested verdict is
-// anything else (EARS-M3). Any failure writing or removing it is logged and swallowed (EARS-M5):
-// it must never change the gate's own exit code, which stays the sole, default-deny decision.
+// Path of the breaker-not-executed diagnostic record, inside the given repo.
 export function notExecutedPath(repoDir) { return join(repoDir, '.quality-kernel', 'breaker-not-executed.json'); }
 
+// The breaker-not-executed record (specs/qk-breaker-robust-input/spec.md §1.3, EARS-M1-M5): a
+// non-gating diagnostic file, never read back to decide pass/fail (EARS-M4) — it only tells a
+// human later "the breaker itself never produced a verdict." Written whenever the nested breaker
+// verdict is INSTRUMENT-BROKEN (EARS-M1); removed the moment a later run's nested verdict is
+// anything else — PASS, FAIL, or INDETERMINATE (EARS-M3). Any failure writing or removing it
+// (permission denied, disk full, a failed rename) is caught here, reported on stderr, and
+// swallowed (EARS-M5): it must never change, delay, or prevent the gate's own exit code, which
+// stays the sole, default-deny decision.
+//
 // fs calls are injectable (same pattern as vector-breaker.mjs's uiRunner/httpRunner) so a test can
 // simulate a crash between the temp-file write and the rename without mocking the node:fs module.
 export function syncNotExecutedRecord(repoDir, nestedVerdict, contractPath, { write = writeFileSync, rename = renameSync, unlink = unlinkSync } = {}) {
