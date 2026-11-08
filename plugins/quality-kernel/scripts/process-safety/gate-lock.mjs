@@ -9,6 +9,8 @@ import { processStart, classifyLock } from './lock-liveness.mjs';
 import { takeOverStale, reapStranded, reapTempFiles, lockDistrust } from './lock-takeover.mjs';
 
 export { lockPathFor, processStart, classifyLock, defaultLockDir };
+// Lock primitives for other single-file locks (run-journal/store.mjs): exclusive create, trusted read.
+export { createExclusive, readLock };
 
 // null = the holder may be taken over (stale), else the refusal reason.
 function holderRefusal(held, path, uid) {
