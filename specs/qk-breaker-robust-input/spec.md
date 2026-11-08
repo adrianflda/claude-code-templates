@@ -168,6 +168,9 @@ classified as batch-level or per-vector per EARS-V1.
   `plugins/quality-kernel/scripts/fixtures/qk-breaker-robust-input/contracts/contract-1045-shape.md`
   and its sibling acceptance file no longer exits `2` with the stdout message `"no invariants
   declared in the contract (## Invariants table)"` (OBSERVED current behavior: `contract-lint.mjs:71,76`).
+  EARS-H8 ALSO requires `contract-lint.mjs` to extract declared ids with EARS-H4's id grammar (bare id
+  from a bold/parenthetical cell such as `**EO-6 (re-run)**` → `EO-6`, any letters/digits-hyphen
+  prefix, not only `INV-`), so the fixture's `EO-0`/`EO-6` rows count as declared.
 - EARS-H9 (DECIDED in scope, §4 D2): THE SYSTEM SHALL apply the same empty-section guard as EARS-H6
   inside `gstack-breaker.mjs`'s `runBreaker()` (which calls `buildBlindInput()` directly,
   `gstack-breaker.mjs:56`): WHEN the extracted `qaProcedure` is empty OR `invariants` is empty, THE
@@ -268,7 +271,8 @@ classified as batch-level or per-vector per EARS-V1.
   `BREAKER_INDETERMINATE`) with a reason naming the failure, exit `2`, so that `breaker-gate.mjs`
   writes the breaker-not-executed record per EARS-M1 instead of clearing it per EARS-M3. Argument
   errors (missing `--contract`/`--breaker`/`--probe`/`--url`, contract file not found) and a
-  breaker that ran and printed unparseable output keep their current verdict and exit code.
+  breaker that ran (exit `0`) and printed unparseable output keep the verdict
+  `BREAKER_INDETERMINATE` and exit `2`.
 - EARS-M4: THE SYSTEM SHALL leave `.quality-kernel/breaker-not-executed.json` as an unversioned
   runtime artifact (same category as `.quality-kernel/evidence-ledger.jsonl`) — it is not read as
   part of the gate's pass/fail decision, only as a durable record a report can read after the fact.
@@ -305,6 +309,8 @@ Feature: Blind breaker accepts the specifier's real contract shape and degrades 
     Then invariants includes { id: "EO-6", expected: "not yet probeable" }
     And the extracted expected value for EO-6 is NOT a fragment of the probe-command cell
 
+  # "dup.md" and "dup-id.md" in the next two scenarios are inline-string fixtures written to a temp
+  # directory by the unit test, not shipped files (§0.1 lists the shipped ones).
   Scenario: A second, later heading that ALSO matches EARS-H2's pattern never overrides the first match (EARS-H2b)
     Given a contract file "dup.md" with heading "## 6. External Observable Invariants" and table row "| INV-A | d | 1 |"
     And a later heading "## 9. Invariants (changelog)" — itself matching EARS-H2's bare-word rule, not just prose — with its OWN table row "| INV-Z | changelog-only | 99 |"
@@ -395,7 +401,23 @@ Feature: Blind breaker accepts the specifier's real contract shape and degrades 
     When it is run with "node --test plugins/quality-kernel/scripts/fixtures/qk-breaker-robust-input/vector-author-prompt.test.mjs"
     Then all 3 tests pass (0 fail)
 
+  Scenario: A Host header exactly equal to the systemUrl's own hostname is accepted (EARS-V6 branch a)
+    Given systemUrl is "https://example.com"
+    And an HTTP vector anchored to "EO-0" sets requests[0].headers.host = "example.com"
+    And 2 other valid, anchored vectors
+    When runVectors is called with these 3 vectors
+    Then the result's executed count is 3
+    And no vector is dropped
+
+  Scenario: An HTTP vector with no expect is dropped when no --probe was given (EARS-V4 step 4)
+    Given an HTTP vector anchored to "EO-0" with no "expect"
+    And 3 other valid, anchored vectors that each have an "expect"
+    When runVectors is called with these 4 vectors and no probe command
+    Then the dropped vectors include { index: 0, reason contains "expect" }
+    And the result's executed count is 3
+
   Scenario: A batch-level problem still rejects the whole run
+    Given 31 distinct vectors, each a valid HTTP GET of "/" anchored to "EO-0" with an "expect"
     When runVectors is called with 31 otherwise-valid, anchored vectors
     Then the verdict is "INSTRUMENT-BROKEN"
     And executed is 0
@@ -419,6 +441,23 @@ Feature: Blind breaker accepts the specifier's real contract shape and degrades 
     Then "<repo>/.quality-kernel/breaker-not-executed.json" exists
     And its JSON has schemaVersion 1, verdict "INSTRUMENT-BROKEN", reason "vectors must be a non-empty array", contract "<contract>", executed 0
     And the process exits EXACTLY 2 (per §1.0's cited breaker-invoke.mjs/breaker-gate.mjs exit-code mapping)
+
+  Scenario: A breaker command that cannot be spawned is INSTRUMENT-BROKEN and keeps the not-executed record (EARS-M6)
+    Given a scratch repo "<repo>" with no ".quality-kernel/breaker-not-executed.json"
+    When breaker-gate.mjs is run as in the previous scenario but with --breaker "this-command-does-not-exist-xyz"
+    Then the nested breaker verdict is "INSTRUMENT-BROKEN" (not "BREAKER_INDETERMINATE")
+    And "<repo>/.quality-kernel/breaker-not-executed.json" exists with verdict "INSTRUMENT-BROKEN"
+    And the process exits EXACTLY 2
+
+  Scenario: A breaker command that exits non-zero is INSTRUMENT-BROKEN (EARS-M6)
+    When breaker-invoke.mjs is run with a valid contract, --probe "true", --url "http://example.com" and --breaker "exit 3"
+    Then the printed verdict is "INSTRUMENT-BROKEN" and the reason contains "3"
+    And the process exits 2
+
+  Scenario: A missing --breaker argument stays BREAKER_INDETERMINATE (EARS-M6 carve-out)
+    When breaker-invoke.mjs is run with --contract "<contract>" --probe "true" --url "http://example.com" and no --breaker
+    Then the printed verdict is "BREAKER_INDETERMINATE"
+    And the process exits 2
 
   Scenario: A later BREAKER_INDETERMINATE verdict also clears the stale not-executed record
     Given "<repo>/.quality-kernel/breaker-not-executed.json" exists from a prior broken run
@@ -482,7 +521,7 @@ Normative (in scope for `breaker-invoke.mjs`, `vector-breaker.mjs`, `breaker-cla
 | INV-5 | An empty QA-procedure section fails closed with the headings found, before the breaker command runs, exiting exactly 2. | run `breaker-invoke.mjs` against a copy of `contract-1045-shape.md` with an emptied QA-procedure body, `--breaker "node -e \"require('fs').appendFileSync('./breaker-invoked.flag','x')\""` | process exit code is `2`; printed verdict is `INSTRUMENT-BROKEN`; `./breaker-invoked.flag` does not exist (the breaker command never ran). |
 | INV-6 | An empty invariants table fails closed the same way. | same, with an emptied invariants table body | process exit code is `2`; printed verdict is `INSTRUMENT-BROKEN`; `./breaker-invoked.flag` does not exist. |
 | INV-7 | A `Host` header on the system's own registrable domain is accepted; one on an unrelated domain is dropped and reported, without rejecting the batch. | `node plugins/quality-kernel/scripts/breaker-invoke.mjs --contract contract-1045-shape.md --probe true --url http://example.com --breaker "node plugins/quality-kernel/scripts/fixtures/qk-breaker-robust-input/vector-stub.mjs"` | printed JSON's top-level `dropped` array equals exactly `[{"index":0,"reason":<a string containing "host">}]` (EARS-V3's pinned shape); `executed` is `3`; overall verdict `BREAKER_PASS`. |
-| INV-8 | A batch-level problem (31+ vectors, or a non-array) still rejects the whole run. | a variant of `vector-stub.mjs` (same relative import) feeding 31 vectors | printed verdict is `INSTRUMENT-BROKEN`, `executed: 0`; process exits `2`. |
+| INV-8 | A batch-level problem (31+ vectors, or a non-array) still rejects the whole run. | a variant of `vector-stub.mjs` (same relative import) feeding 31 distinct, otherwise-valid HTTP GET vectors anchored to `EO-0` (see the Gherkin scenario) | printed verdict is `INSTRUMENT-BROKEN`, `executed: 0`; process exits `2`. |
 | INV-9 | An `INSTRUMENT-BROKEN` breaker verdict writes `.quality-kernel/breaker-not-executed.json` with the documented schema, and the gate process exits exactly 2. | `node plugins/quality-kernel/scripts/breaker-gate.mjs --repo <scratch-repo, built per §3 step 6> --base <base> --head <head> --breaker "<stub always printing INSTRUMENT-BROKEN>" --contract contract-1045-shape.md --probe true --url http://example.com; echo "exit=$?"; cat <scratch-repo>/.quality-kernel/breaker-not-executed.json` | `exit=2`; file exists; `jq .verdict` = `"INSTRUMENT-BROKEN"`; `jq .schemaVersion` = `1`. |
 | INV-10 (re-run) | Running the gate again with a breaker that now executes (PASS, FAIL, or INDETERMINATE) removes the stale record, regardless of what `gate`/exit-code say. | re-run the same command with a stub printing each of `BREAKER_PASS`/`BREAKER_FAIL`/`BREAKER_INDETERMINATE` in turn, checking the file between runs | file is absent after each of the three re-runs. |
 | INV-11 (re-run / crash) | A write interrupted mid-way never leaves a truncated file; a write failure never changes the gate's exit code. | as a non-root user, `chmod 555` the `.quality-kernel` dir before running the gate with an `INSTRUMENT-BROKEN` stub; compare exit code to a writable-dir run | exit code identical (`2`) in both runs; stderr names the write failure in the read-only run; no stack trace. |
@@ -492,6 +531,7 @@ Normative (in scope for `breaker-invoke.mjs`, `vector-breaker.mjs`, `breaker-cla
 | INV-15 (EARS-H9) | `gstack-breaker.mjs`'s `runBreaker()` rejects an empty `qaProcedure`/`invariants` the same way `breaker-invoke.mjs` does. | `node plugins/quality-kernel/scripts/gstack-breaker.mjs --contract <a copy of contract-1045-shape.md with its QA-procedure body emptied> --url http://example.com --vectors <any vectors.json>` | printed verdict is `INSTRUMENT-BROKEN`, reason names the empty section. TODAY (pre-fix): proceeds to validate vectors instead. |
 | INV-16 (EARS-H8, end-to-end) | The committed numbered-heading fixture, run through `breaker-gate.mjs` exactly as production wires it (contract-lint precondition, THEN `breaker-invoke.mjs`), reaches the breaker instead of being blocked at `blocked-invalid-contract`. | Build a scratch repo per §3 step 6's critical-surface recipe; run `node plugins/quality-kernel/scripts/breaker-gate.mjs --repo <repo> --base <base> --head <head> --breaker "node -e \"let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const i=JSON.parse(s);console.log(JSON.stringify({verdict:(i.qaProcedure&&i.invariants&&i.invariants.length?'BREAKER_PASS':'INSTRUMENT-BROKEN'),executed:3,vectors:[1,2,3]}))})\"" --contract plugins/quality-kernel/scripts/fixtures/qk-breaker-robust-input/contracts/contract-1045-shape.md --probe true --url http://example.com` | `gate` is NOT `"blocked-invalid-contract"`; `contractLint.ok` is `true`, `contractLint.declared` non-empty; nested `breaker.verdict` is `"BREAKER_PASS"`, `breaker.executed` is `3`; exit code `0`. TODAY (pre-fix, OBSERVED by running this exact command against this worktree): `gate:"blocked-invalid-contract"`, `breaker:null`, `contractLint.declared:[]`, exit `3`. |
 | INV-17 (EARS-H4b) | A contract whose SAME invariants table declares the same id twice with different `expected` values uses only the FIRST row's value; the second is never read. | `node -e` script (or the equivalent CLI dump) building the blind input from a fixture with table rows `| INV-A | first | 1 |` then `| INV-A | second | 2 |` | extracted invariants equal exactly `[{"id":"INV-A","expected":"1"}]`; no entry with `expected:"2"` appears. |
+| INV-18 (EARS-M6) | A breaker command that cannot be spawned or exits non-zero is reported as `INSTRUMENT-BROKEN`, so the not-executed record is written, not cleared. | `breaker-gate.mjs` on a scratch repo with `--breaker "this-command-does-not-exist-xyz"` | nested verdict `INSTRUMENT-BROKEN`; `.quality-kernel/breaker-not-executed.json` exists; exit `2`. RED today: verdict `BREAKER_INDETERMINATE` and no record. |
 
 ## 3. QA procedure
 
@@ -684,6 +724,7 @@ forward as test obligations for the coder/designer stage rather than fixed in th
 | Invariant | A row of the contract's `## Invariants` / `## External Observable Invariants` table: an id, a falsifiable predicate over external state, a probe command, and an expected value. |
 | Batch-level (vector) problem | A defect in the vectors array as a whole that rejects the entire run before any vector executes. |
 | Per-vector problem | A defect confined to one vector that excludes only that vector; the rest still execute. |
+| qk-gate | `plugins/quality-kernel/scripts/qk-gate.mjs`, the composed gate; it exits `3` when a change touches the critical surface, which is what makes `breaker-gate.mjs` require the breaker. |
 | Registrable domain | The system URL's hostname reduced to its last two dot-separated labels; used only to decide which `Host` header values a vector may set (not applied when the hostname is an IP literal or single label — EARS-V6a). |
 | `gate` field | `breaker-gate.mjs`'s own top-level stdout JSON field; its enumerated values and exit-code mapping are cited in §1.0. |
 | `dropped` field | The breaker's own top-level printed-JSON array field (EARS-V3), one `{index, reason}` entry per excluded per-vector-invalid vector; the one required shape for reporting exclusions (see INV-7). |
