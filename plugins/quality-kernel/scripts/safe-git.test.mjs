@@ -6,13 +6,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { gateGitEnv } from './safe-git.mjs';
 
 // Contract (safe-git.mjs header): the gate's git answers come from the repo's objects alone. No
 // inherited GIT_* variable except GIT_CONFIG_GLOBAL / GIT_CONFIG_NOSYSTEM reaches git; grafts (in the
 // environment or in .git/info/grafts) and a commit-graph file never change ancestry.
 const SAFE_GIT = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'safe-git.mjs')).href;
 
-function fixture(t) {
+function fixture(t, tag = '') {
   const dir = mkdtempSync(join(tmpdir(), 'qk-safe-git-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const g = (...a) => {
@@ -21,7 +22,7 @@ function fixture(t) {
     return r.stdout.trim();
   };
   g('init', '-q', '-b', 'main');
-  g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base');
+  g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', `base${tag}`);
   const base = g('rev-parse', 'HEAD');
   g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'head');
   const head = g('rev-parse', 'HEAD');
@@ -98,9 +99,21 @@ test('config injected through GIT_CONFIG_PARAMETERS or GIT_CONFIG_COUNT never re
 
 test('an inherited GIT_DIR cannot redirect a call to another repository', (t) => {
   const f = fixture(t);
-  const other = fixture(t);
-  const r = safeGit(f.dir, ['rev-parse', 'HEAD'], { GIT_DIR: join(other.dir, '.git') });
+  const other = fixture(t, ' (other repo)');
+  assert.notStrictEqual(other.head, f.head, 'the two repositories have different histories');
+  const redirect = { GIT_DIR: join(other.dir, '.git') };
+  const control = spawnSync('git', ['-C', f.dir, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: { ...process.env, ...redirect } });
+  assert.strictEqual(control.stdout.trim(), other.head, 'control: plain git follows GIT_DIR');
+  const r = safeGit(f.dir, ['rev-parse', 'HEAD'], redirect);
   assert.deepStrictEqual([r.status, r.stdout.trim()], [0, f.head]);
+});
+
+test('gateGitEnv keeps only the two config-file selectors, whatever the case of the name', () => {
+  const env = gateGitEnv({ PATH: '/bin', GIT_CONFIG_GLOBAL: '/g', GIT_CONFIG_NOSYSTEM: '1', GIT_FOO: 'x',
+    git_dir: '/elsewhere', Git_Graft_File: '/forged' });
+  assert.deepStrictEqual(env, { PATH: '/bin', GIT_CONFIG_GLOBAL: '/g', GIT_CONFIG_NOSYSTEM: '1',
+    GIT_NO_REPLACE_OBJECTS: '1', GIT_ATTR_NOSYSTEM: '1', GIT_GRAFT_FILE: env.GIT_GRAFT_FILE });
+  assert.ok(env.GIT_GRAFT_FILE && env.GIT_GRAFT_FILE !== '/forged');
 });
 
 test('GIT_CONFIG_GLOBAL is still honoured (it only picks the user config file)', (t) => {

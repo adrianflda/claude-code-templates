@@ -19,7 +19,11 @@ import { devNull } from 'node:os';
 const KEPT_GIT_VARS = new Set(['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM']);
 
 export function gateGitEnv(base = process.env) {
-  const env = Object.fromEntries(Object.entries(base).filter(([k]) => !k.startsWith('GIT_') || KEPT_GIT_VARS.has(k)));
+  const env = Object.fromEntries(Object.entries(base).filter(([k]) => {
+    // Windows env names are case-insensitive (git_dir there is GIT_DIR): compare upper-cased.
+    const K = k.toUpperCase();
+    return !K.startsWith('GIT_') || KEPT_GIT_VARS.has(K);
+  }));
   return { ...env, GIT_NO_REPLACE_OBJECTS: '1', GIT_ATTR_NOSYSTEM: '1', GIT_GRAFT_FILE: devNull };
 }
 
