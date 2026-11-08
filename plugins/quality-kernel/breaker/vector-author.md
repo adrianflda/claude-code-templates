@@ -50,13 +50,19 @@ anchored to one contract invariant id and is either HTTP or UI:
 ]
 ```
 
-Rules the instruments enforce (a vector that breaks one invalidates the whole run):
+Rules the instruments enforce (one invalid vector drops only that vector; it does not invalidate the
+whole run — the rest still execute):
 
 - `invariant` must be an id from the blind input's invariants.
 - HTTP: `method` is one of GET, HEAD, POST, PUT, PATCH, DELETE; `path` is an absolute path on the
   system (starts with one `/`); GET and HEAD carry no body; at most 20 requests; `expect` holds an
   optional integer `status` and optional `json` checks (RFC 6901 `pointer` + `equals`), judged on
-  the LAST response. Without a contract probe, an HTTP vector must have an `expect`.
+  the LAST response. Without a contract probe, an HTTP vector must have an `expect`. A request MAY
+  set a `Host` header, but it is checked, not trusted blindly: the instrument dials the TCP
+  connection to the system URL itself (a `Host` header can never redirect that connection), yet an
+  unrestricted value would let the live system answer "as" an arbitrary hostname — so the instrument
+  only accepts a `Host` equal to the system's own hostname or a subdomain of its registrable domain
+  (last two labels); anything else is dropped as a per-vector failure, same as a bad path or method.
 - UI: `steps` use only `goto` (a path or URL on the system's origin) and `click`; `assert.cmd` is
   one of `text`, `is`, `attrs`; `mode` is `text` (contains), `value` (equals) or `is` (boolean);
   all args are strings.
