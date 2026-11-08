@@ -262,6 +262,13 @@ classified as batch-level or per-vector per EARS-V1.
   as "`gate` is not `'breaker-indeterminate'`", since per §1.0 the `gate` field and exit code alone
   cannot distinguish `BREAKER_INDETERMINATE` from `INSTRUMENT-BROKEN`), THE SYSTEM SHALL remove
   `<repo>/.quality-kernel/breaker-not-executed.json` if it exists.
+- EARS-M6 (breaker process did not run; decided by Adrian 2026-11-08): IF `breaker-invoke.mjs`
+  cannot obtain a verdict because the breaker command could not be spawned, produced no exit status,
+  or exited non-zero, THEN THE SYSTEM SHALL print the verdict `INSTRUMENT-BROKEN` (not
+  `BREAKER_INDETERMINATE`) with a reason naming the failure, exit `2`, so that `breaker-gate.mjs`
+  writes the breaker-not-executed record per EARS-M1 instead of clearing it per EARS-M3. Argument
+  errors (missing `--contract`/`--breaker`/`--probe`/`--url`, contract file not found) and a
+  breaker that ran and printed unparseable output keep their current verdict and exit code.
 - EARS-M4: THE SYSTEM SHALL leave `.quality-kernel/breaker-not-executed.json` as an unversioned
   runtime artifact (same category as `.quality-kernel/evidence-ledger.jsonl`) — it is not read as
   part of the gate's pass/fail decision, only as a durable record a report can read after the fact.
