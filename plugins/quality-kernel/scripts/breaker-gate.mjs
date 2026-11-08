@@ -14,11 +14,50 @@
 import { spawnSync } from 'node:child_process';
 import { dirname, join, basename, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { diff as contractDiff } from './contract-lint.mjs';
 import { showAtRef } from './route.mjs';
+import { isMain } from './is-main.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+// --- EARS-M1-M5: the breaker-not-executed record (specs/qk-breaker-robust-input/spec.md §1.3) ---
+// A non-gating diagnostic artifact — it is never read back to decide pass/fail (EARS-M4), it only
+// tells a human "the breaker itself never produced a verdict" when the nested breaker.verdict is
+// INSTRUMENT-BROKEN (EARS-M1), and it is cleared the moment a later run's nested verdict is
+// anything else (EARS-M3). Any failure writing or removing it is logged and swallowed (EARS-M5):
+// it must never change the gate's own exit code, which stays the sole, default-deny decision.
+export function notExecutedPath(repoDir) { return join(repoDir, '.quality-kernel', 'breaker-not-executed.json'); }
+
+// fs calls are injectable (same pattern as vector-breaker.mjs's uiRunner/httpRunner) so a test can
+// simulate a crash between the temp-file write and the rename without mocking the node:fs module.
+export function syncNotExecutedRecord(repoDir, nestedVerdict, contractPath, { write = writeFileSync, rename = renameSync, unlink = unlinkSync } = {}) {
+  const target = notExecutedPath(repoDir);
+  try {
+    if (nestedVerdict && nestedVerdict.verdict === 'INSTRUMENT-BROKEN') {
+      const record = {
+        schemaVersion: 1,
+        ts: new Date().toISOString(),
+        verdict: 'INSTRUMENT-BROKEN',
+        reason: nestedVerdict.reason ?? null,
+        contract: contractPath,
+        executed: nestedVerdict.executed ?? 0,
+      };
+      // Atomic: write to a unique temp file beside the target, then rename — a reader never
+      // observes a partial file, and two concurrent runs never share the same temp file.
+      const tmpPath = `${target}.${process.pid}-${randomBytes(6).toString('hex')}.tmp`;
+      write(tmpPath, JSON.stringify(record));
+      rename(tmpPath, target);
+    } else {
+      try { unlink(target); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+    }
+  } catch (err) {
+    process.stderr.write(`breaker-not-executed record could not be synced: ${err && err.message ? err.message : err}\n`);
+  }
+}
+
+if (isMain(import.meta.url)) {
 const argv = process.argv.slice(2);
 function opt(name) { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : null; }
 
@@ -89,6 +128,7 @@ if (!lintOk) {
 const b = spawnSync('node', [join(here, 'breaker-invoke.mjs'), '--contract', contract, ...(probe ? ['--probe', probe] : []), ...(url ? ['--url', url] : []), '--breaker', breaker], { encoding: 'utf8' });
 let bj = null; try { bj = JSON.parse((b.stdout || '').trim().split('\n').filter(Boolean).pop()); } catch { /* null */ }
 const contractLint = { ok: true, anchor, declared: lint.declared, checked: lint.checked };
+syncNotExecutedRecord(repo, bj, contract);
 
 // A passing breaker closes the CRITICAL-SURFACE cause of exit 3 — never the human-review cause.
 // qk-gate also returns 3 when the referee saw test files overlaid from head: a test change is a
@@ -102,3 +142,4 @@ if (b.status === 0 && gj && gj.requiresHumanReview) {
 
 const gate = b.status === 0 ? 'pass' : b.status === 1 ? 'breaker-fail' : 'breaker-indeterminate';
 emit({ gate, refereeGate: gj, breaker: bj, contractLint }, b.status);
+}
