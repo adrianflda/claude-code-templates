@@ -14,28 +14,14 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { isMain } from './is-main.mjs';
+import { scanSections, emptySectionReason } from './contract-sections.mjs';
 
-function section(md, name) {
-  const lines = md.split('\n'); const out = []; let inSec = false;
-  for (const l of lines) {
-    if (new RegExp(`^##\\s+${name}\\b`, 'i').test(l)) { inSec = true; continue; }
-    if (inSec && /^##\s+/.test(l)) break;
-    if (inSec) out.push(l);
-  }
-  return out.join('\n').trim();
-}
-function invariants(md) {
-  const out = []; let inTable = false;
-  for (const l of md.split('\n')) {
-    if (/^##\s+Invariants\b/i.test(l)) { inTable = true; continue; }
-    if (inTable && /^##\s+/.test(l)) break;
-    if (inTable) { const m = l.match(/^\s*\|\s*(INV-[A-Za-z0-9-]+)\s*\|(.*)\|\s*([^|]*)\|\s*$/); if (m) out.push({ id: m[1], expected: m[3].trim() }); }
-  }
-  return out;
-}
 // The ONLY things the breaker may see. Deliberately excludes diff/changed/tests/reasoning (P5).
+// Heading/table parsing itself lives in contract-sections.mjs (EARS-H1/H2/H2b/H3/H4/H4b/H5), shared
+// with contract-lint.mjs and gstack-breaker.mjs so the two places that read a contract can't drift.
 export function buildBlindInput(md, { probeCmd = null, systemUrl = null } = {}) {
-  return { qaProcedure: section(md, 'QA procedure'), invariants: invariants(md), probeCmd, systemUrl };
+  const { qaProcedure, invariants } = scanSections(md);
+  return { qaProcedure, invariants, probeCmd, systemUrl };
 }
 
 if (isMain(import.meta.url)) {
@@ -56,7 +42,16 @@ if (isMain(import.meta.url)) {
   if (!given(probe) || !given(url)) bail('need --probe "<cmd>" and --url <systemUrl>: the breaker verdict must come from executing against the live system');
   if (!existsSync(contract)) bail(`contract not found: ${contract}`);
 
-  const input = buildBlindInput(readFileSync(contract, 'utf8'), { probeCmd: probe, systemUrl: url });
+  const md = readFileSync(contract, 'utf8');
+  // EARS-H6: fail closed BEFORE the breaker command ever runs when a required section is empty —
+  // an empty blind input is not "the breaker found nothing wrong", it is "the breaker never ran".
+  const emptyReason = emptySectionReason(scanSections(md));
+  if (emptyReason) {
+    process.stdout.write(JSON.stringify({ verdict: 'INSTRUMENT-BROKEN', reason: emptyReason }) + '\n');
+    process.exit(2);
+  }
+
+  const input = buildBlindInput(md, { probeCmd: probe, systemUrl: url });
   const r = spawnSync(breaker, { input: JSON.stringify(input), shell: true, encoding: 'utf8', timeout: 600000 });
   if (r.error || r.status === null) bail(`breaker could not run: ${r.error ? r.error.message : 'no exit'}`);
   // A breaker that printed BREAKER_PASS but exited non-zero did not complete cleanly; trusting the
