@@ -187,7 +187,7 @@ def main():
             emoji = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🔵'}.get(f['severity'], '⚪')
             print(f'{emoji} {f["description"]} — {f["file"]}:{f["line"]}', file=sys.stderr)
         print('', file=sys.stderr)
-        print('❌ COMMIT BLOQUEADO: Mueve los secretos a variables de entorno (.env)', file=sys.stderr)
+        print('❌ COMMIT BLOCKED: move the secrets to environment variables (.env)', file=sys.stderr)
         sys.exit(2)
 
     sys.exit(0)

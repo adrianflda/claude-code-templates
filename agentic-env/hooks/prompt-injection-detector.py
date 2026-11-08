@@ -13,35 +13,35 @@ import os
 # Patterns that suggest prompt injection attempts
 INJECTION_PATTERNS = [
     # Classic override attempts
-    (r'(?i)ignore\s+(all\s+)?(previous|prior|above|your)\s+instructions?', 'Intento de override de instrucciones'),
-    (r'(?i)disregard\s+(all\s+)?(previous|prior|your)\s+instructions?', 'Intento de ignorar instrucciones'),
-    (r'(?i)forget\s+(all\s+)?(previous|prior|your)\s+instructions?', 'Intento de borrar instrucciones'),
+    (r'(?i)ignore\s+(all\s+)?(previous|prior|above|your)\s+instructions?', 'Instruction override attempt'),
+    (r'(?i)disregard\s+(all\s+)?(previous|prior|your)\s+instructions?', 'Attempt to disregard instructions'),
+    (r'(?i)forget\s+(all\s+)?(previous|prior|your)\s+instructions?', 'Attempt to erase instructions'),
 
     # Role hijacking
-    (r'(?i)you\s+are\s+now\s+(a\s+|an\s+)?(new\s+)?(AI|assistant|model|system|bot|claude)', 'Intento de cambiar rol'),
-    (r'(?i)(new|updated)\s+(system\s+)?(prompt|instructions?|role|persona)', 'Inyección de nuevo sistema'),
-    (r'(?i)act\s+as\s+(if\s+you\s+are\s+)?(a\s+|an\s+)?(different|new|evil|unrestricted)', 'Intento de cambiar personalidad'),
+    (r'(?i)you\s+are\s+now\s+(a\s+|an\s+)?(new\s+)?(AI|assistant|model|system|bot|claude)', 'Role change attempt'),
+    (r'(?i)(new|updated)\s+(system\s+)?(prompt|instructions?|role|persona)', 'New system prompt injection'),
+    (r'(?i)act\s+as\s+(if\s+you\s+are\s+)?(a\s+|an\s+)?(different|new|evil|unrestricted)', 'Persona change attempt'),
 
     # Privilege escalation
-    (r'(?i)(admin|administrator|root|sudo|superuser)\s+(mode|access|override|privileges?)', 'Intento de escalada de privilegios'),
-    (r'(?i)(developer|debug|maintenance|god|jailbreak)\s+mode', 'Intento de modo especial'),
-    (r'(?i)you\s+(now\s+)?(have|gained?)\s+(elevated|special|admin|full|unrestricted)\s+(access|permissions?|privileges?)', 'Intento de permisos elevados'),
+    (r'(?i)(admin|administrator|root|sudo|superuser)\s+(mode|access|override|privileges?)', 'Privilege escalation attempt'),
+    (r'(?i)(developer|debug|maintenance|god|jailbreak)\s+mode', 'Special mode attempt'),
+    (r'(?i)you\s+(now\s+)?(have|gained?)\s+(elevated|special|admin|full|unrestricted)\s+(access|permissions?|privileges?)', 'Elevated permissions attempt'),
 
     # Data exfiltration
-    (r'(?i)(send|post|upload|exfiltrate|transmit)\s+.{0,30}(to\s+)?(https?://|curl|wget)', 'Intento de exfiltración de datos'),
+    (r'(?i)(send|post|upload|exfiltrate|transmit)\s+.{0,30}(to\s+)?(https?://|curl|wget)', 'Data exfiltration attempt'),
     (r'(?i)curl\s+.{0,50}(api[_\-]?key|password|secret|token|credential)', 'Comando curl con datos sensibles'),
 
     # Fake system messages
-    (r'(?i)\[SYSTEM\][\s\S]{0,20}(instruction|command|override|prompt)', 'Mensaje de sistema falso'),
-    (r'(?i)<\s*system\s*>[\s\S]{0,100}<\s*/\s*system\s*>', 'Tag de sistema inyectado'),
-    (r'(?i)###\s*(SYSTEM|ADMIN|OVERRIDE|HIDDEN)\s*(PROMPT|INSTRUCTION|COMMAND)', 'Header de instrucción oculta'),
+    (r'(?i)\[SYSTEM\][\s\S]{0,20}(instruction|command|override|prompt)', 'Fake system message'),
+    (r'(?i)<\s*system\s*>[\s\S]{0,100}<\s*/\s*system\s*>', 'Injected system tag'),
+    (r'(?i)###\s*(SYSTEM|ADMIN|OVERRIDE|HIDDEN)\s*(PROMPT|INSTRUCTION|COMMAND)', 'Hidden instruction header'),
 
     # Safety bypass
-    (r'(?i)(bypass|disable|ignore|skip)\s+(safety|security|filter|guardrail|restriction|limitation)', 'Intento de bypass de seguridad'),
+    (r'(?i)(bypass|disable|ignore|skip)\s+(safety|security|filter|guardrail|restriction|limitation)', 'Safety bypass attempt'),
     (r'(?i)(without|no)\s+(restriction|limitation|filter|safety|guardrail)', 'Solicitud sin restricciones'),
 
     # Hidden instructions in HTML/markdown comments
-    (r'<!--[\s\S]{0,500}(ignore|system|instruction|override|prompt|execute|run|delete|send)[\s\S]{0,200}-->', 'Instrucción oculta en comentario HTML'),
+    (r'<!--[\s\S]{0,500}(ignore|system|instruction|override|prompt|execute|run|delete|send)[\s\S]{0,200}-->', 'Hidden instruction in an HTML comment'),
 ]
 
 # Files that are safe to skip (low risk)
@@ -112,11 +112,11 @@ def main():
     elif tool_name == 'WebFetch':
         url = tool_input.get('url', '')
         print('', file=sys.stderr)
-        print('⚠️  AVISO: Fetching contenido externo', file=sys.stderr)
+        print('⚠️  WARNING: fetching external content', file=sys.stderr)
         print(f'   URL: {url}', file=sys.stderr)
         print('', file=sys.stderr)
-        print('El contenido de páginas web puede contener prompt injection.', file=sys.stderr)
-        print('Trataré el resultado como datos, no como instrucciones.', file=sys.stderr)
+        print('Web page content may contain prompt injection.', file=sys.stderr)
+        print('The result will be treated as data, not as instructions.', file=sys.stderr)
         print('', file=sys.stderr)
         sys.exit(0)  # Allow but warned
 
@@ -130,16 +130,16 @@ def main():
 
     if findings:
         print('', file=sys.stderr)
-        print('🚨 PROMPT INJECTION DETECTADO', file=sys.stderr)
-        print(f'   Fuente: {source_label}', file=sys.stderr)
+        print('🚨 PROMPT INJECTION DETECTED', file=sys.stderr)
+        print(f'   Source: {source_label}', file=sys.stderr)
         print('', file=sys.stderr)
         for f in findings:
-            print(f'   ⚠️  {f["description"]} (línea {f["line"]})', file=sys.stderr)
-            print(f'   Contenido: {f["content"][:80]}', file=sys.stderr)
+            print(f'   ⚠️  {f["description"]} (line {f["line"]})', file=sys.stderr)
+            print(f'   Content: {f["content"][:80]}', file=sys.stderr)
             print('', file=sys.stderr)
-        print('❌ BLOQUEADO: Este archivo contiene patrones de inyección de prompts.', file=sys.stderr)
-        print('   Revisa el archivo manualmente antes de continuar.', file=sys.stderr)
-        print('   Si es un falso positivo, abre el archivo tú mismo e indica a Claude qué hacer.', file=sys.stderr)
+        print('❌ BLOCKED: this file contains prompt-injection patterns.', file=sys.stderr)
+        print('   Review the file by hand before continuing.', file=sys.stderr)
+        print('   If this is a false positive, open the file yourself and tell Claude what to do.', file=sys.stderr)
         print('', file=sys.stderr)
         sys.exit(2)
 

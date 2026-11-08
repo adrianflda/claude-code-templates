@@ -48,10 +48,10 @@ swap_pct = (su / st * 100) if st else 0
 # macOS keeps swap high long after the pressure is gone. Swap is still shown in the message.
 if free_mb < 1200:
     msg = (
-        f"⚠️ RESOURCE-GUARD — RAM apretada (~{free_mb:.0f}MB reclamables, "
-        f"swap {su:.0f}/{st:.0f}M = {swap_pct:.0f}%) antes de un comando pesado. "
-        "Riesgo de OOM: cierra apps/pestañas o corre en background con un timeout; "
-        "`python3 ~/.claude/hooks/claude-reaper.py` lista procesos colgados."
+        f"⚠️ RESOURCE-GUARD — RAM is tight (~{free_mb:.0f}MB reclaimable, "
+        f"swap {su:.0f}/{st:.0f}M = {swap_pct:.0f}%) before a heavy command. "
+        "OOM risk: close apps/tabs or run it in the background with a timeout; "
+        "`python3 ~/.claude/hooks/claude-reaper.py` lists hung processes."
     )
     print(json.dumps({
         "systemMessage": msg,
