@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -340,6 +340,8 @@ test('shell keywords are not programs: read-only loops over transcripts pass, wr
     `for f in ${s.path}; do grep -c x "$f"; done`,
     `if [ -f ${s.path} ]; then wc -l ${s.path}; fi`,
     `while read l; do echo "$l"; done < ${s.path}`,
+    `case x in a) wc -l ${s.path};; esac`,
+    `select f in ${s.path}; do wc -l "$f"; break; done`,
   ]) {
     assert.equal(bash(s, c).code, 0, `expected PASS: ${c}`);
   }
@@ -350,6 +352,10 @@ test('shell keywords are not programs: read-only loops over transcripts pass, wr
     `while true; do tee -a ${s.path} < forged; done`,
     `"do" cat ${s.path}`, // a quoted keyword is a program name, not `do` before `cat`
     `env do cat ${s.path}`,
+    // case and select headers run no program, but the commands in their arms and bodies do
+    `case x in a) rm ${s.path};; esac`,
+    `case x in *) cp forged ${s.path};; esac`,
+    `select f in ${s.path}; do rm "$f"; done`,
   ]) {
     assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
   }
@@ -362,28 +368,48 @@ test('an interpreter running a literal absolute script is judged by the script s
   const globbed = script('p[a].py', 'import sys\nprint(open(sys.argv[1]).read())\n');
   writeFileSync(join(dirname(globbed), 'pa.py'), "import sys\nopen(sys.argv[1], 'a').write('x')\n");
   const big = script('big.py', `# ${'x'.repeat(1_000_001)}\nprint(1)\n`);
+  const linked = join(dirname(writer), 'link.py');
+  symlinkSync(reader, linked);
   for (const c of [
     `python3 -I ${reader} ${s.path}`,
-    `python3 ${reader} "$(ls ~/.claude/projects/p/*.jsonl | head -1)"`,
+    `python3 -I ${reader} "$(ls ~/.claude/projects/p/*.jsonl | head -1)"`,
+    `python3 -u -I -B ${reader} ${s.path}`,
     `cd ~/.claude/projects && python3 -I ${reader} $(for s in a; do ls */\${s}*.jsonl | head -1; done)`,
   ]) {
     assert.equal(bash(s, c).code, 0, `expected PASS: ${c}`);
   }
   for (const c of [
     `python3 -I ${writer} ${s.path}`,
-    `python3 ${big} ${s.path}`, // too large to judge
-    `python3 ${join(dirname(reader), 'missing.py')} ${s.path}`,
-    `python3 profile.py ${s.path}`, // relative: depends on the cwd
-    `python3 "$S" ${s.path}`, // dynamic script name
+    `python3 -I ${big} ${s.path}`, // too large to judge
+    `python3 -I ${join(dirname(reader), 'missing.py')} ${s.path}`,
+    `python3 -I profile.py ${s.path}`, // relative: depends on the cwd
+    `python3 -I "$S" ${s.path}`, // dynamic script name
     `python3 -m profile ${s.path}`,
     // python takes the reader as the value of -W and runs the writer
-    `python3 -W ${reader} ${writer} ${s.path}`,
+    `python3 -I -W ${reader} ${writer} ${s.path}`,
     // the glob runs pa.py (writes), not the file literally named p[a].py (reads)
-    `python3 ${join(dirname(globbed), 'p[a].py')} ${s.path}`,
-    `python3 ${s.path}`, // the transcript itself as the script
+    `python3 -I ${join(dirname(globbed), 'p[a].py')} ${s.path}`,
+    `python3 -I ${s.path}`, // the transcript itself as the script
+    `python3 ${reader} ${s.path}`, // not isolated: PYTHONPATH / PYTHONSTARTUP / the script dir run code
+    // other interpreters: -I takes a value in perl and ruby (the reader is an include dir there), and
+    // node/perl/ruby read code from NODE_OPTIONS / PERL5OPT / RUBYOPT
+    `perl -I ${reader} ${writer} ${s.path}`,
+    `ruby -I ${reader} ${writer} ${s.path}`,
+    `node ${reader} ${s.path}`,
+    // an assignment or wrapper on the command, or a loader variable set anywhere, injects code
+    `LD_PRELOAD=/tmp/w.so python3 -I ${reader} ${s.path}`,
+    `env FOO=1 python3 -I ${reader} ${s.path}`,
+    `export DYLD_INSERT_LIBRARIES=/tmp/w.dylib; python3 -I ${reader} ${s.path}`,
+    `DYLD_INSERT_LIBRARIES=/tmp/w.dylib; python3 -I ${reader} ${s.path}`,
+    // ~ expands from $HOME, which the command can reassign
+    `HOME=${dirname(writer)}; python3 -I ~/evil.py ${s.path}`,
+    // a symlink is not read through (it may be swapped for a FIFO or /dev/zero)
+    `python3 -I ${linked} ${s.path}`,
   ]) {
     assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
   }
+  // Even when ~ is where the reader is, a ~/ script blocks: the shell may expand ~ from another $HOME.
+  assert.equal(bash(s, `python3 -I ~/profile.py ${s.path}`, { HOME: dirname(reader) }).code, 2);
 });
 
 test('the guarded profile names are configurable', () => {

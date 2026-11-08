@@ -42,6 +42,12 @@ It sees the command line, not what a script does inside. A tool that switches to
 profile internally, or a profile name built at run time, is not caught. It stops accidents and
 shortcuts, not a determined adversary.
 
+A script handed a transcript counts as a write unless it is read now and its source writes
+nothing. Only `python3 -I /absolute/script.py` qualifies: a literal absolute path (no `~/`, glob or
+variable) to a regular file of at most 1 MB, with no assignment or wrapper on the command and no
+`LD_*`/`DYLD_*` variable or `export` anywhere in it. Modules the script imports, and changes to the
+file after the check, are not seen. Any other interpreter running a script on a transcript blocks.
+
 ## Tests
 
 ```bash

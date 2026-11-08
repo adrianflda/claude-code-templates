@@ -25,7 +25,8 @@ test('a negated confirmation classifies as none, never confirm', () => {
 });
 
 test('a negation up to 3 tokens before the confirm word still cancels it; farther away it does not', () => {
-  for (const text of ['no lo confirmo', 'I do not really confirm', 'never would I confirm']) {
+  // 1, 2 and exactly 3 tokens between the negation and the verb
+  for (const text of ['no lo confirmo', 'I do not really confirm', 'never would I confirm', 'not that I really confirm']) {
     assert.equal(classify(text, PROFILES), 'none', text);
   }
   // Four tokens between the negation and the verb: outside the window, so it confirms.

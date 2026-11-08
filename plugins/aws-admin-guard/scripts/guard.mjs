@@ -18,9 +18,8 @@
  * not a determined adversary.
  */
 import { config, esc, grantState, humanPrompts } from './consent-core.mjs';
-import { lstatSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { basename, ShellParseError, simpleCommands, unwrap } from './shell-words.mjs';
+import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
+import { basename, plainPrefix, ShellParseError, simpleCommands, unwrap } from './shell-words.mjs';
 
 function readStdin() {
   // Read until EOF, bounded three ways: size (8 MB), idle time (5 s) and total time (15 s).
@@ -128,25 +127,42 @@ function transcriptLike(word, transcriptPath) {
 }
 
 const writingCode = (c) => WRITE_CODE.test(c) || (SPAWNS.test(c) && WRITE_INTENT.test(c));
-// Value-less interpreter flags that may precede a script path (python -I -u -B ...). Anything else
-// before the script (node --import x, python -m mod, -X opt) leaves the code unknown.
-const PRE_SCRIPT_FLAGS = /^-[IuBEsSOqbdv]+$/;
+// Value-less python flags that may precede the script path (python3 -I -u -B ...). Anything else
+// before the script (-m mod, -W/-X with a value) leaves the code unknown.
+const PRE_SCRIPT_FLAGS = /^-[IuBEsSOqbdvP]+$/;
 const MAX_SCRIPT_BYTES = 1_000_000;
-/** The source of the script an interpreter runs, when it can be known before it runs: a literal
- * absolute (or ~/) path to a regular file of at most 1 MB, preceded only by value-less flags, that is
- * not itself transcript-like. null = unknown (the caller treats it as a write). */
-function scriptSource(args, hit) {
+// Environment that injects code into a process the script never imports. Under -I python ignores
+// every PYTHON* variable, which leaves the loader's.
+const ENV_INJECTION = /\b(LD|DYLD)_\w*=|\b(export|declare|typeset)\b/;
+/** The source of the script python runs, when it can be known before it runs. Every condition
+ * below exists because without it the file read here may not be the code that runs:
+ * - python only: other interpreters' flags differ (perl/ruby -I takes a value) and their code can be
+ *   injected through the environment (NODE_OPTIONS, PERL5OPT, RUBYOPT);
+ * - isolated mode (-I): no PYTHON* variables, no user site, no script directory on sys.path;
+ * - no assignment or wrapper on the command, and no loader variable set or exported anywhere in it;
+ * - a literal absolute path (not ~/: the shell expands it from a $HOME the command may reassign),
+ *   not dynamic and not transcript-like, to a regular file (not a symlink) of at most 1 MB.
+ * null = unknown (the caller treats it as a write). Imported modules, and changes to the file after
+ * this check, are not seen. */
+function scriptSource(name, plainPrefix, args, hit, command) {
+  if (!/^python[\d.]*$/.test(name) || !plainPrefix || ENV_INJECTION.test(command)) return null;
   const at = args.findIndex((w) => !PRE_SCRIPT_FLAGS.test(w.text));
+  if (!args.slice(0, at).some((w) => w.text.includes('I'))) return null;
   const w = args[at];
   // hit() is true for every dynamic word (a glob or expansion may name another file than the text says)
-  if (!w || w.text.startsWith('-') || hit(w)) return null;
-  const path = w.text.startsWith('~/') ? homedir() + w.text.slice(1) : w.text;
-  if (!path.startsWith('/')) return null; // relative to a cwd a `cd` may have changed
+  if (!w || !w.text.startsWith('/') || hit(w)) return null;
+  let fd;
   try {
-    const st = lstatSync(path);
+    // One open, judged by its descriptor: no swap between the check and the read, and a FIFO
+    // cannot hang the hook.
+    fd = openSync(w.text, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const st = fstatSync(fd);
     if (!st.isFile() || st.size > MAX_SCRIPT_BYTES) return null;
-    return readFileSync(path, 'utf8');
-  } catch { return null; }
+    const buf = Buffer.alloc(MAX_SCRIPT_BYTES + 1);
+    let n = 0;
+    for (let r; n < buf.length && (r = readSync(fd, buf, n, buf.length - n, n)) > 0;) n += r;
+    return n > MAX_SCRIPT_BYTES ? null : buf.toString('utf8', 0, n); // grew after the fstat
+  } catch { return null; } finally { if (fd !== undefined) closeSync(fd); }
 }
 
 function writesIn(command, transcriptPath, depth) {
@@ -195,7 +211,7 @@ function writesIn(command, transcriptPath, depth) {
       if (!code.length && operands.length && args.some(hit)) {
         // A script file handed a transcript: judged by its code like inline code when that code can be
         // read now; otherwise unknown, so a write.
-        const source = scriptSource(args, hit);
+        const source = scriptSource(name, plainPrefix(cmd.words, words), args, hit, command);
         if (source === null || writingCode(source)) return true;
         continue;
       }

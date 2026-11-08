@@ -179,4 +179,10 @@ export function unwrap(words) {
   return words.slice(i);
 }
 
+/** True when unwrap dropped only reserved words from `all` to reach `program`: no VAR=value and no
+ * wrapper (env, sudo, xargs ...) that could change the environment the program runs with. */
+export function plainPrefix(all, program) {
+  return all.slice(0, all.length - program.length).every((w) => !w.quoted && PREFIX_WORDS.has(w.text));
+}
+
 export const basename = (p) => p.split('/').pop();
