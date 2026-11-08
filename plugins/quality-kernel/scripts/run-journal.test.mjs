@@ -397,7 +397,7 @@ test('INV-3: a torn last line is reported and ignored by fold and resume', () =>
 
 test('INV-3: the next append cuts the torn tail at the byte after the last newline (multibyte content)', () => {
   const f = fixture();
-  const s = { ...started(f), plan_ref: 'plán-ñandú-✓.md' };
+  const s = { ...started(f), plan_ref: 'plán-ñandú-✓.md' }; // EXEMPT-ES: non-ASCII path is the unicode test data
   seed(f, s, task('pending'));
   const good = readFileSync(journalFile(f.org));
   appendFileSync(journalFile(f.org), Buffer.from('{"v":1,"reason":"ñ✓', 'utf8'));
