@@ -56,8 +56,20 @@ export function stripComments(src) {
 export function acceptanceIds(src) {
   return new Set(stripComments(src).match(ID_RE) || []);
 }
+// The id token before its first hyphen, e.g. "INV-1" -> "INV", "EO-6" -> "EO".
+function idPrefix(id) { return id.slice(0, id.indexOf('-')); }
+
 export function diff(md, src) {
-  const declared = contractIds(md), checked = acceptanceIds(src);
+  const declared = contractIds(md);
+  // ID_RE (above) is deliberately wide — any uppercase-led hyphenated token — so EARS-H4's
+  // non-`INV-`-prefixed ids (EO-0, EO-6, ...) are found in acceptance source too. That same
+  // width also matches ordinary prose/code tokens that are not ids at all (`Content-Type`,
+  // `UTF-8`, `X-Forwarded-For`). Narrow here, against THIS contract's own declared ids: an
+  // acceptance token only counts as a referenced id if its prefix matches the prefix of an id
+  // this contract actually declares — everything else is prose, not a reference, and must not
+  // become a spurious orphanAssertion.
+  const declaredPrefixes = new Set([...declared].map(idPrefix));
+  const checked = new Set([...acceptanceIds(src)].filter((id) => declaredPrefixes.has(idPrefix(id))));
   const missingAssertion = [...declared].filter((id) => !checked.has(id));  // invariant with no check
   const orphanAssertion = [...checked].filter((id) => !declared.has(id));   // check with no invariant
   return { declared: [...declared], checked: [...checked], missingAssertion, orphanAssertion };

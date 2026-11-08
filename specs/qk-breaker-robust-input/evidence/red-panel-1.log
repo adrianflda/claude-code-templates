@@ -1,0 +1,47 @@
+✔ contractIds — reads ids from the Invariants table only (1.187375ms)
+✔ acceptanceIds — reads ids referenced by the acceptance suite (0.087167ms)
+✔ diff — flags a missing assertion and an orphan assertion (0.099667ms)
+✔ CLI — the shipped example contract is in lockstep (exit 0) (46.151708ms)
+✔ CLI (RED) — an acceptance suite missing one invariant fails (exit 1) (52.084708ms)
+✔ acceptanceIds (RED) — a bare `// INV-X` comment does NOT satisfy the lockstep (0.0475ms)
+✔ acceptanceIds — executable references still count, and a URL is not read as a comment (0.0435ms)
+✔ diff (RED) — an invariant only mentioned in a comment is reported as missing (0.063042ms)
+✔ contractIds (EARS-H8) — a numbered "## N. ... Invariants" heading with bold ids is recognized (0.073875ms)
+✔ CLI (EARS-H8/INV-14) — the numbered-heading fixture is no longer "no invariants declared" (exit 0) (46.049ms)
+✖ diff (RED) — ordinary uppercase-hyphen tokens (Content-Type, UTF-8) are not treated as referenced ids (0.973666ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 10
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 209.830166
+
+✖ failing tests:
+
+test at contract-lint.test.mjs:84:1
+✖ diff (RED) — ordinary uppercase-hyphen tokens (Content-Type, UTF-8) are not treated as referenced ids (0.973666ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + [
+  +   'Content-Type',
+  +   'UTF-8'
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/contract-lint.test.mjs:88:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'Content-Type', 'UTF-8' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

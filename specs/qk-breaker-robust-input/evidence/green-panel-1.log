@@ -1,0 +1,19 @@
+✔ contractIds — reads ids from the Invariants table only (1.174958ms)
+✔ acceptanceIds — reads ids referenced by the acceptance suite (0.089333ms)
+✔ diff — flags a missing assertion and an orphan assertion (0.121625ms)
+✔ CLI — the shipped example contract is in lockstep (exit 0) (51.331958ms)
+✔ CLI (RED) — an acceptance suite missing one invariant fails (exit 1) (51.430875ms)
+✔ acceptanceIds (RED) — a bare `// INV-X` comment does NOT satisfy the lockstep (0.056542ms)
+✔ acceptanceIds — executable references still count, and a URL is not read as a comment (0.048667ms)
+✔ diff (RED) — an invariant only mentioned in a comment is reported as missing (0.067291ms)
+✔ contractIds (EARS-H8) — a numbered "## N. ... Invariants" heading with bold ids is recognized (0.087708ms)
+✔ CLI (EARS-H8/INV-14) — the numbered-heading fixture is no longer "no invariants declared" (exit 0) (45.905958ms)
+✔ diff (RED) — ordinary uppercase-hyphen tokens (Content-Type, UTF-8) are not treated as referenced ids (0.084083ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 210.559208

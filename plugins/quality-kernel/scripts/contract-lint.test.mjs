@@ -75,3 +75,18 @@ test('CLI (EARS-H8/INV-14) — the numbered-heading fixture is no longer "no inv
   assert.strictEqual(out.ok, true);
   assert.ok(out.declared.length > 0);
 });
+
+// --- panel regression: ID_RE was widened (EARS-H8/EARS-H4's grammar, letters/digits-hyphen, no
+// fixed prefix) to recognize non-`INV-` ids like EO-0. acceptanceIds() reuses that same wide regex,
+// so ordinary uppercase-hyphen prose tokens that are NOT invariant ids at all (`Content-Type`,
+// `UTF-8`) now match too. diff() must not let those become spurious orphanAssertion entries for a
+// contract that only declares INV- ids. ---
+test('diff (RED) — ordinary uppercase-hyphen tokens (Content-Type, UTF-8) are not treated as referenced ids', () => {
+  const md = '## Invariants\n| INV-1 | x | y |\n';
+  const src = "test('INV-1: sets Content-Type header and UTF-8 charset correctly', () => {});";
+  const d = diff(md, src);
+  assert.deepStrictEqual(d.orphanAssertion, []);
+  assert.ok(!d.checked.includes('Content-Type'), `checked should not include Content-Type: ${d.checked}`);
+  assert.ok(!d.checked.includes('UTF-8'), `checked should not include UTF-8: ${d.checked}`);
+  assert.deepStrictEqual(d.missingAssertion, []); // INV-1 IS referenced
+});
