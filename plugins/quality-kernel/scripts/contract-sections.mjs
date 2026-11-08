@@ -23,8 +23,13 @@ export function isInvariantsHeading(text) {
   return /external observable invariants/i.test(text) || /\binvariants\b/i.test(text);
 }
 
-// EARS-H5: split a table row into cells. `|` is a cell boundary only when it is NOT immediately
-// preceded by `\` (escaped pipe = literal content) AND NOT inside an open inline-code (`` ` ``) span.
+// EARS-H5: a `|` at index i is a cell boundary only when it is NOT immediately preceded by `\`
+// (escaped pipe = literal content) AND NOT inside an open inline-code (`` ` ``) span.
+function isCellBoundaryPipe(line, i, backtickOpen) {
+  return line[i] === '|' && line[i - 1] !== '\\' && !backtickOpen;
+}
+
+// EARS-H5: split a table row into cells using the boundary rule above.
 export function splitRow(line) {
   const cells = [];
   let cur = '';
@@ -36,7 +41,7 @@ export function splitRow(line) {
       cur += c;
       continue;
     }
-    if (c === '|' && line[i - 1] !== '\\' && !backtickOpen) {
+    if (isCellBoundaryPipe(line, i, backtickOpen)) {
       cells.push(cur);
       cur = '';
       continue;
@@ -95,40 +100,53 @@ export function parseInvariantsTable(sectionText) {
   return [...byId.entries()].map(([id, expected]) => ({ id, expected }));
 }
 
+// EARS-H1/H2: the two section openers, tried in this order so a heading matching both (unlikely,
+// but "Invariants" is a substring check) still opens QA first — matches the original single
+// if/else-if chain. Each opens at most once (EARS-H2b: first match wins).
+const SECTION_MATCHERS = [
+  { kind: 'qa', test: isQaProcedureHeading },
+  { kind: 'inv', test: isInvariantsHeading },
+];
+
+// The first not-yet-opened section whose matcher accepts this heading's text, or null.
+function tryOpenSection(h, foundByKind) {
+  for (const { kind, test } of SECTION_MATCHERS) {
+    if (!foundByKind[kind] && test(h.text)) return { kind, level: h.level };
+  }
+  return null;
+}
+
+// EARS-H1/H2/H2b/H3: what a heading line does to the open/closed state. Mutates `state` in place
+// ({ open, foundByKind }) and returns 'swallow' (the heading is CONTENT of the still-open section —
+// a DEEPER heading, incl. one that itself lexically matches the OTHER matcher, stays swallowed:
+// EARS-H3 outranks EARS-H2/H2b), 'opens' (this heading line IS the opener, not content), or 'none'
+// (an unrecognized heading, content of neither section).
+function classifyHeadingLine(h, state) {
+  if (state.open && h.level <= state.open.level) state.open = null; // same/shallower heading ends it
+  if (state.open) return 'swallow';
+  const opened = tryOpenSection(h, state.foundByKind);
+  if (!opened) return 'none';
+  state.open = opened;
+  state.foundByKind[opened.kind] = true;
+  return 'opens';
+}
+
 // EARS-H1/H2/H2b/H3: a single pass that finds the FIRST top-level heading matching each of the QA
-// and Invariants matchers, and ends each section at the next heading whose level is <= the opener's
-// (a DEEPER heading, and its content — including one that itself lexically matches the OTHER
-// matcher — stays swallowed inside the currently open section: EARS-H3 outranks EARS-H2/H2b).
+// and Invariants matchers, and ends each section at the next heading whose level is <= the opener's.
 export function scanSections(md) {
-  const lines = md.split('\n');
-  let open = null; // { kind: 'qa' | 'inv', level }
-  let qaFound = false;
-  let invFound = false;
+  const state = { open: null, foundByKind: { qa: false, inv: false } }; // open: { kind, level } | null
   const qaLines = [];
   const invLines = [];
   const headingLines = [];
-  for (const line of lines) {
+  const push = (kind, line) => (kind === 'qa' ? qaLines : invLines).push(line);
+  for (const line of md.split('\n')) {
     const h = headingText(line);
-    if (h) {
-      headingLines.push(line);
-      if (open && h.level <= open.level) open = null; // same/shallower heading ends the open section
-      if (open) {
-        (open.kind === 'qa' ? qaLines : invLines).push(line);
-        continue;
-      }
-      if (!qaFound && isQaProcedureHeading(h.text)) {
-        open = { kind: 'qa', level: h.level };
-        qaFound = true;
-        continue;
-      }
-      if (!invFound && isInvariantsHeading(h.text)) {
-        open = { kind: 'inv', level: h.level };
-        invFound = true;
-        continue;
-      }
-      continue; // an unrecognized top-level heading: not content of either section
+    if (!h) {
+      if (state.open) push(state.open.kind, line);
+      continue;
     }
-    if (open) (open.kind === 'qa' ? qaLines : invLines).push(line);
+    headingLines.push(line);
+    if (classifyHeadingLine(h, state) === 'swallow') push(state.open.kind, line);
   }
   return {
     qaProcedure: qaLines.join('\n').trim(),
