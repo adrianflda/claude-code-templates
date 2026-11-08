@@ -104,6 +104,17 @@ test("isAcceptableHost (EARS-V6a): a single-label systemUrl ('localhost') needs 
   assert.equal(isAcceptableHost("evil.localhost", "http://localhost:9"), false);
 });
 
+// --- RFC 9110 (review item C): the Host header is case-insensitive. The WHATWG URL parser always
+// lowercases systemUrl's own .hostname, so a same-host value sent in a different case (a legitimate
+// multi-tenant probe, e.g. "Host: EXAMPLE.COM") was being wrongly rejected by a case-sensitive ===. ---
+test("isAcceptableHost (RFC 9110) — a Host value differing only in case from the systemUrl's own hostname is still accepted", () => {
+  assert.equal(isAcceptableHost("EXAMPLE.COM", "http://example.com"), true);
+});
+
+test("isAcceptableHost (RFC 9110) — a Host value differing only in case, on the registrable-domain-suffix branch, is still accepted", () => {
+  assert.equal(isAcceptableHost("Develop.MBVS-Server-Development.Example.COM", "https://mbvs-server-development.example.com"), true);
+});
+
 test("validateHttpSpec (EARS-V6): an accepted Host header no longer makes the request invalid", () => {
   assert.equal(validateHttpSpec(spec([{ method: "GET", path: "/", headers: { host: "127.0.0.1" } }]), base), null);
 });

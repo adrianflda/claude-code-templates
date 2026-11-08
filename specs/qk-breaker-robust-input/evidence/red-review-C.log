@@ -1,0 +1,50 @@
+✖ isAcceptableHost (RFC 9110) — a Host value differing only in case from the systemUrl's own hostname is still accepted (3.147125ms)
+✖ isAcceptableHost (RFC 9110) — a Host value differing only in case, on the registrable-domain-suffix branch, is still accepted (0.13425ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 83.704834
+
+✖ failing tests:
+
+test at plugins/quality-kernel/scripts/http-probe.test.mjs:110:1
+✖ isAcceptableHost (RFC 9110) — a Host value differing only in case from the systemUrl's own hostname is still accepted (3.147125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/http-probe.test.mjs:111:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at plugins/quality-kernel/scripts/http-probe.test.mjs:114:1
+✖ isAcceptableHost (RFC 9110) — a Host value differing only in case, on the registrable-domain-suffix branch, is still accepted (0.13425ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/http-probe.test.mjs:115:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

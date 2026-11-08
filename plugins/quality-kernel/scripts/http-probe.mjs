@@ -35,7 +35,10 @@ const stripPort = (value) => String(value).replace(/:\d+$/, "");
 const registrableDomain = (hostname) => hostname.split(".").slice(-2).join(".");
 
 export function isAcceptableHost(headerValue, systemUrl) {
-  const value = stripPort(headerValue);
+  // RFC 9110 §3.2: a Host identifier (hostname) is case-insensitive. The WHATWG URL parser always
+  // lowercases systemUrl's own .hostname, so comparing a differently-cased header value with ===
+  // would wrongly reject a legitimate same-host probe (e.g. "Host: EXAMPLE.COM").
+  const value = stripPort(headerValue).toLowerCase();
   const hostname = new URL(systemUrl).hostname;
   // EARS-V6a: an IP literal or a single-label hostname gets no registrable-domain widening — the
   // naive last-two-labels rule on "127.0.0.1" would yield ".0.1" and wrongly accept "evil.0.1".
