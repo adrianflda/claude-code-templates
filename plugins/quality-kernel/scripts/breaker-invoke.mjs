@@ -43,15 +43,18 @@ if (isMain(import.meta.url)) {
   if (!existsSync(contract)) bail(`contract not found: ${contract}`);
 
   const md = readFileSync(contract, 'utf8');
+  // Parse the contract once and reuse the result: buildBlindInput's own scanSections(md) call
+  // (above) would otherwise re-run the same heading/table scan a second time on every invocation.
+  const sections = scanSections(md);
   // EARS-H6: fail closed BEFORE the breaker command ever runs when a required section is empty —
   // an empty blind input is not "the breaker found nothing wrong", it is "the breaker never ran".
-  const emptyReason = emptySectionReason(scanSections(md));
+  const emptyReason = emptySectionReason(sections);
   if (emptyReason) {
     process.stdout.write(JSON.stringify({ verdict: 'INSTRUMENT-BROKEN', reason: emptyReason }) + '\n');
     process.exit(2);
   }
 
-  const input = buildBlindInput(md, { probeCmd: probe, systemUrl: url });
+  const input = { qaProcedure: sections.qaProcedure, invariants: sections.invariants, probeCmd: probe, systemUrl: url };
   const r = spawnSync(breaker, { input: JSON.stringify(input), shell: true, encoding: 'utf8', timeout: 600000 });
   if (r.error || r.status === null) bail(`breaker could not run: ${r.error ? r.error.message : 'no exit'}`);
   // A breaker that printed BREAKER_PASS but exited non-zero did not complete cleanly; trusting the
