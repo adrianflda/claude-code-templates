@@ -77,7 +77,7 @@ const HARNESS_DENYLIST = [
   '**/.quality-kernel/**', '**/Makefile*', '**/.npmrc', '**/.gitattributes',
   '**/jest.config.*', '**/vitest.config.*', '**/vite.config.*', '**/playwright.config.*', '**/cypress.config.*',
   '**/webpack.config.*', '**/rollup.config.*', '**/tsup.config.*', '**/esbuild.config.*',
-  '**/tsconfig*.json', '**/.eslintrc*', '**/.prettierrc*', '**/.babelrc*', '**/babel.config.*', '**/.mocharc.*',
+  '**/tsconfig*.json', '**/.eslintrc*', '**/eslint.config.*', '**/.prettierrc*', '**/.babelrc*', '**/babel.config.*', '**/.mocharc.*',
   '**/conftest.py', '**/pytest.ini', '**/tox.ini',
   // oracle/test-support components (panel T1/T2/T3): assertion helpers, mocks, stubs, fixtures.
   '**/__mocks__/**', '**/mocks/**', '**/stubs/**', '**/fixtures/**', '**/testing/**',
@@ -207,6 +207,17 @@ function validateGlobs(j) {
   checkGlobs(j.productionGlobs, (g) => `productionGlobs entry "${g}" is too broad — use narrow source globs like "src/**"`);
   checkGlobs(arrayOr(j.outputGlobs, []), (g) => `outputGlobs entry "${g}" is too broad — it would disable the created-file check; name specific build/coverage dirs like "dist/**"`);
   checkGlobs(arrayOr(j.testGlobs, []), (g) => `testGlobs entry "${g}" is too broad`);
+  validateExclude(j.productionExclude);
+}
+// productionExclude (optional): carves colocated tests/fixtures out of productionGlobs, include + exclude
+// with exclude winning (tsconfig `exclude`, Vitest `exclude`, Stryker `!` in `mutate`). Read at base like
+// the rest of tools.json. A malformed value is indeterminate, never ignored: a silently dropped exclude
+// would turn every colocated test back into an ambiguity, and a silently widened one would hide code.
+function validateExclude(v) {
+  if (v === undefined) return;
+  const ok = Array.isArray(v) && v.every((g) => typeof g === 'string' && g.trim() !== '');
+  if (!ok) indeterminate('tools.json "productionExclude" must be an array of non-empty glob strings at base');
+  checkGlobs(v, (g) => `productionExclude entry "${g}" is too broad — it would exclude all production code; name the colocated test/fixture patterns, e.g. "**/*.test.ts"`);
 }
 function loadToolsAtBase() {
   const j = readToolsJson();
@@ -218,6 +229,7 @@ function loadToolsAtBase() {
     timeoutSeconds: timeout.seconds,
     verify: j.verify.trim(),
     productionGlobs: j.productionGlobs,
+    productionExclude: arrayOr(j.productionExclude, []),
     testGlobs: nonEmptyArrayOr(j.testGlobs, DEFAULT_TEST_GLOBS),
     acceptance: trimmedStringOrNull(j.acceptance),
     verifySetup: trimmedStringOrNull(j.verifySetup),
@@ -227,7 +239,11 @@ function loadToolsAtBase() {
 }
 const tools = loadToolsAtBase();
 const match = (globs) => { const res = globs.map(globToRegExp); return (p) => res.some((re) => re.test(p)); };
-const rawProd = match(tools.productionGlobs);
+const inProductionGlobs = match(tools.productionGlobs);
+const isProductionExcluded = match(tools.productionExclude);
+// Production = included AND not excluded. An excluded path is NOT production; it still needs its own
+// disposition below (declared test, manifest, or indeterminate) — excluding never means skipping.
+const rawProd = (p) => inProductionGlobs(p) && !isProductionExcluded(p);
 const isDeclaredTest = match(tools.testGlobs);   // NARROW: which change is allowed unverified (S1)
 const isManifest = match(MANIFEST_GLOBS);
 const isOutput = match(tools.outputGlobs);

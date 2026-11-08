@@ -549,3 +549,79 @@ test('DOC (content checks) — a production .txt citing a test root stays indete
   try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /declared-test root/); }
   finally { rmSync(tmp, { recursive: true, force: true }); }
 });
+
+// --- productionExclude (colocated tests): tsconfig/Vitest/Stryker-style include + exclude, exclude wins.
+// Colocated tests (src/x.test.ts next to src/x.ts) cannot be carved out of "src/**" by an include-only
+// glob; without an exclude every test-touching change is ambiguous. The exclude is read from base (or
+// the org) like the rest of tools.json, so the change cannot widen it. Excluding a path never makes it
+// silently pass: it still needs a disposition (declared test, or indeterminate).
+const COLO_GUARD = "import { test } from 'node:test'; import a from 'node:assert'; import { f } from './code.mjs'; test('g', () => a.strictEqual(f(), 1));";
+const COLO_GUARD_V2 = "import { test } from 'node:test'; import a from 'node:assert'; import { f } from './code.mjs'; test('g2', () => a.strictEqual(f(), 1));";
+const NEUTER_COLO = "import { test } from 'node:test'; import a from 'node:assert'; test('g', () => a.ok(true));";
+const COLO_TOOLS = { verify: 'node --test', productionGlobs: ['src/**'], productionExclude: ['**/*.test.*'] };
+const COLO_BASE = { 'src/code.mjs': OK, 'src/code.test.mjs': COLO_GUARD };
+const GREEN_CHANGE = { 'src/code.mjs': 'export const f = () => 1; export const g = 2;' };
+
+test('EXCLUDE (baseline) — a changed colocated test under productionGlobs WITHOUT productionExclude stays ambiguous', () => {
+  const { tmp, base, head } = mk(TOOLS, COLO_BASE, { 'src/code.test.mjs': COLO_GUARD_V2 });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /ambiguous/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('EXCLUDE — a changed colocated test excluded from production is a declared test and verifies green', () => {
+  const { tmp, base, head } = mk(COLO_TOOLS, COLO_BASE, { 'src/code.test.mjs': COLO_GUARD_V2 });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 0, r.stdout); assert.strictEqual(json(r).pass, true); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('EXCLUDE — production broken alongside an excluded colocated test edit is still blocked (exit 1)', () => {
+  const { tmp, base, head } = mk(COLO_TOOLS, COLO_BASE, { 'src/code.mjs': BROKEN, 'src/code.test.mjs': COLO_GUARD_V2 });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 1, r.stdout); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('EXCLUDE — breaking production with the colocated test untouched runs the BASE test and blocks (exit 1)', () => {
+  const { tmp, base, head } = mk(COLO_TOOLS, COLO_BASE, { 'src/code.mjs': BROKEN });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 1, r.stdout); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('EXCLUDE — a neutered colocated test added under a new name does not replace the untouched base oracle (exit 1)', () => {
+  const { tmp, base, head } = mk(COLO_TOOLS, COLO_BASE, { 'src/code.mjs': BROKEN, 'src/other.test.mjs': NEUTER_COLO });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 1, r.stdout); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('EXCLUDE — an excluded path that is NOT a declared test is indeterminate, never silently skipped', () => {
+  const tools = { ...COLO_TOOLS, productionExclude: ['**/*.test.*', 'src/generated/**'] };
+  const { tmp, base, head } = mk(tools, { ...COLO_BASE, 'src/generated/data.mjs': OK }, { 'src/generated/data.mjs': BROKEN });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /not covered by productionGlobs/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('EXCLUDE — a malformed productionExclude (not an array of strings) is indeterminate, never ignored', () => {
+  for (const bad of ['**/*.test.*', [1], [''], { a: 1 }]) {
+    const { tmp, base, head } = mk({ ...COLO_TOOLS, productionExclude: bad }, COLO_BASE, GREEN_CHANGE);
+    try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2, JSON.stringify(bad)); assert.match(json(r).reason, /productionExclude/); }
+    finally { rmSync(tmp, { recursive: true, force: true }); }
+  }
+});
+
+test('EXCLUDE — a degenerate productionExclude ("**") is rejected as too broad', () => {
+  const { tmp, base, head } = mk({ ...COLO_TOOLS, productionExclude: ['**'] }, COLO_BASE, GREEN_CHANGE);
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /productionExclude entry "\*\*" is too broad/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('EXCLUDE — an absent productionExclude keeps today\'s behavior (sanity still green)', () => {
+  const { tmp, base, head } = mk(TOOLS, BASE, GREEN_CHANGE);
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 0, r.stdout); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('HARNESS — an ESLint flat config (eslint.config.js) under productionGlobs is ambiguous, never overlaid', () => {
+  const { tmp, base, head } = mk({ verify: 'node --test', productionGlobs: ['src/**', 'eslint.config.js'] },
+    { ...BASE, 'eslint.config.js': 'export default [];' }, { 'eslint.config.js': 'export default [{ ignores: ["**"] }];' });
+  try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /ambiguous/); }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+});
