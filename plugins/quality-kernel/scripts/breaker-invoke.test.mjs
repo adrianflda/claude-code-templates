@@ -93,6 +93,17 @@ test('CLI (RED, EARS-M6) — a breaker printing BREAKER_PASS but exiting non-zer
     assert.match(out.reason, /breaker exited 3/);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
+// EARS-M6, first branch: the breaker process itself never produced an exit status at all — here,
+// killed by a signal (status === null, no r.error) — the real shape of a production spawnSync
+// ETIMEDOUT/kill. Distinct from the "exited non-zero" branch covered just above.
+test('CLI (EARS-M6) — a breaker killed by a signal (status === null) -> exit 2, verdict INSTRUMENT-BROKEN', () => {
+  const r = spawnSync('node', [cli, '--contract', exampleMd, '--probe', 'true', '--url', 'http://x', '--breaker', 'kill -9 $$'], { encoding: 'utf8' });
+  const out = JSON.parse(r.stdout.trim());
+  assert.strictEqual(r.status, 2);
+  assert.strictEqual(out.verdict, 'INSTRUMENT-BROKEN');
+  assert.match(out.reason, /breaker could not run/);
+  assert.doesNotMatch(out.reason, /breaker exited/);
+});
 
 // --- EARS-H1/H2/H4/H5 (INV-1/2/3/4, carried major #4): a stub that ECHOES the parsed fields back in
 // its verdict JSON, so the assertion is on breaker-invoke.mjs's own observable stdout, never an
