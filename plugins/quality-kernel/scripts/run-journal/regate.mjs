@@ -12,7 +12,8 @@ export function runQkGate({ org, repoDir, base, head }) {
     { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
   let json = null;
   try { json = JSON.parse((r.stdout || '').trim().split('\n').filter(Boolean).pop()); } catch { json = null; }
-  return { status: r.error ? null : r.status, json, error: r.error?.message || (r.signal ? `killed by ${r.signal}` : undefined) };
+  const stderr = (r.stderr || '').trim().split('\n').slice(-3).join(' | ');
+  return { status: r.error ? null : r.status, json, error: r.error?.message || (r.signal ? `killed by ${r.signal}` : stderr || undefined) };
 }
 
 // The latest gate_green task of each repo among `done` (latest `gate.at`; ties: the greater task id).
@@ -28,19 +29,21 @@ export function latestGreens(state, done) {
   return [...best.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([repo, { t }]) => [repo, t]);
 }
 
+// The only (exit, verdict) pairs that are a verdict; anything else (a crash exits 1 with no verdict) is not.
+const VERDICTS = new Map([['0 pass', 'green'], ['3 blocked-needs-breaker', 'green'], ['1 fail', 'red']]);
+
 // -> { regate: [{ repo, task_id, sha, exit, gate }], divergences } or { error } (indeterminate).
-// Red needs the gate's own `fail` verdict: an exit 1 without it (e.g. a crash) is not a verdict.
 export function regate(org, state, done, dirs, bases, { runGate = runQkGate } = {}) {
   const out = { regate: [], divergences: [] };
   for (const [repo, t] of latestGreens(state, done)) {
     const r = runGate({ org, repoDir: dirs[repo], base: bases[repo], head: t.head_sha });
     const gate = r.json?.gate ?? null;
-    const red = r.status === 1 && gate === 'fail';
-    if (!red && !((r.status === 0 && gate === 'pass') || (r.status === 3 && gate === 'blocked-needs-breaker'))) {
+    const verdict = VERDICTS.get(`${r.status} ${gate}`);
+    if (!verdict) {
       const why = r.json?.notes?.join('; ') || r.json?.referee?.reason || r.error || `exit ${r.status}, verdict ${gate}`;
       return { error: `re-gate of ${repo} at ${t.head_sha} (task ${t.task_id}) is indeterminate: ${why}` };
     }
-    if (red) out.divergences.push({ task_id: t.task_id, kind: 'gate_red_now', repo, sha: t.head_sha });
+    if (verdict === 'red') out.divergences.push({ task_id: t.task_id, kind: 'gate_red_now', repo, sha: t.head_sha });
     out.regate.push({ repo, task_id: t.task_id, sha: t.head_sha, exit: r.status, gate });
   }
   return out;

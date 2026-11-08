@@ -554,6 +554,10 @@ test('§5.3: only the gate\'s own verdict counts — a crash (exit 1 without fai
     [{ status: 1, json: null }, /exit 1, verdict null/], // node's exit code for an uncaught exception
     [{ status: null, json: null, error: 'killed by SIGKILL' }, /killed by SIGKILL/],
     [{ status: 0, json: { gate: 'fail' } }, /exit 0, verdict fail/],
+    [{ status: 3, json: { gate: 'pass' } }, /exit 3, verdict pass/],
+    [{ status: 0, json: { gate: 'blocked-needs-breaker' } }, /exit 0, verdict blocked-needs-breaker/],
+    [{ status: 3, json: { gate: 'fail' } }, /exit 3, verdict fail/],
+    [{ status: 1, json: { gate: 'pass' } }, /exit 1, verdict pass/],
     [{ status: 2, json: { gate: 'indeterminate', notes: ['org config moved'] } }, /org config moved/],
   ]) assert.match(call(answer).error ?? '', why, JSON.stringify(answer));
 });
