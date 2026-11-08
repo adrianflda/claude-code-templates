@@ -11,19 +11,21 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { isMain } from './is-main.mjs';
+import { scanSections } from './contract-sections.mjs';
 
-const ID_RE = /INV-[A-Za-z0-9-]+/g;
+// EARS-H8: id tokens referenced by the acceptance suite. Generalized from the literal `INV-` prefix
+// to any uppercase-led id (letters/digits, hyphen, letters/digits/hyphens — EARS-H4's grammar,
+// anchored on a leading capital) so a contract's real ids (`EO-0`, `EO-6`) are found here too, while
+// staying narrow enough not to mistake an ordinary lowercase kebab-case source token (e.g.
+// `manifest-v1`) for a declared id — every id this contract's template produces starts uppercase.
+const ID_RE = /\b[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+\b/g;
 
-// Invariant ids DECLARED in the contract: rows of the `## Invariants` table, `| INV-x | … | … |`.
+// Invariant ids DECLARED in the contract: rows of the Invariants table, using the SAME
+// heading-matching + table-row parsing as breaker-invoke.mjs/gstack-breaker.mjs (contract-sections.mjs,
+// EARS-H1/H2/H2b/H3/H4/H4b/H5) — EARS-H8, so a numbered/parenthetical heading and non-INV- ids
+// (`EO-0`, `**EO-6 (re-run)**`) are no longer silently read as "no invariants declared".
 export function contractIds(md) {
-  const ids = new Set();
-  let inTable = false;
-  for (const line of md.split('\n')) {
-    if (/^##\s+Invariants\b/i.test(line)) { inTable = true; continue; }
-    if (inTable && /^##\s+/.test(line)) break;            // next section ends the table
-    if (inTable) { const m = line.match(/^\s*\|\s*(INV-[A-Za-z0-9-]+)\s*\|/); if (m) ids.add(m[1]); }
-  }
-  return ids;
+  return new Set(scanSections(md).invariants.map((i) => i.id));
 }
 // Strip // line and /* block */ comments while preserving string/template literals, so a URL such as
 // 'http://x' inside a test name is not mistaken for a comment. Regex literals are not tracked; the

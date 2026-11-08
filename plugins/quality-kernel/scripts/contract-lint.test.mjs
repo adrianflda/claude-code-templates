@@ -56,3 +56,22 @@ test('diff (RED) — an invariant only mentioned in a comment is reported as mis
   const md = '## Invariants\n| INV-A | x | y |\n';
   assert.deepStrictEqual(diff(md, '// INV-A\n').missingAssertion, ['INV-A']);
 });
+
+// --- EARS-H8 (INV-14): contract-lint.mjs's declared-id extraction uses the SAME heading-matching
+// rule as EARS-H2/H2b, so a numbered/parenthetical "## External Observable Invariants" heading with
+// bold, non-INV- ids is no longer treated as "no invariants declared". ---
+const shapeMd = join(here, 'fixtures', 'qk-breaker-robust-input', 'contracts', 'contract-1045-shape.md');
+const shapeAcceptance = join(here, 'fixtures', 'qk-breaker-robust-input', 'acceptance', 'contract-1045-shape.test.mjs');
+
+test('contractIds (EARS-H8) — a numbered "## N. ... Invariants" heading with bold ids is recognized', () => {
+  const md = '## 6. External Observable Invariants\n| **EO-0** | pred | probe | RED |\n';
+  assert.deepStrictEqual([...contractIds(md)], ['EO-0']);
+});
+
+test('CLI (EARS-H8/INV-14) — the numbered-heading fixture is no longer "no invariants declared" (exit 0)', () => {
+  const r = spawnSync('node', [cli, '--contract', shapeMd, '--acceptance', shapeAcceptance], { encoding: 'utf8' });
+  const out = JSON.parse(r.stdout.trim());
+  assert.strictEqual(r.status, 0, JSON.stringify(out));
+  assert.strictEqual(out.ok, true);
+  assert.ok(out.declared.length > 0);
+});
