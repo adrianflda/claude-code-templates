@@ -54,7 +54,9 @@ a path), a literal absolute script path (no `~/`, glob or variable) to a regular
 1 MB, no assignment or wrapper on the command, not inside `bash -c`/`eval`, and every other command
 in the line from a short allowlist of readers (`cat`, `head`, `grep`, `jq`, `wc`, `ls`, `echo`,
 `test` ...), `cd` (only while `PATH` has no relative entry), a loop over a lowercase variable or a
-reserved word, with no output other than `/dev/null`. Anything else in the line (an assignment,
+reserved word, with no output other than `/dev/null`, and no arithmetic (`$((...))`, `$[...]`) or
+`${x:=...}` anywhere in the line (each may assign `PATH`). The script must be UTF-8 text without NUL
+bytes: python also runs a zip archive or bytecode, which cannot be read. Anything else in the line (an assignment,
 `export`, `read`, `printf -v`, `alias`, a function, a sourced file, a write) leaves the script
 unjudged, so it blocks. Modules the script imports are not seen. Any other interpreter running a
 script on a transcript blocks.

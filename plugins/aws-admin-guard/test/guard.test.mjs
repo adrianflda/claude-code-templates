@@ -386,6 +386,8 @@ test('the code inside $(...) and backticks is judged as commands of its own', ()
     `wc -l < $(rm ${s.path})`,
     `echo x > "$(cp forged ${s.path}; echo /tmp/o)"`,
     `echo $(rm ${s.path}`, // unbalanced: the broad fallback
+    `echo "\`rm \\"${s.path}\\"\`"`, // bash drops the backslash before " in a quoted backtick
+    `${'$('.repeat(10000)}echo${')'.repeat(10000)} > /tmp/o; cat ${s.path}`, // a reader crash is a write
     `echo $((rm ${s.path});(echo))`, // not arithmetic: the inner paren closes before a ;
     `echo $((a)|(rm ${s.path}))`,
     `echo $(case x in a) rm ${s.path};; esac)`, // a case arm's ) would close $( early
@@ -427,6 +429,10 @@ test('an interpreter running a literal absolute script is judged by the script s
   const pkg = join(dirname(writer), 'pkg');
   mkdirSync(pkg);
   writeFileSync(join(pkg, '__main__.py'), "import sys\nopen(sys.argv[1], 'a').write('x')\n");
+  // python runs a zip's __main__.py; deflated, its code is not readable text
+  const zipped = join(dirname(writer), 'z.py');
+  execFileSync('python3', ['-I', '-c', "import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED)\n" +
+    "z.writestr('__main__.py', \"import sys\\nopen(sys.argv[1], 'a').write('x')\\n\" * 20)\nz.close()", zipped]);
   for (const c of [
     `python3 -I ${reader} ${s.path}`,
     `python3 -I ${reader} "$(ls ~/.claude/projects/p/*.jsonl | head -1)"`,
@@ -493,6 +499,13 @@ test('an interpreter running a literal absolute script is judged by the script s
     `python3 -I ${reader} $(cp forged ${s.path})`,
     `bash -c "python3 -I ${reader} ${s.path}"`, // a nested shell: the outer line sets its environment
     `PATH=${dirname(writer)} bash -c "python3 -I ${reader} ${s.path}"`,
+    `python3 -I ${zipped} ${s.path}`,
+    // arithmetic and ${x:=} assign variables wherever they sit: PATH=0 resolves python3 from ./0/
+    `echo $((PATH=0)); python3 -I ${reader} ${s.path}`,
+    `echo $[PATH=0]; python3 -I ${reader} ${s.path}`,
+    `echo \${PATH:=0}; python3 -I ${reader} ${s.path}`,
+    `cat <<< $((PATH=0)); python3 -I ${reader} ${s.path}`,
+    `python3 -I ${reader} ${s.path} $((PATH=0))`,
   ]) {
     assert.equal(bash(s, c).code, 2, `expected BLOCK: ${c}`);
   }

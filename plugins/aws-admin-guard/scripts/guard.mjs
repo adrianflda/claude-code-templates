@@ -146,6 +146,10 @@ const QUIET_NEIGHBORS = new Set(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep'
  * while PATH has no relative entry a new cwd could resolve python from), a loop over a lowercase
  * variable (no loader or PATH variable is lowercase), or a reserved word -- with no output other
  * than /dev/null. */
+// Expansions that can assign a variable anywhere in the line, a heredoc or a redirection target included:
+// arithmetic ($((PATH=0)), $[PATH=0]) and parameter defaults (${PATH:=0}, ${PATH=0}).
+const ASSIGNING_EXPANSION = /\$\(\(|\$\[|\$\{[^}]*=/;
+
 function quietNeighbors(cmds, self) {
   const absolutePath = (process.env.PATH ?? '').split(':').every((d) => d.startsWith('/'));
   return cmds.every((c) => {
@@ -167,16 +171,17 @@ function quietNeighbors(cmds, self) {
  * - python only: other interpreters' flags differ (perl/ruby -I takes a value) and their code can be
  *   injected through the environment (NODE_OPTIONS, PERL5OPT, RUBYOPT);
  * - isolated mode (-I): no PYTHON* variables, no user site, no script directory on sys.path;
- * - no assignment or wrapper on the command, every other command of the line quiet (quietNeighbors),
+ * - no assignment or wrapper on the command, no arithmetic or ${x:=} expansion anywhere in the line
+ *   (either may assign PATH), every other command of the line quiet (quietNeighbors),
  *   and not inside a nested shell (bash -c, eval), whose environment the outer line may change;
  * - a literal absolute path (not ~/: the shell expands it from a $HOME the command may reassign),
  *   not dynamic and not transcript-like, to a regular file (not a symlink) of at most 1 MB.
  * null = unknown (the caller treats it as a write). Imported modules, and changes to the file after
  * this check, are not seen. */
-function scriptSource(cmd, cmds, depth, hit) {
+function scriptSource(command, cmd, cmds, depth, hit) {
   const [program, ...args] = unwrap(cmd.words);
   if (depth > 0 || !/^python(3(\.\d+)?)?$/.test(program.text) || program.dynamic ||
-      !runsUnwrapped(cmd.words) || !quietNeighbors(cmds, cmd)) return null;
+      !runsUnwrapped(cmd.words) || ASSIGNING_EXPANSION.test(command) || !quietNeighbors(cmds, cmd)) return null;
   const at = args.findIndex((w) => !PRE_SCRIPT_FLAGS.test(w.text));
   if (!args.slice(0, at).some((w) => w.text.includes('I'))) return null;
   const w = args[at];
@@ -192,7 +197,11 @@ function scriptSource(cmd, cmds, depth, hit) {
     const buf = Buffer.alloc(st.size + 1);
     let n = 0;
     for (let r; n < buf.length && (r = readSync(fd, buf, n, buf.length - n, n)) > 0;) n += r;
-    return n > st.size ? null : buf.toString('utf8', 0, n); // grew after the fstat
+    if (n > st.size) return null; // grew after the fstat
+    // Python also runs a zip archive (its __main__.py) or bytecode handed as the script; neither is
+    // readable text and both hold NUL bytes. Only valid UTF-8 without NUL is judged as source.
+    const source = new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(0, n));
+    return source.includes('\0') ? null : source;
   } catch { return null; } finally { if (fd !== undefined) closeSync(fd); }
 }
 
@@ -243,7 +252,7 @@ function writesIn(command, transcriptPath, depth) {
       if (!code.length && operands.length && args.some(hit)) {
         // A script file handed a transcript: judged by its code like inline code when that code can be
         // read now; otherwise unknown, so a write.
-        const source = scriptSource(cmd, cmds, depth, hit);
+        const source = scriptSource(command, cmd, cmds, depth, hit);
         if (source === null || writingCode(source)) return true;
         continue;
       }
