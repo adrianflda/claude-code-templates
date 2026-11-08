@@ -180,8 +180,8 @@ def main():
         all_findings.sort(key=lambda x: severity_order.get(x['severity'], 4))
 
         print('', file=sys.stderr)
-        print('🚨 SECRET SCANNER: Posibles secretos detectados!', file=sys.stderr)
-        print(f'Total: {len(all_findings)} hallazgo(s)', file=sys.stderr)
+        print('🚨 SECRET SCANNER: possible secrets detected!', file=sys.stderr)
+        print(f'Total: {len(all_findings)} finding(s)', file=sys.stderr)
         print('', file=sys.stderr)
         for f in all_findings:
             emoji = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🔵'}.get(f['severity'], '⚪')

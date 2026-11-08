@@ -168,10 +168,12 @@ def install(with_plugins):
             step(['claude', 'plugin', 'marketplace', 'update', mkt])
         installed = installed_plugins()
         for name, required in wanted_plugins():
-            if plugin_present(name, required, installed):
-                if f'{name}@{mkt}' in installed:
-                    step(['claude', 'plugin', 'update', f'{name}@{mkt}'])
-            else:
+            ours = installed.get(f'{name}@{mkt}')
+            if ours and not ours.get('enabled'):
+                step(['claude', 'plugin', 'enable', f'{name}@{mkt}'])
+            if ours:
+                step(['claude', 'plugin', 'update', f'{name}@{mkt}'])
+            elif not plugin_present(name, required, installed):
                 step(['claude', 'plugin', 'install', f'{name}@{mkt}'])
         step(['node', str(GIT_HOOK)])
     print(f'done: {copied} file(s) updated. Restart Claude Code to load them.')

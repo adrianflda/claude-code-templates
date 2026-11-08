@@ -51,7 +51,7 @@ Diff vs HEAD:
 Changed files (full content):
 [PASTE each changed file in full]
 
-Attack the work across all 7 dimensions. Return a scored critique with VERDICT: LGTM or REWORK REQUIRED.
+Attack the work across all of its dimensions. Return a scored critique with VERDICT: LGTM or REWORK REQUIRED.
 ```
 
 ### Step 4 — Spawn qa-expert (parallel with Step 3)

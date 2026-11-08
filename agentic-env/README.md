@@ -42,6 +42,10 @@ Behaviour:
   - `--check` exits 0 when the machine is in sync and 1 on drift.
   - An install exits 0 when, after installing, the machine is in sync. It exits 2 when a step
     failed or drift remains.
+- **Marketplace path mismatch.** The installer does not repair this case. If `--check` reports
+  `market ... reads <path>, not this clone`, the marketplace was added from another folder.
+  Remove it with `claude plugin marketplace remove adrianflda-claude-code-templates`, then run the
+  installer again.
 - **Partial install.** `--no-plugins` skips the `claude plugin` and git steps. It installs only the
   files and the hook wiring.
 

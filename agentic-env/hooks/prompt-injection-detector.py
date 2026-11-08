@@ -29,7 +29,7 @@ INJECTION_PATTERNS = [
 
     # Data exfiltration
     (r'(?i)(send|post|upload|exfiltrate|transmit)\s+.{0,30}(to\s+)?(https?://|curl|wget)', 'Data exfiltration attempt'),
-    (r'(?i)curl\s+.{0,50}(api[_\-]?key|password|secret|token|credential)', 'Comando curl con datos sensibles'),
+    (r'(?i)curl\s+.{0,50}(api[_\-]?key|password|secret|token|credential)', 'curl command with sensitive data'),
 
     # Fake system messages
     (r'(?i)\[SYSTEM\][\s\S]{0,20}(instruction|command|override|prompt)', 'Fake system message'),
@@ -38,7 +38,7 @@ INJECTION_PATTERNS = [
 
     # Safety bypass
     (r'(?i)(bypass|disable|ignore|skip)\s+(safety|security|filter|guardrail|restriction|limitation)', 'Safety bypass attempt'),
-    (r'(?i)(without|no)\s+(restriction|limitation|filter|safety|guardrail)', 'Solicitud sin restricciones'),
+    (r'(?i)(without|no)\s+(restriction|limitation|filter|safety|guardrail)', 'Request without restrictions'),
 
     # Hidden instructions in HTML/markdown comments
     (r'<!--[\s\S]{0,500}(ignore|system|instruction|override|prompt|execute|run|delete|send)[\s\S]{0,200}-->', 'Hidden instruction in an HTML comment'),

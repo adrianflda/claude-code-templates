@@ -3,7 +3,7 @@
 resource-guard — PreToolUse(Bash) hook. Before a HEAVY command (build /
 playwright / dev server / big clone), if system RAM is tight, surface a
 real-time warning so we free memory or background it instead of hitting an OOM
-(the failure that killed the #793 e2e twice). Non-blocking, fast (vm_stat +
+(an e2e run was OOM-killed twice that way). Non-blocking, fast (vm_stat +
 sysctl only), silent unless both heavy-command AND tight-RAM.
 """
 import sys, json, re, subprocess
@@ -50,8 +50,7 @@ if free_mb < 1200:
     msg = (
         f"⚠️ RESOURCE-GUARD — RAM is tight (~{free_mb:.0f}MB reclaimable, "
         f"swap {su:.0f}/{st:.0f}M = {swap_pct:.0f}%) before a heavy command. "
-        "OOM risk: close apps/tabs or run it in the background with a timeout; "
-        "`python3 ~/.claude/hooks/claude-reaper.py` lists hung processes."
+        "OOM risk: close apps/tabs, kill hung processes, or run it in the background with a timeout."
     )
     print(json.dumps({
         "systemMessage": msg,
