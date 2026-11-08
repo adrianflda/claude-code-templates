@@ -1,6 +1,6 @@
 # Spec — run journal: long-running runs survive a crash (v1, design)
 
-Status: APPROVED (2026-11-07, decisions in §8; §8.4–8.6 added the same day after the J1 quality gate). J1 and J2 built; J3 in progress.
+Status: APPROVED (2026-11-07, decisions in §8; §8.4–8.6 added the same day after the J1 quality gate). J1, J2 and J3 built.
 
 ## 1. Goal
 
@@ -211,4 +211,6 @@ opening the journal for write and writing is not closed against a path swap by a
 
 - **J1** — `run-journal.mjs` (`append`, `fold`, `resume` read-only reconcile) + INV-1/3/5/6 tests.
 - **J2** — re-gate in `resume` + INV-2/4. Built: `run-journal/regate.mjs`; 16/16 mutants of the re-gate killed.
-- **J3** — `develop.md` integration, `QK-Task` trailer, short-lived task subagents, usage doc.
+- **J3** — `develop.md` integration, `QK-Task` trailer, short-lived task subagents, usage doc. Built:
+  `commands/develop.md` ("Run journal", "Resuming a run"), `usage.v1.md`; the documented commands
+  were run end to end against a scratch org (append ×5, stale `--expect-seq` → 3, `open`, `resume` → 0).
