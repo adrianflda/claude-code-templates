@@ -1,0 +1,39 @@
+{
+  "comment": "What install.py puts on a machine. Paths are relative to the repo root; nothing here is machine-specific.",
+  "marketplace": "adrianflda-claude-code-templates",
+  "plugins": ["quality-kernel", "pre-push-review", "usage-guard"],
+  "optionalPlugins": ["pr-draft-guard", "aws-admin-guard"],
+  "agents": [
+    "cli-tool/components/agents/epistemic-discipline/adversarial-critic.md",
+    "cli-tool/components/agents/epistemic-discipline/pipeline-breaker.md",
+    "cli-tool/components/agents/development-tools/qa-expert.md",
+    "agentic-env/agents/architect-reviewer.md",
+    "agentic-env/agents/backend-developer.md",
+    "agentic-env/agents/code-reviewer.md",
+    "agentic-env/agents/devops-engineer.md",
+    "agentic-env/agents/documentation-expert.md",
+    "agentic-env/agents/react-specialist.md",
+    "agentic-env/agents/research-analyst.md",
+    "agentic-env/agents/se-security-reviewer.md",
+    "agentic-env/agents/security-engineer.md"
+  ],
+  "skills": [
+    "cli-tool/components/skills/epistemic-discipline",
+    "cli-tool/components/skills/qa-paradigms",
+    "cli-tool/components/skills/skill-audit-3r"
+  ],
+  "commands": [
+    "cli-tool/components/commands/epistemic-discipline/diagnose.md",
+    "cli-tool/components/commands/epistemic-discipline/quality-gate.md"
+  ],
+  "hookFiles": "agentic-env/hooks",
+  "hooks": [
+    { "event": "PreToolUse", "matcher": "Bash", "file": "dangerous-command-blocker.py" },
+    { "event": "PreToolUse", "matcher": "Bash", "file": "secret-scanner.py" },
+    { "event": "PreToolUse", "matcher": "Bash", "file": "spanish-gate.py" },
+    { "event": "PreToolUse", "matcher": "Bash", "file": "resource-guard.py" },
+    { "event": "PreToolUse", "matcher": "Read|WebFetch", "file": "prompt-injection-detector.py" },
+    { "event": "PreToolUse", "matcher": "Task|Agent", "file": "epistemic-preamble-guard.py" },
+    { "event": "SessionStart", "matcher": null, "file": "epistemic-observe-guard.py" }
+  ]
+}

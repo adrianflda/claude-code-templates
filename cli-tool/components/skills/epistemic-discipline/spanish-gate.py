@@ -4,8 +4,8 @@ diff introduces Spanish in committed source/docs (English-only rule; Spanish onl
 in chat). Scans only ADDED lines of the diff, so it never re-flags pre-existing
 debt — only what THIS push would introduce.
 
-Signals: accented chars, ¿¡, CRÍTICO/ALTO/MEDIO/BAJO review-severity labels, and
-≥2 Spanish comment words on a line. Allow-list: i18n/locale/unicode/non-ASCII
+Signals: ¿¡, CRÍTICO/ALTO/MEDIO/BAJO review-severity labels, or ≥2 Spanish signals on a
+line (function words, known words, lowercase accented words; a capitalised name alone is not Spanish). Allow-list: i18n/locale/unicode/non-ASCII
 fixtures and lines tagged `EXEMPT-ES <reason>`.
 
 Operability: FAIL-OPEN on any internal error (never brick a push on a hook bug).
@@ -26,16 +26,49 @@ CODE_DOC = ('.py', '.js', '.jsx', '.ts', '.tsx', '.md', '.mjs', '.mts',
             '.json', '.yml', '.yaml', '.sh')
 
 
+INVERTED = re.compile(r'[¿¡]')
+# Spanish function words that English prose never uses (no "no"/"es"/"en"/"se": they are English or code too).
+FUNCTION = re.compile(r'\b(el|la|los|las|de|del|que|para|por|con|una|unos|unas|pero|como|también|sin|sobre|'
+                      r'hasta|desde|muy|ya|esta|este|estos|estas)\b')  # lowercase only: "La Jolla" is a name
+LOWER_ACCENTED = re.compile(r'\b[a-zñ]*[áéíóúñ][a-záéíóúñ]*\b')  # lowercase: "función", not "Adrián"
+
+
 def is_spanish(line):
+    """A Spanish prose line, not just a Spanish name: ¿¡, a severity label, or at least two Spanish
+    signals (function words, known words, lowercase accented words). A capitalised accented word alone
+    (Adrián, María, López) used to block pushes; it no longer counts (2026-10-28 audit)."""
     if ALLOW.search(line):
         return None
-    if ACCENTS.search(line):
-        return 'accent'
+    if INVERTED.search(line):
+        return 'punctuation'
     if SEVERITY.search(line):
         return 'severity'
-    if len(WORDS.findall(line)) >= 2:
+    signals = len(FUNCTION.findall(line)) + len(WORDS.findall(line)) + len(LOWER_ACCENTED.findall(line))
+    if signals >= 2:
         return 'words'
     return None
+
+
+def default_branch_lines(repo, path, _cache={}):
+    """Lines of `path` on the remote's default branch, or an empty set. A merge of main into a
+    feature branch brings main's lines into the diff against the branch's upstream; those lines are
+    already in main, so they are not this push's to answer for."""
+    key = (repo, path)
+    if key in _cache:
+        return _cache[key]
+    lines = set()
+    for ref in ('origin/HEAD', 'origin/main', 'origin/master', 'origin/development', 'origin/dev'):
+        r = subprocess.run(['git', '-C', repo, 'show', f'{ref}:{path}'],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode == 0:
+            lines = set(r.stdout.splitlines())
+            break
+        ok = subprocess.run(['git', '-C', repo, 'rev-parse', '--verify', '-q', ref],
+                            capture_output=True, text=True, timeout=15)
+        if ok.returncode == 0:
+            break  # the default branch exists but does not have this file: every line is new
+    _cache[key] = lines
+    return lines
 
 
 def main():
@@ -87,7 +120,7 @@ def main():
                     continue
                 if cur_file and cur_file.endswith(CODE_DOC) and 'node_modules' not in cur_file:
                     kind = is_spanish(line[1:])
-                    if kind:
+                    if kind and line[1:] not in default_branch_lines(repo, cur_file):
                         findings.append((cur_file, kind, line[1:].strip()[:90]))
 
         if not findings:
