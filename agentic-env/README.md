@@ -28,8 +28,7 @@ Everything comes from [`manifest.json`](manifest.json):
 | skills `epistemic-discipline`, `qa-paradigms`, `skill-audit-3r` | `~/.claude/skills/<name>/` |
 | commands `/diagnose`, `/quality-gate` | `~/.claude/commands/` |
 | hooks in [`hooks/`](hooks) | `~/.claude/hooks/`; each one is wired into `~/.claude/settings.json` |
-| plugins `quality-kernel`, `pre-push-review`, `usage-guard` | installed from this repo's marketplace (`adrianflda-claude-code-templates`) |
-| optional `pr-draft-guard`, `aws-admin-guard` | installed only once this repo's marketplace lists them |
+| plugins `quality-kernel`, `pre-push-review`, `usage-guard`, `pr-draft-guard`, `aws-admin-guard` | installed from this repo's marketplace (`adrianflda-claude-code-templates`) |
 | pre-push review gate | global git config, via `plugins/pre-push-review/scripts/install-git-hook.mjs` |
 
 Behaviour:
@@ -46,6 +45,10 @@ Behaviour:
   `market ... reads <path>, not this clone`, the marketplace was added from another folder.
   Remove it with `claude plugin marketplace remove adrianflda-claude-code-templates`, then run the
   installer again.
+- **A second copy of a plugin.** A manifest plugin that is also enabled from another marketplace
+  (an older local one, for example) runs its hooks twice, and the other copy is usually stale.
+  `--check` reports it with the `claude plugin uninstall` command to run; the installer does not
+  remove it, since it never deletes anything.
 - **Partial install.** `--no-plugins` skips the `claude plugin` and git steps. It installs only the
   files and the hook wiring.
 
@@ -64,5 +67,6 @@ If the other machine needs them, write them there by hand.
 
 ```bash
 python3 -I agentic-env/test_install.py               # installer, against a throwaway HOME
+python3 -I agentic-env/test_plugins.py               # plugin checks, against a stand-in claude
 for t in agentic-env/hooks/test_*.py; do python3 -I "$t"; done
 ```
