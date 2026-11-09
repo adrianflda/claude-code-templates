@@ -31,7 +31,7 @@ import { spawnSync } from 'child_process';
 import { existsSync } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { findPushTargets, splitCommands } from './push-target.mjs';
+import { findPushTargets, splitCommands, substitutionSpans } from './push-target.mjs';
 
 const MIN_TIMEOUT_MS = 600_000;
 const here = dirname(fileURLToPath(import.meta.url));
@@ -118,8 +118,19 @@ function words(seg) {
  * read: a read action, no write action, and no value after the key. Anything else is treated
  * as a write (when in doubt, block).
  */
-function changesGateConfig(seg) {
-  if (!GIT_WORD.test(seg) || !GATE_KEY.test(seg)) return false;
+function changesGateConfig(line) {
+  if (!GIT_WORD.test(line) || !GATE_KEY.test(line)) return false;
+  // A substitution runs its own command, quoted or not: judge each one alone, on its original
+  // text (single-quoted words included), then judge the line without them.
+  const spans = substitutionSpans(line);
+  if (spans.some(([s, e]) => splitCommands(line.slice(s, e)).some(changesGateConfig))) return true;
+  const chars = line.split('');
+  for (const [s, e] of spans) chars.fill(' ', s, e);
+  const seg = chars.join('');
+  if (!GIT_WORD.test(seg)) return false;
+  // The key was only inside a substitution: a `git config` whose key or value the shell
+  // computes may write it (when in doubt, block).
+  if (!GATE_KEY.test(seg)) return /(^|\s)config(\s|$)/.test(seg);
   const w = words(seg);
   const at = w.indexOf('config');
   if (at === -1) return /(^|\s)config(\s|$)/.test(seg);

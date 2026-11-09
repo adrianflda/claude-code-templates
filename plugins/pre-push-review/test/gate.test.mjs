@@ -192,6 +192,35 @@ test('blocks git config commands that change the gate, allows reading it', () =>
   }
 });
 
+test('a command substitution is judged as its own command, inside double quotes too', () => {
+  const repo = makeRepo('repo');
+  for (const command of [
+    `echo "== hooksPath: $(git config --global --get core.hooksPath || echo '<unset>')"`,
+    'echo "$(git config --get hook.ai-review.command)"',
+    'echo "`git config --global --get-all core.hooksPath`"',
+    'echo "a $(git config --get core.hooksPath) b $(git config --list)"',
+  ]) {
+    assert.equal(guard({ command, cwd: repo, timeout: null }).code, 0, command);
+  }
+  for (const command of [
+    'echo "$(git config --global core.hooksPath /tmp/x)"',
+    'echo "`git config --global --unset hook.ai-review.event`"',
+    'echo "$(git config --get core.hooksPath) $(git config core.hooksPath /tmp/x)"',
+    `echo "$(bash -c 'git config core.hooksPath /tmp/x')"`,
+    'echo "$(echo $(git config --global core.hooksPath /tmp/x))"',
+    'echo "$(git config --get core.hooksPath)" && git config core.hooksPath /tmp/x',
+    'echo "$(git config --get core.hooksPath)"; bash -c "git config core.hooksPath /tmp/x"',
+    'git config "$(printf core.hooksPath)" /tmp/x',
+    'git config $(echo hook.ai-review.command) x',
+    'git config --global `echo core.hooksPath` /tmp/x',
+    'git config core.hooksPath "$(pwd)/h"',
+  ]) {
+    const r = guard({ command, cwd: repo, timeout: null });
+    assert.equal(r.code, 2, command);
+    assert.match(r.stderr, /Ask the user/);
+  }
+});
+
 test('a read flag in a comment, a value or after the value does not make a write look like a read', () => {
   const repo = makeRepo('repo');
   const blocked = [
