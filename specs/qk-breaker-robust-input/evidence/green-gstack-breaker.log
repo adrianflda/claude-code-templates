@@ -1,0 +1,21 @@
+✔ decideVerdict — >=3 HOLDS and all HOLDS → BREAKER_PASS (0.537083ms)
+✔ decideVerdict — any VIOLATED → BREAKER_FAIL (even with HOLDS around it) (0.31825ms)
+✔ decideVerdict — any INSTRUMENT-BROKEN dominates → INSTRUMENT-BROKEN (default-deny) (0.041833ms)
+✔ decideVerdict — fewer than MIN_VECTORS HOLDS → INDETERMINATE (not PASS) (0.052125ms)
+✔ unanchoredVectors — flags a vector whose invariant is not in the contract (0.53375ms)
+✔ runBreaker — 3 anchored vectors, all HOLDS → BREAKER_PASS (1217.3025ms)
+✔ runBreaker — one vector VIOLATED → BREAKER_FAIL (1328.573625ms)
+✔ runBreaker — a broken probe → INSTRUMENT-BROKEN (blocks) (653.64625ms)
+✔ runBreaker — fewer than MIN_VECTORS → BREAKER_INDETERMINATE (502.674417ms)
+✔ runBreaker — an unanchored vector is refused → INSTRUMENT-BROKEN (contract anchoring) (2.142917ms)
+✔ runBreaker (EARS-H9) — an empty QA-procedure section is INSTRUMENT-BROKEN before vectors run (0.71ms)
+✔ CLI — exit codes map to the verdict (PASS→0) (769.007208ms)
+﹣ LIVE — real $B, 3 vectors → BREAKER_PASS (0.041417ms) # set GSTACK_BROWSE_BIN to run
+ℹ tests 13
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 4544.418792

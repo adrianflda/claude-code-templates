@@ -1,0 +1,22 @@
+breaker-not-executed record could not be synced: simulated crash before rename completes
+✔ breaker-gate — critical + green referee + NO breaker -> exit 3 (still unenforced) (860.906959ms)
+✔ breaker-gate — critical + green referee + breaker PASS -> exit 0 (928.487792ms)
+✔ breaker-gate — critical + green referee + breaker FAIL -> exit 1 (936.405ms)
+✔ breaker-gate (RED) — a contract with no invariants blocks even with a PASSing breaker (833.441375ms)
+✔ breaker-gate (RED) — a PASSing breaker does NOT clear the human-review cause of exit 3 (934.642083ms)
+✔ breaker-gate (carried major #1) — refereeGate is qk-gate.mjs's own verdict, passed through verbatim (1522.119667ms)
+✔ breaker-gate (EARS-M1) — an INSTRUMENT-BROKEN verdict writes the record atomically and exits 2 (956.080292ms)
+✔ breaker-gate (EARS-M3) — a later BREAKER_INDETERMINATE verdict clears the stale record (exit code still 2) (1819.142291ms)
+✔ breaker-gate (EARS-M3) — a later passing breaker clears the stale record and exits 0 (1967.638834ms)
+✔ breaker-gate (EARS-M4) — a pre-seeded malformed record never affects the gate decision, and is removed on PASS (972.500958ms)
+✔ breaker-gate (EARS-M5) — a write failure never changes the exit code and is reported on stderr, not thrown (1057.050542ms)
+✔ syncNotExecutedRecord (EARS-M1, crash before rename) — an interruption between the temp write and the rename leaves the target untouched, never truncated (1.936334ms)
+✔ breaker-gate (EARS-M1, concurrency) — two concurrent runs never collide; the record ends up valid, never byte-interleaved (1022.453709ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13882.825916

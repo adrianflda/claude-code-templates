@@ -1,0 +1,52 @@
+✔ EARS-H1/H2: numbered, parenthetical headings open the QA and Invariants sections (1.188583ms)
+✔ EARS-H7: legacy "## QA procedure" / "## Invariants" headings and INV- ids still parse (0.126791ms)
+✔ EARS-H2b: a second heading that ALSO matches never overrides the first (dup.md) (0.075875ms)
+✔ EARS-H4b: a duplicate id in the SAME table keeps only the first row (0.060292ms)
+✔ EARS-H3 precedence: a nested heading lexically matching "Invariants" stays inside the open QA section (0.060333ms)
+✔ EARS-H4: bold id with a trailing parenthetical normalizes to the bare id (0.042625ms)
+✔ EARS-H4: unmatched bold (only one side) leaves the stray ** in place (0.027584ms)
+✔ EARS-H5: a literal pipe inside backticks does not shift which cell is "expected" (0.044583ms)
+✔ EARS-H5: expected is the LAST cell regardless of how many cells are in between (0.060792ms)
+✖ EARS-H5: a literal `\|` OUTSIDE backticks is kept as one cell, not a boundary (0.885041ms)
+✔ EARS-H6: an empty QA-procedure body is reported as empty, naming headings found (0.376041ms)
+✔ EARS-H6: an empty invariants table is reported as empty, naming headings found (0.065125ms)
+✔ EARS-H6: both empty are named together, not just the first (0.046166ms)
+✔ emptySectionReason: null when both sections are non-empty (0.041209ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 13
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 62.314167
+
+✖ failing tests:
+
+test at contract-sections.test.mjs:100:1
+✖ EARS-H5: a literal `\|` OUTSIDE backticks is kept as one cell, not a boundary (0.885041ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      'INV-A',
+  +   'a\\',
+  +   'b',
+  -   'a\\|b',
+      '1'
+    ]
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/contract-sections.test.mjs:103:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'INV-A', 'a\\', 'b', '1' ],
+    expected: [ 'INV-A', 'a\\|b', '1' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

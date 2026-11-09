@@ -1,0 +1,27 @@
+✔ jsonPointer: RFC 6901 paths, escapes and misses (3.145875ms)
+✔ validateHttpSpec: accepts a same-origin request sequence (0.165917ms)
+✔ validateHttpSpec: refuses anything off the system's origin or outside the schema (0.216417ms)
+✔ isAcceptableHost (EARS-V6 branch a): exactly the systemUrl's own hostname is accepted (0.118667ms)
+✔ isAcceptableHost (EARS-V6 branch b): a subdomain of the registrable domain is accepted, an unrelated suffix is not (0.057084ms)
+✔ isAcceptableHost (EARS-V6a): an IP-literal systemUrl needs an exact Host match, no suffix widening (0.034834ms)
+✔ isAcceptableHost (EARS-V6a): an IPv6-bracketed systemUrl needs an exact Host match too (0.042708ms)
+✔ isAcceptableHost (EARS-V6a): a single-label systemUrl ('localhost') needs an exact Host match too (0.04975ms)
+✔ isAcceptableHost (RFC 9110) — a Host value differing only in case from the systemUrl's own hostname is still accepted (0.052834ms)
+✔ isAcceptableHost (RFC 9110) — a Host value differing only in case, on the registrable-domain-suffix branch, is still accepted (0.053458ms)
+✔ validateHttpSpec (EARS-V6): an accepted Host header no longer makes the request invalid (0.047542ms)
+✔ validateHttpSpec (EARS-V4 step 3 sub-order): an unknown method wins over a bad Host header (0.097292ms)
+✔ runHttpVector: HOLDS when the last response meets the expectation (12.491ms)
+✔ runHttpVector: VIOLATED when the system breaks the expectation (repeat-add bug) (1.826209ms)
+✔ runHttpVector: status mismatch, non-JSON body and missing pointer are VIOLATED (1.168792ms)
+✔ runHttpVector: sends method, headers and a JSON body (1.252875ms)
+✔ runHttpVector: never follows a redirect off the system (0.387042ms)
+✔ runHttpVector: honours a configured local pattern (0.079583ms)
+✔ runHttpVector: INSTRUMENT-BROKEN for a non-local system, an invalid spec, a dead port or a timeout (205.298334ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2109.47025

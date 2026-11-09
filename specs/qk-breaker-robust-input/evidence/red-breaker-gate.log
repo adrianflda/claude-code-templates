@@ -1,0 +1,140 @@
+✔ breaker-gate — critical + green referee + NO breaker -> exit 3 (still unenforced) (822.158666ms)
+✔ breaker-gate — critical + green referee + breaker PASS -> exit 0 (916.636833ms)
+✔ breaker-gate — critical + green referee + breaker FAIL -> exit 1 (915.516ms)
+✔ breaker-gate (RED) — a contract with no invariants blocks even with a PASSing breaker (819.637625ms)
+✔ breaker-gate (RED) — a PASSing breaker does NOT clear the human-review cause of exit 3 (932.580417ms)
+✖ breaker-gate (EARS-M1) — an INSTRUMENT-BROKEN verdict writes the record atomically and exits 2 (924.658583ms)
+✖ breaker-gate (EARS-M3) — a later BREAKER_INDETERMINATE verdict clears the stale record (exit code still 2) (928.997333ms)
+✖ breaker-gate (EARS-M3) — a later passing breaker clears the stale record and exits 0 (918.607542ms)
+✖ breaker-gate (EARS-M4) — a pre-seeded malformed record never affects the gate decision, and is removed on PASS (913.844625ms)
+✖ breaker-gate (EARS-M5) — a write failure never changes the exit code and is reported on stderr, not thrown (920.296791ms)
+✖ breaker-gate (EARS-M1, concurrency) — two concurrent runs never collide; the record ends up valid, never byte-interleaved (1745.014625ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 5
+ℹ fail 6
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10826.312875
+
+✖ failing tests:
+
+test at scripts/breaker-gate.test.mjs:107:1
+✖ breaker-gate (EARS-M1) — an INSTRUMENT-BROKEN verdict writes the record atomically and exits 2 (924.658583ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(existsSync(notExecutedPath(tmp)))
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:113:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-gate.test.mjs:124:1
+✖ breaker-gate (EARS-M3) — a later BREAKER_INDETERMINATE verdict clears the stale record (exit code still 2) (928.997333ms)
+  AssertionError [ERR_ASSERTION]: precondition: the stale record exists
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:130:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-gate.test.mjs:138:1
+✖ breaker-gate (EARS-M3) — a later passing breaker clears the stale record and exits 0 (918.607542ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(existsSync(notExecutedPath(tmp)))
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:144:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-gate.test.mjs:151:1
+✖ breaker-gate (EARS-M4) — a pre-seeded malformed record never affects the gate decision, and is removed on PASS (913.844625ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(!existsSync(notExecutedPath(tmp)))
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:159:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-gate.test.mjs:163:1
+✖ breaker-gate (EARS-M5) — a write failure never changes the exit code and is reported on stderr, not thrown (920.296791ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /breaker-not-executed/. Input:
+  
+  ''
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:171:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: /breaker-not-executed/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-gate.test.mjs:176:1
+✖ breaker-gate (EARS-M1, concurrency) — two concurrent runs never collide; the record ends up valid, never byte-interleaved (1745.014625ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(existsSync(notExecutedPath(tmp)))
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:185:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

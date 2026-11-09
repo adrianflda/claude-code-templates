@@ -1,0 +1,11 @@
+✔ EARS-V8(a): a paragraph mentions both "Host" and "registrable" (case-insensitive) (0.556375ms)
+✔ EARS-V8(b): the literal substring "only that vector" is present (0.04375ms)
+✔ EARS-V8(c): HTTP methods and UI commands each appear at least once in production casing (0.0535ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 64.289458

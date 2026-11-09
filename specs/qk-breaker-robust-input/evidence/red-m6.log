@@ -1,0 +1,69 @@
+✔ P5 boundary — the blind input contains ONLY contract + probe, never the diff/tests/reasoning (1.361917ms)
+✔ CLI — a stub breaker returning BREAKER_FAIL -> exit 1 (102.5125ms)
+✔ CLI — a stub breaker returning BREAKER_PASS -> exit 0, and it received no diff (97.753291ms)
+✖ CLI (EARS-M6) — a nonexistent breaker command -> exit 2, verdict INSTRUMENT-BROKEN (49.523541ms)
+✔ CLI (RED) — missing --probe/--url fails closed (exit 2) even with a PASSing breaker (49.334166ms)
+✔ CLI (EARS-M6 regression guard) — missing --breaker arg stays BREAKER_INDETERMINATE, exit 2 (46.417209ms)
+✖ CLI (RED, EARS-M6) — a breaker printing BREAKER_PASS but exiting non-zero is INSTRUMENT-BROKEN, not BREAKER_INDETERMINATE (99.3775ms)
+✔ EARS-H1 (INV-1) — numbered/parenthetical headings parse: stub observes non-empty qaProcedure/invariants (94.086ms)
+✔ EARS-H7 (INV-2) — legacy headings/ids still parse end to end through the CLI (95.630167ms)
+✔ EARS-H4 (INV-3/4) — a bold, parenthetical, non-INV- id normalizes, and a piped probe-command cell does not shift "expected" (95.666541ms)
+✔ EARS-H2b (INV-12) — a second, genuinely-matching heading never overrides the first (dup.md) (96.712709ms)
+✔ EARS-H6 (INV-5) — an empty QA-procedure body fails closed, exit 2, breaker never runs (50.824167ms)
+✔ EARS-H6 (INV-6) — an empty invariants table fails closed, exit 2, breaker never runs (48.439125ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 11
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 992.341792
+
+✖ failing tests:
+
+test at scripts/breaker-invoke.test.mjs:54:1
+✖ CLI (EARS-M6) — a nonexistent breaker command -> exit 2, verdict INSTRUMENT-BROKEN (49.523541ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'BREAKER_INDETERMINATE'
+  - 'INSTRUMENT-BROKEN'
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:58:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'BREAKER_INDETERMINATE',
+    expected: 'INSTRUMENT-BROKEN',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-invoke.test.mjs:84:1
+✖ CLI (RED, EARS-M6) — a breaker printing BREAKER_PASS but exiting non-zero is INSTRUMENT-BROKEN, not BREAKER_INDETERMINATE (99.3775ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'BREAKER_INDETERMINATE'
+  - 'INSTRUMENT-BROKEN'
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:92:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'BREAKER_INDETERMINATE',
+    expected: 'INSTRUMENT-BROKEN',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

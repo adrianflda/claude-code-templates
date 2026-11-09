@@ -21,7 +21,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { runProbe } from './gstack-probe.mjs';
-import { buildBlindInput } from './breaker-invoke.mjs';
+import { scanSections, emptySectionReason } from './contract-sections.mjs';
 import { isMain } from './is-main.mjs';
 
 export const MIN_VECTORS = 3;
@@ -48,15 +48,37 @@ export function unanchoredVectors(vectors, contractInvariants) {
   return bad;
 }
 
-export function runBreaker({ contractPath, url, vectorsFile, bin = null, config = null, cwd = process.cwd() }) {
-  const broken = (reason, extra = {}) => ({ verdict: 'INSTRUMENT-BROKEN', reason, ...extra });
-  if (!contractPath || !existsSync(contractPath)) return broken(`contract not found: ${contractPath}`);
-  if (!vectorsFile || !existsSync(vectorsFile)) return broken(`vectors not found: ${vectorsFile}`);
+const broken = (reason) => ({ verdict: 'INSTRUMENT-BROKEN', reason });
 
-  const { invariants } = buildBlindInput(readFileSync(contractPath, 'utf8'), {});
+// Contract-side half of runBreaker's preconditions: the file must exist and (EARS-H9, same empty-
+// section guard as breaker-invoke.mjs's EARS-H6: an empty qaProcedure or invariants set means the
+// breaker never ran, not "nothing wrong found") its sections must be non-empty. { invariants } on
+// success, { error } on failure — never both.
+function readContractInvariants(contractPath) {
+  if (!contractPath || !existsSync(contractPath)) return { error: `contract not found: ${contractPath}` };
+  const sections = scanSections(readFileSync(contractPath, 'utf8'));
+  const emptyReason = emptySectionReason(sections);
+  if (emptyReason) return { error: emptyReason };
+  return { invariants: sections.invariants };
+}
+
+// Vectors-side half of runBreaker's preconditions: the file must exist, parse as JSON, and be a
+// non-empty array. { vectors } on success, { error } on failure — never both.
+function readVectorsFile(vectorsFile) {
+  if (!vectorsFile || !existsSync(vectorsFile)) return { error: `vectors not found: ${vectorsFile}` };
   let vectors;
-  try { vectors = JSON.parse(readFileSync(vectorsFile, 'utf8')); } catch (e) { return broken(`bad vectors json: ${e.message}`); }
-  if (!Array.isArray(vectors) || vectors.length === 0) return broken('vectors must be a non-empty array');
+  try { vectors = JSON.parse(readFileSync(vectorsFile, 'utf8')); } catch (e) { return { error: `bad vectors json: ${e.message}` }; }
+  if (!Array.isArray(vectors) || vectors.length === 0) return { error: 'vectors must be a non-empty array' };
+  return { vectors };
+}
+
+export function runBreaker({ contractPath, url, vectorsFile, bin = null, config = null, cwd = process.cwd() }) {
+  const contractResult = readContractInvariants(contractPath);
+  if (contractResult.error) return broken(contractResult.error);
+  const vectorsResult = readVectorsFile(vectorsFile);
+  if (vectorsResult.error) return broken(vectorsResult.error);
+  const { invariants } = contractResult;
+  const { vectors } = vectorsResult;
 
   const bad = unanchoredVectors(vectors, invariants);
   if (bad.length) return broken(`vector(s) not anchored to a contract invariant: ${bad.join(', ')} — the breaker measures against the contract, never a paraphrase`);

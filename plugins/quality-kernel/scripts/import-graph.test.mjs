@@ -64,6 +64,18 @@ test('no module imports a CLI entry point (referee.mjs, qk-gate.mjs)', () => {
   assert.deepStrictEqual(violations((_, to) => (['referee.mjs', 'qk-gate.mjs'].includes(to) ? 'CLI entry points are not libraries' : null)), []);
 });
 
+// specs/qk-breaker-robust-input/design.md, chosen Option B: contract-lint.mjs and gstack-breaker.mjs
+// both parse a contract's sections through contract-sections.mjs directly — never through each other
+// or through breaker-invoke.mjs — so the contract-lint precondition can't be made to depend on the
+// breaker invoker, and the heading/table parser can't silently drift between call sites again.
+test('contract-lint.mjs and gstack-breaker.mjs depend on contract-sections.mjs, never on breaker-invoke.mjs (design.md Option B)', () => {
+  assert.deepStrictEqual(violations((from, to) => (
+    ['contract-lint.mjs', 'gstack-breaker.mjs'].includes(from) && to === 'breaker-invoke.mjs'
+      ? 'Option B: parse via contract-sections.mjs, not breaker-invoke.mjs'
+      : null
+  )), []);
+});
+
 test('process-safety/ depends on nothing outside itself', () => {
   assert.deepStrictEqual(violations((from, to) => (inPs(from) && !inPs(to) ? 'process-safety must not depend on the verification layer' : null)), []);
 });

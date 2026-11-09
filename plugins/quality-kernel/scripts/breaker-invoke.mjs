@@ -14,28 +14,14 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { isMain } from './is-main.mjs';
+import { scanSections, emptySectionReason } from './contract-sections.mjs';
 
-function section(md, name) {
-  const lines = md.split('\n'); const out = []; let inSec = false;
-  for (const l of lines) {
-    if (new RegExp(`^##\\s+${name}\\b`, 'i').test(l)) { inSec = true; continue; }
-    if (inSec && /^##\s+/.test(l)) break;
-    if (inSec) out.push(l);
-  }
-  return out.join('\n').trim();
-}
-function invariants(md) {
-  const out = []; let inTable = false;
-  for (const l of md.split('\n')) {
-    if (/^##\s+Invariants\b/i.test(l)) { inTable = true; continue; }
-    if (inTable && /^##\s+/.test(l)) break;
-    if (inTable) { const m = l.match(/^\s*\|\s*(INV-[A-Za-z0-9-]+)\s*\|(.*)\|\s*([^|]*)\|\s*$/); if (m) out.push({ id: m[1], expected: m[3].trim() }); }
-  }
-  return out;
-}
 // The ONLY things the breaker may see. Deliberately excludes diff/changed/tests/reasoning (P5).
+// Heading/table parsing itself lives in contract-sections.mjs (EARS-H1/H2/H2b/H3/H4/H4b/H5), shared
+// with contract-lint.mjs and gstack-breaker.mjs so the two places that read a contract can't drift.
 export function buildBlindInput(md, { probeCmd = null, systemUrl = null } = {}) {
-  return { qaProcedure: section(md, 'QA procedure'), invariants: invariants(md), probeCmd, systemUrl };
+  const { qaProcedure, invariants } = scanSections(md);
+  return { qaProcedure, invariants, probeCmd, systemUrl };
 }
 
 if (isMain(import.meta.url)) {
@@ -48,6 +34,12 @@ if (isMain(import.meta.url)) {
     else if (args[i] === '--breaker') breaker = args[++i];
   }
   const bail = (reason) => { process.stdout.write(JSON.stringify({ verdict: 'BREAKER_INDETERMINATE', reason }) + '\n'); process.exit(2); };
+  // EARS-M6 (decided by Adrian 2026-11-08): the breaker PROCESS itself did not run — could not be
+  // spawned, produced no exit status, or exited non-zero — is INSTRUMENT-BROKEN, never
+  // BREAKER_INDETERMINATE. The gate layer's own record-sync step (EARS-M1/M3) keys the
+  // breaker-not-executed record off this exact nested verdict string, so a reader can later tell
+  // "the breaker never ran" apart from "it ran and could not decide". Exit code stays 2 either way.
+  const instrumentBroken = (reason) => { process.stdout.write(JSON.stringify({ verdict: 'INSTRUMENT-BROKEN', reason }) + '\n'); process.exit(2); };
   const given = (v) => typeof v === 'string' && v.trim() !== '';
   if (!given(contract) || !given(breaker)) bail('need --contract <md> --breaker "<cmd>"');
   // A breaker with no live target is not a breaker: without a probe and a system URL it can only
@@ -56,12 +48,24 @@ if (isMain(import.meta.url)) {
   if (!given(probe) || !given(url)) bail('need --probe "<cmd>" and --url <systemUrl>: the breaker verdict must come from executing against the live system');
   if (!existsSync(contract)) bail(`contract not found: ${contract}`);
 
-  const input = buildBlindInput(readFileSync(contract, 'utf8'), { probeCmd: probe, systemUrl: url });
+  const md = readFileSync(contract, 'utf8');
+  // Parse the contract once and reuse the result: buildBlindInput's own scanSections(md) call
+  // (above) would otherwise re-run the same heading/table scan a second time on every invocation.
+  const sections = scanSections(md);
+  // EARS-H6: fail closed BEFORE the breaker command ever runs when a required section is empty —
+  // an empty blind input is not "the breaker found nothing wrong", it is "the breaker never ran".
+  const emptyReason = emptySectionReason(sections);
+  if (emptyReason) {
+    process.stdout.write(JSON.stringify({ verdict: 'INSTRUMENT-BROKEN', reason: emptyReason }) + '\n');
+    process.exit(2);
+  }
+
+  const input = { qaProcedure: sections.qaProcedure, invariants: sections.invariants, probeCmd: probe, systemUrl: url };
   const r = spawnSync(breaker, { input: JSON.stringify(input), shell: true, encoding: 'utf8', timeout: 600000 });
-  if (r.error || r.status === null) bail(`breaker could not run: ${r.error ? r.error.message : 'no exit'}`);
+  if (r.error || r.status === null) instrumentBroken(`breaker could not run: ${r.error ? r.error.message : 'no exit'}`);
   // A breaker that printed BREAKER_PASS but exited non-zero did not complete cleanly; trusting the
   // text over the exit status would let a crashed/killed breaker green the gate. Fail closed.
-  if (r.status !== 0) bail(`breaker exited ${r.status} — a verdict from a failed breaker process is not trusted`);
+  if (r.status !== 0) instrumentBroken(`breaker exited ${r.status} — a verdict from a failed breaker process is not trusted`);
   let verdict;
   try { verdict = JSON.parse((r.stdout || '').trim().split('\n').filter(Boolean).pop()); } catch { bail('breaker produced no JSON verdict'); }
   process.stdout.write(JSON.stringify({ ...verdict, blindInputKeys: Object.keys(input) }) + '\n');

@@ -26,6 +26,28 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const extraKeys = (obj, allowed) => Object.keys(obj).filter((k) => !allowed.has(k));
 
+// EARS-V6/V6a: a vector's Host header is checked, not trusted blindly, and not blanket-rejected.
+// The TCP connection always dials systemUrl itself (a Host header can never redirect it), but an
+// unrestricted value would let the live system answer "as" an arbitrary hostname.
+const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
+const IPV6_BRACKET_RE = /^\[.*\]$/;
+const stripPort = (value) => String(value).replace(/:\d+$/, "");
+const registrableDomain = (hostname) => hostname.split(".").slice(-2).join(".");
+
+export function isAcceptableHost(headerValue, systemUrl) {
+  // RFC 9110 §3.2: a Host identifier (hostname) is case-insensitive. The WHATWG URL parser always
+  // lowercases systemUrl's own .hostname, so comparing a differently-cased header value with ===
+  // would wrongly reject a legitimate same-host probe (e.g. "Host: EXAMPLE.COM").
+  const value = stripPort(headerValue).toLowerCase();
+  const hostname = new URL(systemUrl).hostname;
+  // EARS-V6a: an IP literal or a single-label hostname gets no registrable-domain widening — the
+  // naive last-two-labels rule on "127.0.0.1" would yield ".0.1" and wrongly accept "evil.0.1".
+  if (IPV4_RE.test(hostname) || IPV6_BRACKET_RE.test(hostname) || !hostname.includes(".")) {
+    return value === hostname;
+  }
+  return value === hostname || value.endsWith(`.${registrableDomain(hostname)}`);
+}
+
 function validateRequest(req, i, origin, systemUrl) {
   const at = `requests[${i}]`;
   if (!isObject(req)) return `${at} must be an object`;
@@ -45,7 +67,9 @@ function validateRequest(req, i, origin, systemUrl) {
     if (!isObject(req.headers)) return `${at}.headers must be an object`;
     for (const [k, v] of Object.entries(req.headers)) {
       if (typeof v !== "string") return `${at}.headers.${k} must be a string`;
-      if (k.toLowerCase() === "host") return `${at}.headers may not set host`;
+      if (k.toLowerCase() === "host" && !isAcceptableHost(v, systemUrl)) {
+        return `${at}.headers.host is not an accepted Host value: ${v}`;
+      }
     }
   }
   if (req.body !== undefined && (req.method === "GET" || req.method === "HEAD")) return `${at}: ${req.method} cannot carry a body`;

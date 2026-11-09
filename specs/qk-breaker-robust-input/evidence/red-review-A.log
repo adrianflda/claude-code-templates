@@ -1,0 +1,28 @@
+breaker-not-executed record could not be synced: ENOENT: no such file or directory, open '/var/folders/b4/1ckcs4zx2nxg2sp5rwk69gmc0000gn/T/qk-bgate-nodir-tUHNgE/.quality-kernel/breaker-not-executed.json.60440-6d0bedfaf5c5.tmp'
+✖ syncNotExecutedRecord (EARS-M1, RED) — creates .quality-kernel/ when it does not exist yet, then writes the record (2.279125ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 71.151334
+
+✖ failing tests:
+
+test at plugins/quality-kernel/scripts/breaker-gate.test.mjs:239:1
+✖ syncNotExecutedRecord (EARS-M1, RED) — creates .quality-kernel/ when it does not exist yet, then writes the record (2.279125ms)
+  AssertionError [ERR_ASSERTION]: EARS-M1: the dir must be created
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-gate.test.mjs:245:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

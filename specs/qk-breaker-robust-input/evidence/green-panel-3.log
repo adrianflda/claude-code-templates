@@ -1,0 +1,22 @@
+✔ EARS-H1/H2: numbered, parenthetical headings open the QA and Invariants sections (1.165416ms)
+✔ EARS-H7: legacy "## QA procedure" / "## Invariants" headings and INV- ids still parse (0.125209ms)
+✔ EARS-H2b: a second heading that ALSO matches never overrides the first (dup.md) (0.074708ms)
+✔ EARS-H4b: a duplicate id in the SAME table keeps only the first row (0.059625ms)
+✔ EARS-H3 precedence: a nested heading lexically matching "Invariants" stays inside the open QA section (0.058833ms)
+✔ EARS-H4: bold id with a trailing parenthetical normalizes to the bare id (0.042083ms)
+✔ EARS-H4: unmatched bold (only one side) leaves the stray ** in place (0.02725ms)
+✔ EARS-H5: a literal pipe inside backticks does not shift which cell is "expected" (0.045666ms)
+✔ EARS-H5: expected is the LAST cell regardless of how many cells are in between (0.057417ms)
+✔ EARS-H5: a literal `\|` OUTSIDE backticks is kept as one cell, not a boundary (0.066542ms)
+✔ EARS-H6: an empty QA-procedure body is reported as empty, naming headings found (0.339334ms)
+✔ EARS-H6: an empty invariants table is reported as empty, naming headings found (0.055208ms)
+✔ EARS-H6: both empty are named together, not just the first (0.043458ms)
+✔ emptySectionReason: null when both sections are non-empty (0.036416ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 62.237542

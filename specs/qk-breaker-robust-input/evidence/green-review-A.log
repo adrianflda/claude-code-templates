@@ -1,0 +1,27 @@
+breaker-not-executed record could not be synced: simulated crash before rename completes
+breaker-not-executed record could not be synced: simulated rename failure
+breaker-not-executed record could not be synced: simulated mkdir failure
+✔ breaker-gate — critical + green referee + NO breaker -> exit 3 (still unenforced) (760.864083ms)
+✔ breaker-gate — critical + green referee + breaker PASS -> exit 0 (885.783917ms)
+✔ breaker-gate — critical + green referee + breaker FAIL -> exit 1 (909.474291ms)
+✔ breaker-gate (RED) — a contract with no invariants blocks even with a PASSing breaker (770.653958ms)
+✔ breaker-gate (RED) — a PASSing breaker does NOT clear the human-review cause of exit 3 (854.973459ms)
+✔ breaker-gate (carried major #1) — refereeGate is qk-gate.mjs's own verdict, passed through verbatim (1385.244875ms)
+✔ breaker-gate (EARS-M1) — an INSTRUMENT-BROKEN verdict writes the record atomically and exits 2 (851.030166ms)
+✔ breaker-gate (EARS-M3) — a later BREAKER_INDETERMINATE verdict clears the stale record (exit code still 2) (1641.771333ms)
+✔ breaker-gate (EARS-M3) — a later passing breaker clears the stale record and exits 0 (1622.9525ms)
+✔ breaker-gate (EARS-M4) — a pre-seeded malformed record never affects the gate decision, and is removed on PASS (872.555667ms)
+✔ breaker-gate (EARS-M5) — a write failure never changes the exit code and is reported on stderr, not thrown (867.651583ms)
+✔ syncNotExecutedRecord (EARS-M1, crash before rename) — an interruption between the temp write and the rename leaves the target untouched, never truncated (1.801208ms)
+✔ syncNotExecutedRecord (EARS-M5, orphan cleanup, RED) — a rename failure unlinks the orphaned temp file (0.414333ms)
+✔ syncNotExecutedRecord (EARS-M1, RED) — creates .quality-kernel/ when it does not exist yet, then writes the record (0.634792ms)
+✔ syncNotExecutedRecord (EARS-M5) — a directory-creation failure is swallowed, never thrown, never writes the record (0.438375ms)
+✔ breaker-gate (EARS-M1, concurrency) — two concurrent runs never collide; the record ends up valid, never byte-interleaved (880.939584ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12373.795958

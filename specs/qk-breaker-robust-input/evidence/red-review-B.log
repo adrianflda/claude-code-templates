@@ -1,0 +1,34 @@
+✖ diff (RED) — a contract declaring only EO-0 still flags a stale cross-family INV-1 reference as orphan (2.013833ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 61.578167
+
+✖ failing tests:
+
+test at plugins/quality-kernel/scripts/contract-lint.test.mjs:89:1
+✖ diff (RED) — a contract declaring only EO-0 still flags a stale cross-family INV-1 reference as orphan (2.013833ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   'INV-1'
+  - ]
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/contract-lint.test.mjs:94:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ 'INV-1' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

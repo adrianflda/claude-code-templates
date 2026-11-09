@@ -153,14 +153,28 @@ test("CLI: the verdict comes from executing the vectors, never from the model's 
   });
 });
 
-test("CLI: a reply without vectors, or with an invalid vector, is INSTRUMENT-BROKEN", async () => {
+test("CLI: a reply without vectors is INSTRUMENT-BROKEN", async () => {
   await withStub("BREAKER VERDICT: BREAKER_PASS\nPROTOCOL_VIOLATION: no", async ({ stub }) => {
     const r = await runAdapter(stub, blind());
     assert.equal(r.status, 0);
-    assert.equal(lastJson(r).verdict, "INSTRUMENT-BROKEN");
+    assert.equal(lastJson(r).verdict, "INSTRUMENT-BROKEN"); // EARS-V2: a batch-level problem (no vectors at all) still rejects the whole run
   });
+});
+
+// Retargeted by EARS-V3/V4 (spec: specs/qk-breaker-robust-input/spec.md): a per-vector-shaped
+// problem (here, an unknown `shell` key) used to make the WHOLE batch INSTRUMENT-BROKEN. It now
+// excludes only that one vector — the other two still run — reported in `dropped`; with only 2
+// executed results (below gstack-breaker's MIN_VECTORS) the verdict is BREAKER_INDETERMINATE, not
+// INSTRUMENT-BROKEN. The genuine "a per-vector problem never crashes the process" guarantee is
+// still exercised here.
+test("CLI: a per-vector-invalid vector is dropped, not batch-fatal — it never crashes the process", async () => {
   await withStub(fenced([{ ...vector(1, 1), shell: "cat src/app.js" }, vector(1, 1), vector(1, 1)]), async ({ stub }) => {
-    assert.equal(lastJson(await runAdapter(stub, blind())).verdict, "INSTRUMENT-BROKEN");
+    const r = await runAdapter(stub, blind());
+    const out = lastJson(r);
+    assert.equal(out.verdict, "BREAKER_INDETERMINATE");
+    assert.equal(out.executed, 2);
+    assert.equal(out.dropped.length, 1);
+    assert.match(out.dropped[0].reason, /unknown key/i);
   });
 });
 
@@ -174,12 +188,18 @@ test("CLI: forbidden blind input never reaches claude; bad stdin and a failed cl
   await withStub(fenced([vector(1, 1)]), async ({ stub }) => assert.equal((await runAdapter(stub, blind())).status, 2), { isError: true });
 });
 
-test("CLI: a vector whose path cannot be parsed is INSTRUMENT-BROKEN, not a crash", async () => {
+// Retargeted by EARS-V3/V4 (spec: specs/qk-breaker-robust-input/spec.md): an unparseable path is a
+// per-vector shape problem, not a batch-fatal one — it drops only that vector (never a crash) while
+// the other two still run; 2 executed results (below MIN_VECTORS) yields BREAKER_INDETERMINATE.
+test("CLI: a vector whose path cannot be parsed is dropped, not a crash", async () => {
   const bad = { invariant: "INV-1", http: { requests: [{ method: "GET", path: "//[" }], expect: { status: 200 } } };
   await withStub(fenced([bad, vector(1, 1), vector(1, 1)]), async ({ stub }) => {
     const r = await runAdapter(stub, blind());
     assert.equal(r.status, 0, r.stderr);
-    assert.equal(lastJson(r).verdict, "INSTRUMENT-BROKEN");
+    const out = lastJson(r);
+    assert.equal(out.verdict, "BREAKER_INDETERMINATE");
+    assert.equal(out.executed, 2);
+    assert.equal(out.dropped.length, 1);
   });
 });
 

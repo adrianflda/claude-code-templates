@@ -54,34 +54,66 @@ function validateUi(ui, systemUrl) {
   return null;
 }
 
-// [] when the set is runnable, else one message per problem.
-export function validateVectors(vectors, blind) {
-  if (!Array.isArray(vectors) || vectors.length === 0) return ["vectors must be a non-empty array"];
-  if (vectors.length > MAX_VECTORS) return [`at most ${MAX_VECTORS} vectors`];
+// EARS-V1/V2: batch-level rules apply to the vectors array as a whole; one violated rule rejects
+// the entire run before any vector executes. null when the batch is runnable, else the reason.
+export function validateBatch(vectors, blind) {
+  if (!Array.isArray(vectors) || vectors.length === 0) return "vectors must be a non-empty array";
+  if (vectors.length > MAX_VECTORS) return `at most ${MAX_VECTORS} vectors`;
   try {
     new URL(blind.systemUrl);
   } catch {
-    return [`system URL is not a URL: ${blind.systemUrl}`];
+    return `system URL is not a URL: ${blind.systemUrl}`;
   }
+  return null;
+}
+
+// EARS-V4 step (1)/(2): shape/unknown keys, then exactly one of http/ui.
+function vectorShapeError(v) {
+  if (!isObject(v)) return "must be an object";
+  const extra = Object.keys(v).filter((k) => !VECTOR_KEYS.has(k));
+  if (extra.length) return `has unknown key(s): ${extra.join(", ")}`;
+  return ("http" in v) === ("ui" in v) ? "needs exactly one of http or ui" : null;
+}
+
+// EARS-V4 step (4): an HTTP vector with no expect and no contract probe asserts nothing.
+function vectorAssertsNothingError(v, blind) {
+  return "http" in v && !v.http.expect && !blind.probeCmd
+    ? "asserts nothing: add http.expect (there is no contract probe)"
+    : null;
+}
+
+// EARS-V4 step (5): anchoring.
+function vectorAnchorError(v, blind) {
+  const [unanchored] = unanchoredVectors([v], blind.invariants ?? []);
+  return unanchored ? `vector not anchored to a contract invariant: ${unanchored}` : null;
+}
+
+// EARS-V4: a vector's per-vector rules, evaluated in this fixed order, stopping at (and
+// returning) the first failing reason: (1) shape/unknown keys, (2) exactly one of http/ui, (3)
+// the type-specific HTTP/UI rules (method/command sets, origin checks, the Host rule), (4) an
+// HTTP vector with no expect when there is no contract probe, (5) anchoring. null when runnable.
+export function validateVector(v, blind) {
+  const shapeError = vectorShapeError(v);
+  if (shapeError) return shapeError;
+  // step (3): the type-specific HTTP/UI rules, dispatched once shape guarantees exactly one key.
+  const typeError = "http" in v ? validateHttpSpec(v.http, blind.systemUrl) : validateUi(v.ui, blind.systemUrl);
+  if (typeError) return typeError;
+  const assertsNothingError = vectorAssertsNothingError(v, blind);
+  if (assertsNothingError) return assertsNothingError;
+  return vectorAnchorError(v, blind);
+}
+
+// Flat diagnostic over BOTH kinds of rule (EARS-V1), batch-level and per-vector, for callers that
+// only need to know "is there any problem at all" without caring which kind — runVectors below is
+// the one that routes the two kinds differently (batch-fatal vs. per-vector drop, EARS-V2/V3).
+// [] when the set is runnable, else one message per problem.
+export function validateVectors(vectors, blind) {
+  const batchError = validateBatch(vectors, blind);
+  if (batchError) return [batchError];
   const errors = [];
   for (const [i, v] of vectors.entries()) {
-    const at = `vectors[${i}]`;
-    if (!isObject(v)) {
-      errors.push(`${at} must be an object`);
-      continue;
-    }
-    const extra = Object.keys(v).filter((k) => !VECTOR_KEYS.has(k));
-    if (extra.length) errors.push(`${at} has unknown key(s): ${extra.join(", ")}`);
-    if (("http" in v) === ("ui" in v)) {
-      errors.push(`${at} needs exactly one of http or ui`);
-      continue;
-    }
-    const why = "http" in v ? validateHttpSpec(v.http, blind.systemUrl) : validateUi(v.ui, blind.systemUrl);
-    if (why) errors.push(`${at}: ${why}`);
-    else if ("http" in v && !v.http.expect && !blind.probeCmd) errors.push(`${at} asserts nothing: add http.expect (there is no contract probe)`);
-  }
-  for (const label of unanchoredVectors(vectors.filter(isObject), blind.invariants ?? [])) {
-    errors.push(`vector not anchored to a contract invariant: ${label}`);
+    const why = validateVector(v, blind);
+    if (why) errors.push(`vectors[${i}]: ${why}`);
   }
   return errors;
 }
@@ -105,13 +137,28 @@ async function runOne(v, { blind, config, cwd, uiRunner, httpRunner }) {
 }
 
 export async function runVectors({ vectors, blind, config = null, cwd = process.cwd(), uiRunner = runProbe, httpRunner = runHttpVector }) {
-  const errors = validateVectors(vectors, blind);
-  if (errors.length) return { verdict: "INSTRUMENT-BROKEN", reason: errors.join("; "), executed: 0, vectors: [] };
+  // EARS-V2: a batch-level problem rejects the whole run; no vector executes.
+  const batchError = validateBatch(vectors, blind);
+  if (batchError) return { verdict: "INSTRUMENT-BROKEN", reason: batchError, executed: 0, vectors: [], dropped: [] };
+
+  // EARS-V3/V4: a per-vector problem excludes only that vector; the rest still run. EARS-V5's
+  // exception (D1) needs no extra code — if every vector is excluded, `runnable` is empty,
+  // `results` is empty, and decideVerdict's own zero-length rule (EARS-V9) already yields
+  // INSTRUMENT-BROKEN.
+  const dropped = [];
+  const runnable = [];
+  vectors.forEach((v, index) => {
+    const why = validateVector(v, blind);
+    if (why) dropped.push({ index, reason: why });
+    else runnable.push(v);
+  });
+
   const results = [];
-  for (const v of vectors) results.push(await runOne(v, { blind, config, cwd, uiRunner, httpRunner }));
+  for (const v of runnable) results.push(await runOne(v, { blind, config, cwd, uiRunner, httpRunner }));
   return {
     verdict: decideVerdict(results),
     executed: results.filter((r) => r.result !== "INSTRUMENT-BROKEN").length,
     vectors: results.map((r) => ({ invariant: r.invariant, result: r.result, reason: r.reason, expected: r.expected, actual: r.actual, probe_output: r.probe_output })),
+    dropped,
   };
 }

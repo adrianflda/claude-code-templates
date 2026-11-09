@@ -1,0 +1,137 @@
+✔ P5 boundary — the blind input contains ONLY contract + probe, never the diff/tests/reasoning (1.232416ms)
+✔ CLI — a stub breaker returning BREAKER_FAIL -> exit 1 (115.347875ms)
+✔ CLI — a stub breaker returning BREAKER_PASS -> exit 0, and it received no diff (98.983125ms)
+✔ CLI — a breaker that cannot run -> exit 2 (fail-closed) (49.205167ms)
+✔ CLI (RED) — missing --probe/--url fails closed (exit 2) even with a PASSing breaker (53.0265ms)
+✔ CLI (RED) — a breaker printing BREAKER_PASS but exiting non-zero does not green the gate (101.325542ms)
+✖ EARS-H1 (INV-1) — numbered/parenthetical headings parse: stub observes non-empty qaProcedure/invariants (101.285875ms)
+✔ EARS-H7 (INV-2) — legacy headings/ids still parse end to end through the CLI (96.697292ms)
+✖ EARS-H4 (INV-3/4) — a bold, parenthetical, non-INV- id normalizes, and a piped probe-command cell does not shift "expected" (104.313959ms)
+✖ EARS-H2b (INV-12) — a second, genuinely-matching heading never overrides the first (dup.md) (103.669958ms)
+✖ EARS-H6 (INV-5) — an empty QA-procedure body fails closed, exit 2, breaker never runs (143.314917ms)
+✖ EARS-H6 (INV-6) — an empty invariants table fails closed, exit 2, breaker never runs (122.577417ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 7
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1160.295375
+
+✖ failing tests:
+
+test at scripts/breaker-invoke.test.mjs:87:1
+✖ EARS-H1 (INV-1) — numbered/parenthetical headings parse: stub observes non-empty qaProcedure/invariants (101.285875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'INSTRUMENT-BROKEN'
+  - 'BREAKER_PASS'
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:92:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'INSTRUMENT-BROKEN',
+    expected: 'BREAKER_PASS',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-invoke.test.mjs:109:1
+✖ EARS-H4 (INV-3/4) — a bold, parenthetical, non-INV- id normalizes, and a piped probe-command cell does not shift "expected" (104.313959ms)
+  AssertionError [ERR_ASSERTION]: EO-6 missing from parsed invariants
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:115:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-invoke.test.mjs:121:1
+✖ EARS-H2b (INV-12) — a second, genuinely-matching heading never overrides the first (dup.md) (103.669958ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   {
+  -     expected: '1',
+  -     id: 'INV-A'
+  -   }
+  - ]
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:128:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ { id: 'INV-A', expected: '1' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-invoke.test.mjs:140:1
+✖ EARS-H6 (INV-5) — an empty QA-procedure body fails closed, exit 2, breaker never runs (143.314917ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'BREAKER_INDETERMINATE'
+  - 'INSTRUMENT-BROKEN'
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:151:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'BREAKER_INDETERMINATE',
+    expected: 'INSTRUMENT-BROKEN',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/breaker-invoke.test.mjs:158:1
+✖ EARS-H6 (INV-6) — an empty invariants table fails closed, exit 2, breaker never runs (122.577417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'BREAKER_INDETERMINATE'
+  - 'INSTRUMENT-BROKEN'
+  
+      at TestContext.<anonymous> (file://<repo>/plugins/quality-kernel/scripts/breaker-invoke.test.mjs:169:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'BREAKER_INDETERMINATE',
+    expected: 'INSTRUMENT-BROKEN',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

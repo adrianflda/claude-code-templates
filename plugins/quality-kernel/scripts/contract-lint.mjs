@@ -11,19 +11,21 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { isMain } from './is-main.mjs';
+import { scanSections } from './contract-sections.mjs';
 
-const ID_RE = /INV-[A-Za-z0-9-]+/g;
+// EARS-H8: id tokens referenced by the acceptance suite. Generalized from the literal `INV-` prefix
+// to any uppercase-led id (letters/digits, hyphen, letters/digits/hyphens — EARS-H4's grammar,
+// anchored on a leading capital) so a contract's real ids (`EO-0`, `EO-6`) are found here too, while
+// staying narrow enough not to mistake an ordinary lowercase kebab-case source token (e.g.
+// `manifest-v1`) for a declared id — every id this contract's template produces starts uppercase.
+const ID_RE = /\b[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+\b/g;
 
-// Invariant ids DECLARED in the contract: rows of the `## Invariants` table, `| INV-x | … | … |`.
+// Invariant ids DECLARED in the contract: rows of the Invariants table, using the SAME
+// heading-matching + table-row parsing as breaker-invoke.mjs/gstack-breaker.mjs (contract-sections.mjs,
+// EARS-H1/H2/H2b/H3/H4/H4b/H5) — EARS-H8, so a numbered/parenthetical heading and non-INV- ids
+// (`EO-0`, `**EO-6 (re-run)**`) are no longer silently read as "no invariants declared".
 export function contractIds(md) {
-  const ids = new Set();
-  let inTable = false;
-  for (const line of md.split('\n')) {
-    if (/^##\s+Invariants\b/i.test(line)) { inTable = true; continue; }
-    if (inTable && /^##\s+/.test(line)) break;            // next section ends the table
-    if (inTable) { const m = line.match(/^\s*\|\s*(INV-[A-Za-z0-9-]+)\s*\|/); if (m) ids.add(m[1]); }
-  }
-  return ids;
+  return new Set(scanSections(md).invariants.map((i) => i.id));
 }
 // Strip // line and /* block */ comments while preserving string/template literals, so a URL such as
 // 'http://x' inside a test name is not mistaken for a comment. Regex literals are not tracked; the
@@ -54,8 +56,28 @@ export function stripComments(src) {
 export function acceptanceIds(src) {
   return new Set(stripComments(src).match(ID_RE) || []);
 }
+// The id token before its first hyphen, e.g. "INV-1" -> "INV", "EO-6" -> "EO".
+function idPrefix(id) { return id.slice(0, id.indexOf('-')); }
+
 export function diff(md, src) {
-  const declared = contractIds(md), checked = acceptanceIds(src);
+  const declared = contractIds(md);
+  // ID_RE (above) is deliberately wide — any uppercase-led hyphenated token — so EARS-H4's
+  // non-`INV-`-prefixed ids (EO-0, EO-6, ...) are found in acceptance source too. That same
+  // width also matches ordinary prose/code tokens that are not ids at all (`Content-Type`,
+  // `UTF-8`, `X-Forwarded-For`). Narrow here, against THIS contract's own declared ids: an
+  // acceptance token only counts as a referenced id if its prefix matches the prefix of an id
+  // this contract actually declares — everything else is prose, not a reference, and must not
+  // become a spurious orphanAssertion.
+  const declaredPrefixes = new Set([...declared].map(idPrefix));
+  // Review item B: the declared families alone would hide a cross-family orphan — a contract that
+  // migrated from the legacy `INV-` ids to the specifier's own ids (e.g. `EO-`) can still carry a
+  // stale `INV-1` reference in its acceptance suite; declaredPrefixes = {EO} alone would silently
+  // drop that token before orphanAssertion ever saw it. Accept the declared families UNION the
+  // historical default `INV`, so a stale cross-family id is still flagged as an orphan, while a
+  // plain `INV-` contract (every id already in declaredPrefixes) and ordinary prose outside both
+  // families behave exactly as before.
+  const acceptedPrefixes = new Set([...declaredPrefixes, 'INV']);
+  const checked = new Set([...acceptanceIds(src)].filter((id) => acceptedPrefixes.has(idPrefix(id))));
   const missingAssertion = [...declared].filter((id) => !checked.has(id));  // invariant with no check
   const orphanAssertion = [...checked].filter((id) => !declared.has(id));   // check with no invariant
   return { declared: [...declared], checked: [...checked], missingAssertion, orphanAssertion };
