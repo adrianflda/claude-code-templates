@@ -11,6 +11,7 @@
 // duplicates merge their sources. Stable order (by first source doc, then text) → stable ids.
 
 import { readFileSync } from 'node:fs';
+import { isMain } from './is-main.mjs';
 
 const normKey = (t) => String(t).toLowerCase().replace(/\s+/g, ' ').replace(/[.;:,\s]+$/, '').trim();
 
@@ -30,7 +31,7 @@ export function normalize(candidates) {
   return items.map((e, i) => ({ id: `REQ-${String(i + 1).padStart(3, '0')}`, ...e }));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const inIdx = process.argv.indexOf('--in');
   let raw; try { raw = readFileSync(inIdx >= 0 ? process.argv[inIdx + 1] : 0, 'utf8'); } catch (e) { process.stderr.write(`cannot read input: ${e.message}\n`); process.exit(2); }
   let cands; try { cands = JSON.parse(raw); } catch { process.stderr.write('input must be JSON\n'); process.exit(2); }

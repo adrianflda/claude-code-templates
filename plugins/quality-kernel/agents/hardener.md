@@ -40,13 +40,20 @@ needs.
 3. **Soft Gherkin acceptance mutation** (`gherkin-mutator --level soft`; to be ported
    for TS/Python — defer if not yet available).
 4. **CRAP** tool.
-5. **DRY** tool.
+5. **DRY** tool, gated by `scripts/dry-gate.mjs --files <touched files>`.
+6. **Idempotency** — for every operation the architect flagged as having an external
+   effect, a test that runs it twice (and, where the harness allows, after a simulated
+   crash midway) and asserts the same final state.
 
 ## Survivor triage (mandatory)
 
 For **each** surviving mutant, describe the **observable harm** it would cause in
 production **before** writing a test to kill it. A survivor with no describable harm is
 a signal the mutant is equivalent — do not add a cosmetic test to chase it.
+
+A survivor in code that no caller can reach is **dead code: delete the code**, do not
+test it. Show the evidence it is unreachable (no reference, no route, no export
+consumer) and re-run the suite after deleting.
 
 ## You do NOT
 

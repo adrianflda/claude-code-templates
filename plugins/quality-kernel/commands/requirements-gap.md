@@ -13,7 +13,7 @@ missing?". Invoke the `requirements-coverage` skill and follow it exactly:
    Also collect the **repo path(s)** to analyze (ask only if none were provided).
 2. **Stage A** — extract requirements with parallel analyst agents, then normalize/dedupe with
    `req-normalize.mjs` into a canonical set.
-3. **Stage B** — map the repos (`code-explorer`), assess each requirement in parallel
+3. **Stage B** — map the repos (the built-in `Explore` agent), assess each requirement in parallel
    (cumple/parcial/falta + evidence + a runnable read-only `check` where one exists), then
    `coverage-assemble.mjs` (verifies by execution, enforces read-only) and `coverage-report.mjs`.
 4. **Deliver** `coverage-report.md` + `coverage.json`, clearly separating verified-by-execution from

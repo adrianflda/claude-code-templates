@@ -12,6 +12,26 @@ import sys
 import tempfile
 import unittest
 
+
+def _hermetic_git_env(base):
+    """Ignore the developer's git config, as scripts/hermetic-git.mjs does for the Node suite.
+
+    A global or XDG excludes file listing `.quality-kernel/` makes a fixture repo look gitignored,
+    so the evidence-gate writes a ledger the test expects it to skip. excludesFile and
+    attributesFile are pinned at command scope because, with no global config, git falls back to
+    $XDG_CONFIG_HOME/git/{ignore,attributes}.
+    """
+    env = {**base, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    n = int(env.get("GIT_CONFIG_COUNT", "0") or 0)
+    for key in ("core.excludesFile", "core.attributesFile"):
+        env[f"GIT_CONFIG_KEY_{n}"], env[f"GIT_CONFIG_VALUE_{n}"] = key, os.devnull
+        n += 1
+    env["GIT_CONFIG_COUNT"] = str(n)
+    return env
+
+
+os.environ.update(_hermetic_git_env(os.environ))
+
 HERE = pathlib.Path(__file__).resolve().parent
 GUARD = HERE / "epistemic-guard.py"
 GATE = HERE / "evidence-gate.py"
@@ -297,6 +317,19 @@ class EvidenceGate(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
 
+    def test_developer_git_ignores_do_not_leak_into_the_test(self):
+        # A global/XDG excludes file listing the ledger (a common personal setup) must not make a
+        # non-gitignored fixture repo look ignored: the suite pins git's config (hermetic env).
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as xdg:
+            pathlib.Path(xdg, "git").mkdir()
+            pathlib.Path(xdg, "git", "ignore").write_text("**/.quality-kernel/*.jsonl\n")
+            self._git_repo(d, ignore=False)
+            payload = {"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                       "tool_input": {"command": "pytest -q"}, "error": "Exit code 1", "cwd": d}
+            code, _ = run(GATE, payload, env={"XDG_CONFIG_HOME": xdg}, cwd=d)
+            self.assertEqual(code, 0)
+            self.assertFalse((pathlib.Path(d) / ".quality-kernel").exists())
+
     def test_skip_reason_is_model_visible_via_additional_context(self):
         with tempfile.TemporaryDirectory() as d:
             self._git_repo(d, ignore=False)
@@ -359,6 +392,91 @@ class EvidenceGate(unittest.TestCase):
                                   capture_output=True, cwd=d)
             self.assertEqual(proc.returncode, 0)
             self.assertEqual(self._ledger(d), [])
+
+    def test_python_unittest_runner_is_recorded(self):
+        # `python3 -m unittest` is how stdlib-only Python repos run their suites; it was not a
+        # verify runner, so those runs never reached the ledger and proof.mjs had nothing to cite.
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Exit code 1", command="python3 -m unittest discover -s tests -t . -q")
+            self.assertEqual(len(self._ledger(d)), 1)
+
+    def test_tofu_and_terraform_test_are_recorded(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._fail(d, "Exit code 1", command="tofu test")
+            self._fail(d, "Exit code 1", command="terraform test -verbose")
+            self.assertEqual(len(self._ledger(d)), 2)
+
+    def test_leading_cd_writes_the_ledger_in_that_repo_not_the_session_cwd(self):
+        # The session cwd is often an org folder above the repo; `cd <repo> && <test>` must land
+        # in <repo>/.quality-kernel, where `proof.mjs --repo <repo>` reads it.
+        with tempfile.TemporaryDirectory() as session, tempfile.TemporaryDirectory() as repo:
+            self._git_repo(repo, ignore=True)
+            self._fail(session, "Exit code 1", command=f"cd {repo} && python3 -m unittest -q")
+            self.assertEqual(self._ledger(session), [])
+            self.assertEqual(len(self._ledger(repo)), 1)
+
+    def test_leading_cd_into_a_subdirectory_writes_at_the_repo_top(self):
+        with tempfile.TemporaryDirectory() as session, tempfile.TemporaryDirectory() as repo:
+            self._git_repo(repo, ignore=True)
+            sub = pathlib.Path(repo, "tools", "drill")
+            sub.mkdir(parents=True)
+            self._fail(session, "Exit code 1", command=f"cd '{sub}' && python3 -m unittest -q")
+            self.assertEqual(len(self._ledger(repo)), 1)
+            self.assertEqual(self._ledger(sub), [])
+
+    def test_session_cwd_in_a_subdirectory_writes_at_the_repo_top(self):
+        with tempfile.TemporaryDirectory() as repo:
+            self._git_repo(repo, ignore=True)
+            sub = pathlib.Path(repo, "pkg")
+            sub.mkdir()
+            self._fail(str(sub), "Exit code 1")
+            self.assertEqual(len(self._ledger(repo)), 1)
+            self.assertEqual(self._ledger(sub), [])
+
+    def test_relative_and_home_cd_targets_are_resolved(self):
+        with tempfile.TemporaryDirectory() as session, tempfile.TemporaryDirectory() as home, \
+                tempfile.TemporaryDirectory() as elsewhere:
+            repo = pathlib.Path(session, "app")
+            repo.mkdir()
+            self._git_repo(str(repo), ignore=True)
+            # The hook process may run anywhere: a relative cd is resolved against the SESSION cwd.
+            pathlib.Path(elsewhere, "app").mkdir()
+            payload = {"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                       "tool_input": {"command": "cd app && pytest -q"}, "error": "Exit code 1",
+                       "cwd": session}
+            run(GATE, payload, cwd=elsewhere)
+            self.assertEqual(len(self._ledger(repo)), 1)
+            self.assertEqual(self._ledger(pathlib.Path(elsewhere, "app")), [])
+            other = pathlib.Path(home, "other")
+            other.mkdir()
+            self._git_repo(str(other), ignore=True)
+            payload = {"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                       "tool_input": {"command": "cd ~/other && pytest -q"}, "error": "Exit code 1",
+                       "cwd": session}
+            run(GATE, payload, env={"HOME": home}, cwd=session)
+            self.assertEqual(len(self._ledger(other)), 1)
+
+    def test_cd_to_a_missing_directory_falls_back_to_the_session_cwd(self):
+        with tempfile.TemporaryDirectory() as session:
+            self._fail(session, "Exit code 1", command="cd /nonexistent/qk-dir && pytest -q")
+            self.assertEqual(len(self._ledger(session)), 1)
+
+    def test_only_a_leading_cd_moves_the_ledger(self):
+        # A cd later in the command runs after the test (or in a subshell): it says nothing about
+        # where the test ran.
+        with tempfile.TemporaryDirectory() as session, tempfile.TemporaryDirectory() as repo:
+            self._git_repo(repo, ignore=True)
+            self._fail(session, "Exit code 1", command=f"pytest -q && cd {repo}")
+            self.assertEqual(len(self._ledger(session)), 1)
+            self.assertEqual(self._ledger(repo), [])
+
+    def test_cd_target_that_is_not_gitignored_is_not_written(self):
+        with tempfile.TemporaryDirectory() as session, tempfile.TemporaryDirectory() as repo:
+            self._git_repo(repo, ignore=False)
+            self._fail(session, "Exit code 1", command=f"cd {repo} && pytest -q")
+            self.assertFalse((pathlib.Path(repo) / ".quality-kernel").exists())
+            self.assertEqual(self._ledger(session), [])
+            self.assertIn("not gitignored", json.loads(run.last_stdout)["hookSpecificOutput"]["additionalContext"])
 
     def test_hooks_json_registers_post_tool_use_failure_for_bash(self):
         cfg = json.loads((HERE / "hooks.json").read_text())["hooks"]

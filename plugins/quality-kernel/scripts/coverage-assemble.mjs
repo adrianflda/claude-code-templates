@@ -14,6 +14,7 @@ import { readFileSync, readdirSync, readlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { isMain } from './is-main.mjs';
 
 const VERDICTS = new Set(['cumple', 'parcial', 'falta']);
 
@@ -68,7 +69,7 @@ export function assemble(requirements, results, { run = defaultRun } = {}) {
   return { summary, problems, coverage };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const opt = (n) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : null; };
   const reqs = JSON.parse(readFileSync(opt('--requirements'), 'utf8'));
   const results = JSON.parse(readFileSync(opt('--results'), 'utf8'));

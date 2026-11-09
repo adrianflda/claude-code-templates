@@ -20,7 +20,7 @@ only? seed data? which flows must demonstrably work end-to-end?). Keep it to wha
 the build. If the description already answers a question, don't ask it.
 
 ## Phase 1 — Research → Plan → Contract (no building yet)
-1. **Research** the shape of the solution (reuse `code-architect` / `code-explorer` for patterns;
+1. **Research** the shape of the solution (the built-in `Explore` / `Plan` agents for patterns;
    for a greenfield app, decide the module/subproject split: e.g. web (Next.js frontend), api (route
    handlers/server), db (schema/migrations), auth).
 2. **Plan** via the SDD chain (`/sdd-init`, `/sdd-specify`, `/sdd-plan`, `/sdd-tasks`) — spec, stack,
@@ -29,18 +29,44 @@ the build. If the description already answers a question, don't ask it.
    Gherkin for the must-have flows, an **invariants table with EXACT expected values**, and an
    end-to-end QA procedure. Scaffold `.quality-kernel/tools.json` (`verify`, `productionGlobs`,
    `acceptance`, `testGlobs`), `.quality-kernel/critical-surface.json`, and add
-   `.quality-kernel/*.jsonl` to `.gitignore`.
+   `.quality-kernel/*.jsonl` to `.gitignore`. Inside an org folder with an org guide, put the gate
+   config in `<org>/.quality-kernel/repos/<repo>/` instead (never inside the product repo) and list
+   the repos the system touches from the guide and `SYSTEM-MAP.md`.
+4. **Design options** — run the `designer` agent at system level with the description, the
+   Phase 0 answers and the plan; it writes `system.design.md` in the contracts folder: the plan
+   and contracts checked against what was asked, and 2–3 options for the architecture, stack and
+   subproject split (always including the simplest one that meets the description) with a
+   recommendation. Then list every feature whose "how" that does not decide, and run the
+   designer for each of them too, on its contract (`<id>.design.md` beside it). In the plan,
+   write next to each feature the design file that decides it. All of this happens now, so the
+   one approval below settles every design. If many features need their own file, group
+   features that share one decision into one file rather than one file each.
 
 ## Phase 2 — APPROVAL GATE (stop here)
-Present, concisely: the scope + non-goals, the stack, the subproject split, the Contract's must-have
-invariants (what "working" will mean), and a rough cost/effort expectation. Then **STOP and ask the
+Present, concisely: the scope + non-goals, the designer's fit findings and options with its
+recommendation, the stack, the subproject split, the Contract's must-have invariants (what "working"
+will mean), and a rough cost/effort expectation. Show the per-feature design files with the
+system one, all together. The human picks an option for each in this same gate; write each pick
+under `## Chosen option` in its file. Before building, check that every feature's design file
+exists and has a filled `## Chosen option`; a missing or empty one is not approved: go back to
+the human, do not start. Then **STOP and ask the
 human to approve, adjust, or reject** (use `ExitPlanMode` or a direct approve/adjust question). **Do
 NOT write any implementation code before approval.** This is the one required checkpoint.
 
 ## Phase 3 — Build autonomously (after approval)
 - Scaffold the project (e.g. `create-next-app`, Prisma/DB, auth) and commit a baseline.
-- Decompose and build: for multi-subproject work use `/orchestrate-project` (one PM per subproject,
-  each running SDD → TDD build → review loop), else drive `/forge` per feature. Tests are authored
+- Decompose and build: for multi-subproject work use `/orchestrate-project` (installed from the
+  `orchestration` commands, so it may be namespaced as `/orchestration:orchestrate-project`; one PM per subproject,
+  each running SDD → TDD build → review loop), else drive `/forge` per feature. Every
+  feature is `design: settled` after approval: call forge with `--design-settled <its design
+  file>` (the feature's own, or `system.design.md` when the system design decides it), so forge
+  runs no designer and does not stop for a design choice. Forge stops only if a new design decision
+  appears during the build that the approved plan could not have foreseen; this should be rare.
+  When it happens, that feature pauses and the others carry on (a subproject PM reports the stop
+  in its structured report; it does not wait silently). Tell the human which decision, why the
+  plan did not settle it, and the options. Add the pick to that feature's design file under
+  `## Chosen option`, with the date and the reason, then call forge again with
+  `--design-settled` on that file. Tests are authored
   **anchored to the Contract** (exact values), following the qa-paradigms decision rule (P2 static +
   P4 contract-anchored + P5 independent validation); a broken selector/test must FAIL, never auto-heal.
 - Bounded loops: cap retries per task; on cap, escalate (stop + report), never loop forever.
@@ -48,8 +74,10 @@ NOT write any implementation code before approval.** This is the one required ch
 ## Phase 4 — Verify with the gate (the arbiter of "tested")
 - For every change, run the gate: `node "${CLAUDE_PLUGIN_ROOT}/scripts/qk-gate.mjs" --repo <dir>
   --base <sha> --head <sha>` (or `/gate`). Green = referee re-executed clean. A test change routes to
-  human review (exit 3) — surface it. On the critical surface, run the blind breaker
-  (`scripts/breaker-gate.mjs` → the host `pipeline-breaker`) before calling it done.
+  human review (exit 3) — surface it. Across several repos of an org folder, gate the feature as a
+  whole: `node "${CLAUDE_PLUGIN_ROOT}/scripts/qk-org-gate.mjs" --org <org> --branch <branch>`. On the
+  critical surface, run the blind breaker (`scripts/breaker-gate.mjs` with
+  `--breaker "node <plugin>/scripts/breaker-claude.mjs"`, the isolated launcher) before calling it done.
 - Run the acceptance suite (the Contract) via the referee's `acceptance`.
 - **Prove it runs**: build the app and start it locally; exercise the must-have flows from the
   Contract's QA procedure (a smoke run), and confirm they work. Record cost with

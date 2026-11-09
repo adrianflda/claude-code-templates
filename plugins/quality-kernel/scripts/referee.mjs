@@ -25,15 +25,33 @@
 // fingerprinting, and a baseline with genuinely no tests. Only a black-box probe in a
 // prod-indistinguishable environment closes these. Symlinks in a committed tree => indeterminate.
 //
-// Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>]
+// PROCESS TREE (spec: docs/specs/gate-process-tree/contract.md): every command runs in its own process
+// group with a per-command timeout (tools.json "timeoutSeconds", default 300, read from base). On
+// timeout the whole group gets SIGTERM, then SIGKILL after 5 s; after every command the group and every
+// process carrying the run marker (QK_RUN_ID) are killed. Pre-flight order: validation, memory guard,
+// repository lock. On any exit path the referee controls (verdict, signal, uncaught exception, parent
+// death) it kills every live tree and releases the lock (process-safety/gate-session.mjs). Env:
+// QK_LOCK_DIR (lock directory, default the OS temp dir), QK_MEM_GUARD=on|off, QK_MEM_MAX_PRESSURE_LEVEL,
+// QK_MEM_MIN_LEVEL_PCT (see process-safety/mem-guard.mjs).
+//
+// Usage:  referee.mjs --repo <dir> --base <ref> [--head <ref>] [--org <dir>] [--org-pin <hash>]
+//         [--no-ledger] [--canary]
+//         (with an explicit --org, the org's contract for this repo wins; see org.mjs;
+//         --canary: after a green run, re-run on head with every test file raising — it must go RED;
+//         this shows the command exits non-zero when test files are broken — NOT that it executes
+//         them (a linter that parses them passes too) nor which tests run)
 // Exit:   0 = PASS · 1 = real FAIL · 2 = indeterminate (fail-closed)
+//         (killed by SIGINT/SIGTERM/SIGHUP: 130/143/129; parent died: 129)
 
-import { spawnSync } from 'node:child_process';
-import { existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync } from 'node:fs';
+import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, readdirSync, readlinkSync, rmSync, appendFileSync, lstatSync, symlinkSync, openSync, closeSync, readSync, chmodSync, rmdirSync } from 'node:fs';
 import { join, dirname, isAbsolute, normalize } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, devNull } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
-import { globToRegExp, TEST_GLOBS, isLedger } from './route.mjs';
+import { globToRegExp, TEST_GLOBS, TEST_NAME_GLOBS, TEST_ROOT_GLOBS, isLedger } from './route.mjs';
+import { git, readVerifiedBlob } from './safe-git.mjs';
+import { findOrg, showOrgFile, orgSource, repoSource } from './org.mjs';
+import { canaryMatcher, sabotage } from './canary.mjs';
+import { resolveTimeoutSeconds, unsupportedPlatformReason, commandFailure, openSession } from './process-safety/gate-session.mjs';
 
 // CONVERGENCE FIX (panel v2.6 root cause): there is NO silent "inert" / "harness-by-name" allow-list
 // of changes the gate skips — that path-name allow-list always leaked a real runtime input (a prompt
@@ -59,7 +77,7 @@ const HARNESS_DENYLIST = [
   '**/.quality-kernel/**', '**/Makefile*', '**/.npmrc', '**/.gitattributes',
   '**/jest.config.*', '**/vitest.config.*', '**/vite.config.*', '**/playwright.config.*', '**/cypress.config.*',
   '**/webpack.config.*', '**/rollup.config.*', '**/tsup.config.*', '**/esbuild.config.*',
-  '**/tsconfig*.json', '**/.eslintrc*', '**/.prettierrc*', '**/.babelrc*', '**/babel.config.*', '**/.mocharc.*',
+  '**/tsconfig*.json', '**/.eslintrc*', '**/eslint.config.*', '**/.prettierrc*', '**/.babelrc*', '**/babel.config.*', '**/.mocharc.*',
   '**/conftest.py', '**/pytest.ini', '**/tox.ini',
   // oracle/test-support components (panel T1/T2/T3): assertion helpers, mocks, stubs, fixtures.
   '**/__mocks__/**', '**/mocks/**', '**/stubs/**', '**/fixtures/**', '**/testing/**',
@@ -86,6 +104,7 @@ const DEFAULT_LINK_PATHS = []; // opt-in: linking worktree dirs is a trust assum
 
 function emit(v) { process.stdout.write(JSON.stringify(v) + '\n'); }
 function ledgerAppend(repoDir, record) {
+  if (noLedger) return; // e.g. a config check that must not write into product repos
   try {
     const dir = join(repoDir, '.quality-kernel');
     mkdirSync(dir, { recursive: true });
@@ -95,61 +114,150 @@ function ledgerAppend(repoDir, record) {
 }
 function indeterminate(reason) { emit({ pass: false, indeterminate: true, evidence: null, reason }); process.exit(2); }
 
+// --- process-tree lifecycle (PT-A9..A14): installed before anything can be spawned ---
+const platformRefusal = unsupportedPlatformReason(process.platform);
+if (platformRefusal) indeterminate(platformRefusal);
+const session = openSession({
+  onFatal: (e) => emit({ pass: false, indeterminate: true, evidence: null, reason: `referee crashed: ${e && e.message ? e.message : e}` }),
+});
+
 // --- args ---
 const args = process.argv.slice(2);
-let repo = null, base = null, head = 'HEAD';
+let repo = null, base = null, head = 'HEAD', orgDir, orgPinArg, noLedger = false, canaryMode = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--repo') repo = args[++i];
   else if (args[i] === '--base') base = args[++i];
   else if (args[i] === '--head') head = args[++i];
+  else if (args[i] === '--org') orgDir = args[++i] ?? ''; // present without a value = empty -> fails closed
+  else if (args[i] === '--org-pin') orgPinArg = args[++i];
+  else if (args[i] === '--no-ledger') noLedger = true; // audit-only: never affects the verdict
+  else if (args[i] === '--canary') canaryMode = true; // a green run must also be seen RED (canary.mjs)
 }
 if (!repo) indeterminate('missing --repo <dir>');
 if (!existsSync(repo) || !statSync(repo).isDirectory()) indeterminate(`repo not found or not a directory: ${repo}`);
+{ // filteredPath() uses `git check-attr --source`, added in git 2.40
+  const found = (git(repo, ['--version']).stdout || '').trim();
+  const [maj, min] = (found.match(/(\d+)\.(\d+)/) || []).slice(1).map(Number);
+  if (!(maj > 2 || (maj === 2 && min >= 40))) indeterminate(`git >= 2.40 is required (found: ${found || 'no git'})`);
+}
 if (!base) indeterminate('missing --base <ref> (the committed baseline to verify head against)');
-if (spawnSync('git', ['-C', repo, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8' }).status !== 0) {
+if (git(repo, ['rev-parse', '--is-inside-work-tree']).status !== 0) {
   indeterminate(`not a git work tree: ${repo}`);
 }
 for (const ref of [base, head]) {
-  if (spawnSync('git', ['-C', repo, 'rev-parse', '--verify', `${ref}^{commit}`], { encoding: 'utf8' }).status !== 0) {
+  if (git(repo, ['rev-parse', '--verify', `${ref}^{commit}`]).status !== 0) {
     indeterminate(`unverifiable ref "${ref}" (need a committed base..head; worktree is never trusted)`);
   }
 }
-const show = (ref, path, enc = 'utf8') => spawnSync('git', ['-C', repo, 'show', `${ref}:${path}`], { encoding: enc });
+const show = (ref, path, enc = 'utf8') => git(repo, ['show', `${ref}:${path}`], { encoding: enc });
 
 // --- contract from the BASE ref (immutable to the change) ---
-function loadToolsAtBase() {
-  const raw = show(base, '.quality-kernel/tools.json');
-  if (raw.status !== 0) indeterminate(`no .quality-kernel/tools.json at base ${base} (the verify contract must be committed in the baseline)`);
-  let j; try { j = JSON.parse(raw.stdout); } catch (e) { indeterminate(`unreadable tools.json at base ${base}: ${e.message}`); }
+const tooBroad = (g) => typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim());
+const arrayOr = (v, fallback) => (Array.isArray(v) ? v : fallback);
+const nonEmptyArrayOr = (v, fallback) => (Array.isArray(v) && v.length ? v : fallback);
+const trimmedStringOrNull = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+function checkGlobs(globs, describe) {
+  for (const g of globs) if (tooBroad(g)) indeterminate(describe(g));
+}
+// A contract missing at base is often one the user's own ignore rules kept out of `git add`
+// (a global excludesfile listing .quality-kernel/ is common, since the ledger lives there).
+// Only the rule's location is reported, never its pattern text: an ignore file is worktree state the
+// change controls, and the reason may be read by an agent. --no-index keeps the probe off the index
+// (and, with the safe-git pins, off any fsmonitor command).
+function ignoreHint(path) {
+  if (!existsSync(join(repo, path))) return '';
+  const r = git(repo, ['check-ignore', '--no-index', '-v', '-z', '--stdin'], { input: `${path}\0`, encoding: 'utf8' });
+  if (r.status !== 0) return '';
+  const [source, line, pattern] = r.stdout.split('\0');
+  if (!pattern || pattern.startsWith('!')) return ''; // a negation rule means the file is NOT ignored
+  const where = `${source}:${line}`.replace(/[\x00-\x1f\x7f]/g, '?');
+  return ` — it exists in the worktree but an ignore rule excludes it (${where}); commit it with \`git add -f ${path}\``;
+}
+// Where the contract comes from. Without --org: the repo's base ref, as always. With an explicit
+// --org (see org.mjs for the trust model): the org's file (<org>/.quality-kernel/repos/<name>/) WINS;
+// the repo's own base file is used only when the org has none, and an org that cannot serve this
+// repo — or whose config no longer matches --org-pin — is indeterminate, never a silent fallback.
+let toolsSource = repoSource(base);
+function readToolsJson() {
+  let text = null;
+  const ws = findOrg(repo, { org: orgDir, pin: orgPinArg });
+  if (ws && ws.error) indeterminate(`org mode: ${ws.error}`);
+  // The repo's own file is a hash-verified blob read; the org's is a plain file (no symlinks).
+  if (ws) {
+    try { text = showOrgFile(ws, 'tools.json'); } catch (e) { indeterminate(e.message); }
+    if (text !== null) toolsSource = orgSource(ws);
+  }
+  if (text === null) {
+    const own = readVerifiedBlob(repo, base, '.quality-kernel/tools.json');
+    if (own.error) indeterminate(`contract integrity: ${own.error}`);
+    if (!own.absent) text = own.text;
+  }
+  if (text === null) {
+    const inWs = ws ? `no tools.json in the org config (${ws.dir}/.quality-kernel/repos/${ws.name}/) nor ` : 'no ';
+    indeterminate(`${inWs}.quality-kernel/tools.json at base ${base} (the verify contract must be committed in the baseline)${ignoreHint('.quality-kernel/tools.json')}`);
+  }
+  let j; try { j = JSON.parse(text); } catch (e) { indeterminate(`unreadable tools.json (${toolsSource.source}${toolsSource.pin ? ` ${toolsSource.pin.slice(0, 12)}` : ''}) at base ${base}: ${e.message}`); }
+  return j;
+}
+function validateRequired(j) {
   if (!j || typeof j.verify !== 'string' || !j.verify.trim()) indeterminate('tools.json "verify" must be a non-empty string at base');
   if (!Array.isArray(j.productionGlobs) || j.productionGlobs.length === 0) indeterminate('tools.json "productionGlobs" must be a non-empty array at base');
-  for (const g of j.productionGlobs) {
-    if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`productionGlobs entry "${g}" is too broad — use narrow source globs like "src/**"`);
-  }
-  for (const g of (Array.isArray(j.outputGlobs) ? j.outputGlobs : [])) {
-    if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`outputGlobs entry "${g}" is too broad — it would disable the created-file check; name specific build/coverage dirs like "dist/**"`);
-  }
-  for (const g of (Array.isArray(j.testGlobs) ? j.testGlobs : [])) {
-    if (typeof g !== 'string' || DEGENERATE_GLOBS.has(g.trim())) indeterminate(`testGlobs entry "${g}" is too broad`);
-  }
+}
+function validateGlobs(j) {
+  checkGlobs(j.productionGlobs, (g) => `productionGlobs entry "${g}" is too broad — use narrow source globs like "src/**"`);
+  checkGlobs(arrayOr(j.outputGlobs, []), (g) => `outputGlobs entry "${g}" is too broad — it would disable the created-file check; name specific build/coverage dirs like "dist/**"`);
+  checkGlobs(arrayOr(j.testGlobs, []), (g) => `testGlobs entry "${g}" is too broad`);
+  validateExclude(j.productionExclude);
+}
+// productionExclude (optional): carves colocated tests/fixtures out of productionGlobs, include + exclude
+// with exclude winning (tsconfig `exclude`, Vitest `exclude`, Stryker `!` in `mutate`). Read at base like
+// the rest of tools.json. A malformed value is indeterminate, never ignored: a silently dropped exclude
+// would turn every colocated test back into an ambiguity, and a silently widened one would hide code.
+function validateExclude(v) {
+  if (v === undefined) return;
+  const ok = Array.isArray(v) && v.every((g) => typeof g === 'string' && g.trim() !== '');
+  if (!ok) indeterminate('tools.json "productionExclude" must be an array of non-empty glob strings at base');
+  checkGlobs(v, (g) => `productionExclude entry "${g}" is too broad — it would exclude all production code; name the colocated test/fixture patterns, e.g. "**/*.test.ts"`);
+}
+function loadToolsAtBase() {
+  const j = readToolsJson();
+  validateRequired(j);
+  validateGlobs(j);
+  const timeout = resolveTimeoutSeconds(j); // PT-B3: invalid is indeterminate, never clamped or defaulted
+  if (timeout.error) indeterminate(timeout.error);
   return {
+    timeoutSeconds: timeout.seconds,
     verify: j.verify.trim(),
     productionGlobs: j.productionGlobs,
-    testGlobs: Array.isArray(j.testGlobs) && j.testGlobs.length ? j.testGlobs : DEFAULT_TEST_GLOBS,
-    acceptance: typeof j.acceptance === 'string' && j.acceptance.trim() ? j.acceptance.trim() : null,
-    verifySetup: typeof j.verifySetup === 'string' && j.verifySetup.trim() ? j.verifySetup.trim() : null,
-    linkPaths: Array.isArray(j.linkPaths) ? j.linkPaths : DEFAULT_LINK_PATHS,
-    outputGlobs: Array.isArray(j.outputGlobs) ? j.outputGlobs : [],
+    productionExclude: arrayOr(j.productionExclude, []),
+    testGlobs: nonEmptyArrayOr(j.testGlobs, DEFAULT_TEST_GLOBS),
+    acceptance: trimmedStringOrNull(j.acceptance),
+    verifySetup: trimmedStringOrNull(j.verifySetup),
+    linkPaths: arrayOr(j.linkPaths, DEFAULT_LINK_PATHS),
+    outputGlobs: arrayOr(j.outputGlobs, []),
   };
 }
 const tools = loadToolsAtBase();
 const match = (globs) => { const res = globs.map(globToRegExp); return (p) => res.some((re) => re.test(p)); };
-const rawProd = match(tools.productionGlobs);
+const inProductionGlobs = match(tools.productionGlobs);
+const isProductionExcluded = match(tools.productionExclude);
+// Production = included AND not excluded. An excluded path is NOT production; it still needs its own
+// disposition below (declared test, manifest, or indeterminate) — excluding never means skipping.
+const rawProd = (p) => inProductionGlobs(p) && !isProductionExcluded(p);
 const isDeclaredTest = match(tools.testGlobs);   // NARROW: which change is allowed unverified (S1)
 const isManifest = match(MANIFEST_GLOBS);
 const isOutput = match(tools.outputGlobs);
 // BROAD: what must never be overlaid from head (S2/S3). Wider than the declared test roots on purpose.
-const isNeverOverlay = match([...TEST_GLOBS, ...HARNESS_DENYLIST, ...MANIFEST_GLOBS]);
+// Markdown documents (a contract named spec.md) are never test-like by NAME: the name globs
+// ('**/*.spec.*', '**/*Spec.*', ...) exist to catch executable oracles. Only Markdown is exempt:
+// .txt/.rst/.adoc are commonly consumed as test input/expected data, so they stay never-overlay.
+// A Markdown file is still never-overlay under a test ROOT or a harness path (fixtures, snapshots),
+// and manifests (requirements*.txt) are unaffected.
+const DOC_RE = /\.(?:md|mdx|markdown)$/i;
+const isTestRoot = match(TEST_ROOT_GLOBS);
+const isTestByName = match(TEST_NAME_GLOBS);
+const isHarnessOrManifest = match([...HARNESS_DENYLIST, ...MANIFEST_GLOBS]);
+const isNeverOverlay = (p) => isTestRoot(p) || (!DOC_RE.test(p) && isTestByName(p)) || isHarnessOrManifest(p);
 // A file is overlaid from head iff it is production AND not in the broad never-overlay set.
 const isProd = (p) => rawProd(p) && !isNeverOverlay(p);
 
@@ -165,11 +273,8 @@ if (tools.acceptance) {
   }
 }
 
-const childEnv = { ...process.env };
-delete childEnv.NODE_TEST_CONTEXT;
-
 function diffPaths() {
-  const d = spawnSync('git', ['-C', repo, 'diff', '-z', '--name-status', '-M', `${base}..${head}`], { encoding: 'utf8' });
+  const d = git(repo, ['diff', '-z', '--name-status', '-M', `${base}..${head}`]);
   if (d.status !== 0) indeterminate(`git diff base..head failed: ${(d.stderr || '').trim()}`);
   const parts = d.stdout.split('\0'); const changed = [], deleted = []; let i = 0;
   while (i < parts.length) {
@@ -222,25 +327,50 @@ for (const p of diff.deleted) dispose(p, true);
 // Content checks over overlaid production files: an oracle component named like production (T-class),
 // or production reading from a test root (S4). Both make the run unverifiable -> indeterminate.
 for (const p of diff.changed) {
-  if (!isProd(p)) continue;
+  if (!isProd(p) || DOC_RE.test(p)) continue; // Markdown is prose: it may cite test paths / show framework imports
   const b = show(base, p); if (b.status === 0 && ORACLE_IMPORT_RE.test(b.stdout)) indeterminate(`"${p}" is under productionGlobs but its base content imports a test/assertion framework — it is an oracle component, not code under test; move it out of productionGlobs or declare it in testGlobs`);
   const h = show(head, p); if (h.status === 0 && TEST_ROOT_REF_RE.test(h.stdout)) indeterminate(`"${p}" (production) references a declared-test root (tests/ or __tests__/) — production must not read from the test harness; move the file it needs out of the test root`);
 }
 
 // --- committed-tree listing + symlink rejection ---
 function lsTree(ref) {
-  const r = spawnSync('git', ['-C', repo, 'ls-tree', '-r', '-z', ref], { encoding: 'utf8' });
+  const r = git(repo, ['ls-tree', '-r', '-z', ref]);
   if (r.status !== 0) return null;
   const out = [];
-  for (const chunk of r.stdout.split('\0')) { if (!chunk) continue; const t = chunk.indexOf('\t'); if (t < 0) continue; out.push({ mode: chunk.slice(0, t).split(' ')[0], path: chunk.slice(t + 1) }); }
+  for (const chunk of r.stdout.split('\0')) {
+    if (!chunk) continue;
+    const t = chunk.indexOf('\t'); if (t < 0) continue;
+    const [mode, type, oid] = chunk.slice(0, t).split(' ');
+    out.push({ mode, type, oid, path: chunk.slice(t + 1) });
+  }
   return out;
 }
 const baseEntries = lsTree(base), headEntries = lsTree(head);
 if (!baseEntries || !headEntries) indeterminate('could not list base/head tree');
+// A crafted tree (git hash-object --literally) can hold entries named '..', '.' or '', or names
+// containing '/', which git itself refuses to check out. Materialized, they alias other paths in the
+// temp tree — overwriting a base harness file with head content forged a PASS. Refuse them, along
+// with .git components (the harness snapshot skips .git dirs) and duplicate paths.
+function unsafePath(p) {
+  for (const c of p.split('/')) {
+    if (c === '' || c === '.' || c === '..' || c.includes('\\')) return true;
+    const n = c.toLowerCase().replace(/[. ]+$/, '');
+    if (n === '.git' || /^git~\d+$/.test(n)) return true;
+  }
+  return false;
+}
+for (const [ref, entries] of [[base, baseEntries], [head, headEntries]]) {
+  const seen = new Set();
+  for (const e of entries) {
+    if (unsafePath(e.path)) indeterminate(`unsafe path in the committed tree of ${ref}: ${JSON.stringify(e.path)}`);
+    if (seen.has(e.path)) indeterminate(`duplicate path in the committed tree of ${ref}: ${JSON.stringify(e.path)}`);
+    seen.add(e.path);
+  }
+}
 const sym = [...baseEntries, ...headEntries].find((e) => e.mode === '120000');
 if (sym) indeterminate(`symlink in a committed tree is not allowed under the gate: ${sym.path}`);
 // W6: on a case-insensitive / normalization-insensitive filesystem, two distinct committed paths
-// collapse to one inode when archived (last-writer-wins), so the tree the gate runs is not the tree
+// collapse to one inode when materialized (last-writer-wins), so the tree the gate runs is not the tree
 // git records and the verdict is platform-dependent. Refuse rather than verify a lie.
 {
   const seen = new Map();
@@ -251,24 +381,83 @@ if (sym) indeterminate(`symlink in a committed tree is not allowed under the gat
     seen.set(key, e.path);
   }
 }
+// Trees are materialized from raw blobs (below), so checkout-time conversions are never applied: a
+// path with a filter attribute (e.g. Git LFS) would be verified as its placeholder. Refuse rather
+// than verify content the project never runs. check-attr also reads $GIT_DIR/info/attributes (it
+// cannot be switched off), so a filter set there refuses too — fail-closed.
+function filteredPath(ref, entries) {
+  const paths = entries.filter((e) => e.type === 'blob').map((e) => e.path);
+  if (paths.length === 0) return null;
+  const r = git(repo, ['-c', `core.attributesFile=${devNull}`, 'check-attr', '--source', ref, '-z', '--stdin', 'filter'],
+    { input: paths.join('\0') + '\0' });
+  if (r.status !== 0) indeterminate(`cannot read the attributes of ${ref}: ${(r.stderr || '').trim()}`);
+  const f = r.stdout.split('\0');
+  for (let i = 0; i + 2 < f.length; i += 3) if (f[i + 2] !== 'unspecified' && f[i + 2] !== 'unset') return f[i];
+  return null;
+}
+for (const [ref, entries] of [[base, baseEntries], [head, headEntries]]) {
+  const p = filteredPath(ref, entries);
+  if (p) indeterminate(`"${p}" has a filter attribute for ${ref} (committed .gitattributes, or $GIT_DIR/info/attributes; e.g. Git LFS): the gate verifies committed bytes and would run the filter's placeholder, not the file the project uses`);
+}
 
 // --- tree building ---
-function tmpDir() { return mkdtempSync(join(tmpdir(), randomBytes(6).toString('hex'))); }
 function safeJoin(root, p) { const d = normalize(join(root, p)); return (d === root || d.startsWith(root + '/')) ? d : null; }
-// No shell. The previous `bash -c` form interpolated repo/ref/into with JSON.stringify, which only
-// adds double quotes — command substitution ($(…), backticks) still executes inside them, so a ref or
-// directory containing $(…) ran arbitrary code during the gate. Both legs are argv-only spawns, with
-// the archive staged through a temp file so a large repo is not buffered in memory.
-function archive(ref, into) {
-  const tar = join(tmpdir(), `qk-${randomBytes(8).toString('hex')}.tar`);
+function readFully(fd, buf, pos) {
+  let off = 0;
+  while (off < buf.length) { const n = readSync(fd, buf, off, buf.length - off, pos + off); if (n === 0) break; off += n; }
+  return off;
+}
+// Write a committed tree from raw blobs (`git cat-file --batch`, no shell, no conversion). `git archive`
+// applied checkout conversions driven by uncommitted state — $GIT_DIR/info/attributes, filter drivers
+// in local/global config, core.autocrlf — which could flip the verdict either way (a smudge filter
+// neutering the base harness turned a real FAIL into PASS). The batch output is staged through a temp
+// file and copied one blob at a time, so a large repo is not buffered in memory.
+// Each blob is re-hashed against its committed id: git does not verify objects on read, so a
+// rewritten loose object or an alternate store would otherwise feed different bytes under the same
+// id. (Tree and commit objects are still trusted — see README "Honest limits".)
+// Returns null on success, or the reason the tree could not be materialized.
+const OBJECT_FORMAT = (git(repo, ['rev-parse', '--show-object-format']).stdout || '').trim() || 'sha1';
+const MAX_BLOB_BYTES = Number(process.env.QK_MAX_BLOB_BYTES) || 256 * 1024 * 1024;
+function materialize(entries, into) {
+  const blobs = entries.filter((e) => e.type === 'blob');
+  const batch = join(tmpdir(), `qk-${randomBytes(8).toString('hex')}.batch`);
+  const fd = openSync(batch, 'wx+', 0o600); // exclusive, owner-only: it holds repo contents
   try {
-    const a = spawnSync('git', ['-C', repo, 'archive', '--output', tar, ref], { encoding: 'utf8' });
-    if (a.status !== 0) return false;
-    const x = spawnSync('tar', ['-x', '-f', tar, '-C', into], { encoding: 'utf8' });
-    return x.status === 0;
+    const r = git(repo, ['cat-file', '--batch'], { input: blobs.map((e) => e.oid).join('\n') + '\n', stdio: ['pipe', fd, 'pipe'] });
+    if (r.status !== 0) return `git cat-file --batch failed: ${(r.stderr || '').toString().trim()}`;
+    const header = Buffer.alloc(256);
+    let pos = 0;
+    for (const e of blobs) {
+      const nl = header.subarray(0, readFully(fd, header, pos)).indexOf(10);
+      if (nl < 0) return `unreadable object header for ${e.path}`;
+      const [oid, type, size] = header.subarray(0, nl).toString('latin1').split(' ');
+      if (oid !== e.oid || type !== 'blob') return `object for ${e.path} is not the committed blob`;
+      if (Number(size) > MAX_BLOB_BYTES) return `blob for ${e.path} is ${size} bytes (limit ${MAX_BLOB_BYTES}; set QK_MAX_BLOB_BYTES)`;
+      pos += nl + 1;
+      const dest = safeJoin(into, e.path);
+      if (!dest) return `unsafe path in committed tree: ${e.path}`;
+      const body = Buffer.alloc(Number(size));
+      if (readFully(fd, body, pos) !== body.length) return `truncated blob for ${e.path}`;
+      const actual = createHash(OBJECT_FORMAT).update(`blob ${body.length}\0`).update(body).digest('hex');
+      if (actual !== e.oid) return `blob for ${e.path} does not hash to its committed id (the object store was altered)`;
+      const mode = e.mode === '100755' ? 0o755 : 0o644;
+      try {
+        mkdirSync(dirname(dest), { recursive: true });
+        writeFileSync(dest, body);
+        chmodSync(dest, mode); // an overlay overwrites an existing base file: mode on create is not enough
+      } catch (err) { return `could not write ${e.path}: ${err.code || err.message}`; }
+      pos += body.length + 1;
+    }
   } finally {
-    try { rmSync(tar, { force: true }); } catch { /* temp cleanup is best-effort */ }
+    closeSync(fd);
+    try { rmSync(batch, { force: true }); } catch { /* temp cleanup is best-effort */ }
   }
+  for (const e of entries.filter((x) => x.type === 'commit')) { // submodule gitlink: empty dir, like a checkout
+    const d = safeJoin(into, e.path);
+    if (!d) return `unsafe path in committed tree: ${e.path}`;
+    try { mkdirSync(d, { recursive: true }); } catch (err) { return `could not create ${e.path}: ${err.code || err.message}`; }
+  }
+  return null;
 }
 function linkDeps(root) {
   for (const lp of tools.linkPaths) {
@@ -305,51 +494,62 @@ function snapshot(root) {
 }
 
 function buildTrustedTree() {
-  const tmp = tmpDir();
-  if (!archive(base, tmp)) { rmSync(tmp, { recursive: true, force: true }); indeterminate('git archive of base failed'); }
-  // full archive-strip detection: every committed base file must have materialized (export-ignore).
+  const tmp = session.tempTree();
+  const baseErr = materialize(baseEntries, tmp);
+  if (baseErr) indeterminate(`could not materialize base: ${baseErr}`);
+  // defence in depth: every committed base file must exist in the harness tree.
   for (const e of baseEntries) {
     const d = safeJoin(tmp, e.path);
-    if (!d || !existsSync(d)) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`base file "${e.path}" was stripped from the archive (e.g. .gitattributes export-ignore) — cannot trust an incomplete harness`); }
+    if (!d || !existsSync(d)) indeterminate(`base file "${e.path}" did not materialize — cannot trust an incomplete harness`);
   }
   const headPaths = new Set(headEntries.map((e) => e.path));
   const overlay = (p) => isProd(p) || changedTest.has(p); // production + the PR's own modified tests
-  for (const e of headEntries.filter((x) => overlay(x.path))) {
-    const dest = safeJoin(tmp, e.path);
-    if (!dest) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`unsafe path in head tree: ${e.path}`); }
-    const blob = show(head, e.path, 'buffer');
-    if (blob.status !== 0) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`could not read head:${e.path}`); }
-    mkdirSync(dirname(dest), { recursive: true });
-    if (existsSync(dest) && lstatSync(dest).isSymbolicLink()) { rmSync(tmp, { recursive: true, force: true }); indeterminate(`overlay target is a symlink: ${e.path}`); }
-    writeFileSync(dest, blob.stdout);
-  }
+  const overlaid = headEntries.filter((x) => overlay(x.path));
+  // production removed at head goes first, so a file that became a directory (or the reverse) can
+  // take its place; a directory left empty by that is removed, one that still holds harness files
+  // is a conflict the gate cannot resolve.
   for (const e of baseEntries.filter((x) => isProd(x.path))) { if (!headPaths.has(e.path)) { const d = safeJoin(tmp, e.path); if (d) rmSync(d, { force: true }); } }
+  for (const e of overlaid) {
+    const dest = safeJoin(tmp, e.path);
+    if (!dest || !existsSync(dest)) continue;
+    const st = lstatSync(dest);
+    if (st.isSymbolicLink()) indeterminate(`overlay target is a symlink: ${e.path}`);
+    if (st.isDirectory()) { try { rmdirSync(dest); } catch { indeterminate(`head file "${e.path}" replaces a base directory that still holds harness files`); } }
+  }
+  const overlayErr = materialize(overlaid, tmp);
+  if (overlayErr) indeterminate(`could not overlay head: ${overlayErr}`);
   linkDeps(tmp);
   return tmp;
 }
 function buildHeadTree() {
-  const tmp = tmpDir();
-  if (!archive(head, tmp)) { rmSync(tmp, { recursive: true, force: true }); indeterminate('git archive of head failed'); }
+  const tmp = session.tempTree();
+  const headErr = materialize(headEntries, tmp);
+  if (headErr) indeterminate(`could not materialize head: ${headErr}`);
   linkDeps(tmp);
   return tmp;
 }
 
-function run(cmd, cwd, label) {
-  const r = spawnSync(cmd, { cwd, shell: true, encoding: 'utf8', env: childEnv, timeout: 300000 });
-  if (r.error || r.status === null || r.status === undefined) indeterminate(`${label} could not complete: "${cmd}" (${r.signal ? `timed out (${r.signal})` : (r.error ? r.error.message : 'no exit status')})`);
-  if ((r.status === 127 || r.status === 126) && !(r.stdout && r.stdout.trim())) indeterminate(`${label} not executable (exit ${r.status}): "${cmd}"`);
-  return r.status;
+async function run(cmd, cwd, label) {
+  const r = await session.run(cmd, cwd);
+  const failure = commandFailure(r, { label, cmd, timeoutSeconds: tools.timeoutSeconds });
+  if (failure) indeterminate(failure);
+  return r.code;
 }
-function setup(cwd, label) { if (tools.verifySetup) { const s = run(tools.verifySetup, cwd, `${label} setup`); if (s !== 0) indeterminate(`${label} setup failed (exit ${s}): "${tools.verifySetup}"`); } }
+async function setup(cwd, label) { if (tools.verifySetup) { const s = await run(tools.verifySetup, cwd, `${label} setup`); if (s !== 0) indeterminate(`${label} setup failed (exit ${s}): "${tools.verifySetup}"`); } }
+
+// --- PRE-FLIGHT (PT-C1): validation is done above; now the memory guard, then the repository lock —
+// both before any temp tree exists, so a refusal leaves nothing behind. ---
+const refusal = session.preflight({ repo, timeoutMs: tools.timeoutSeconds * 1000 });
+if (refusal) indeterminate(refusal);
 
 // TRUSTED run + harness-integrity check
 const trusted = buildTrustedTree();
 let trustedExit, acceptanceExit = null;
 try {
   const before = snapshot(trusted);
-  setup(trusted, 'trusted');
-  trustedExit = run(tools.verify, trusted, 'verify (base harness × head production)');
-  if (tools.acceptance) acceptanceExit = run(tools.acceptance, trusted, 'acceptance oracle');
+  await setup(trusted, 'trusted');
+  trustedExit = await run(tools.verify, trusted, 'verify (base harness × head production)');
+  if (tools.acceptance) acceptanceExit = await run(tools.acceptance, trusted, 'acceptance oracle');
   const after = snapshot(trusted);
   const bail = (msg) => { rmSync(trusted, { recursive: true, force: true }); indeterminate(msg); };
   for (const [k, b] of before) {
@@ -369,16 +569,63 @@ try {
 // HEAD-AS-IS run
 const headTree = buildHeadTree();
 let headExit;
-try { setup(headTree, 'head'); headExit = run(tools.verify, headTree, 'verify (head as-is)'); }
+try { await setup(headTree, 'head'); headExit = await run(tools.verify, headTree, 'verify (head as-is)'); }
 finally { rmSync(headTree, { recursive: true, force: true }); }
 
-const pass = trustedExit === 0 && headExit === 0 && (acceptanceExit === null || acceptanceExit === 0);
-ledgerAppend(repo, { verify: tools.verify, acceptance: tools.acceptance, base, head, trusted_exit: trustedExit, head_exit: headExit, acceptance_exit: acceptanceExit, pass });
+const green = trustedExit === 0 && headExit === 0 && (acceptanceExit === null || acceptanceExit === 0);
+
+// RED CANARY (--canary): the same command on head, with every test file raising on load, must fail.
+// A command that still exits 0 runs no tests, so its green proves nothing (canary.mjs).
+let canary = null;
+if (canaryMode && green) {
+  const isTarget = canaryMatcher(tools.testGlobs);
+  const targets = headEntries.filter((e) => e.type === 'blob' && (e.mode === '100644' || e.mode === '100755') && isTarget(e.path));
+  // Structured outcome for callers: `canary.proven` is false when the command was never
+  // seen RED, whatever the wording of `reason`.
+  const unproven = (why, extra = {}) => {
+    emit({ pass: false, indeterminate: true, canary: { proven: false, ...extra }, evidence: null, reason: `RED canary: ${why}` });
+    process.exit(2);
+  };
+  if (!targets.length) unproven('head has no JS/TS/Python test file to sabotage, so this command cannot be shown to ever fail', { sabotaged: 0, exit: null });
+  const tree = buildHeadTree();
+  let canaryExit;
+  try {
+    const sabotaged = new Map();
+    for (const e of targets) {
+      const dest = safeJoin(tree, e.path);
+      if (!dest || lstatSync(dest).isSymbolicLink()) unproven(`cannot sabotage "${e.path}"`, { sabotaged: 0, exit: null });
+      const bytes = sabotage(e.path, readFileSync(dest));
+      writeFileSync(dest, bytes);
+      sabotaged.set(dest, bytes);
+    }
+    await setup(tree, 'canary');
+    canaryExit = await run(tools.verify, tree, 'RED canary (head with every test file raising)');
+    // A setup/verify step that restores the test files would undo the sabotage unseen.
+    for (const [dest, bytes] of sabotaged) {
+      let now = null;
+      try { now = lstatSync(dest).isFile() ? readFileSync(dest) : null; } catch { now = null; }
+      if (!now || !now.equals(bytes)) unproven(`the verify/setup chain rewrote or removed a sabotaged test file ("${dest.slice(tree.length + 1)}") — the canary result cannot be trusted`, { sabotaged: targets.length, exit: canaryExit });
+    }
+  } finally { rmSync(tree, { recursive: true, force: true }); }
+  canary = { proven: canaryExit !== 0, exit: canaryExit, sabotaged: targets.length };
+}
+const canaryGreen = !!canary && canary.exit === 0;
+const pass = green && !canaryGreen;
+ledgerAppend(repo, { verify: tools.verify, tools_source: toolsSource, acceptance: tools.acceptance, base, head, trusted_exit: trustedExit, head_exit: headExit, acceptance_exit: acceptanceExit, ...(canary ? { canary_exit: canary.exit } : {}), pass });
+if (canaryGreen) {
+  emit({
+    pass: false, indeterminate: true, canary,
+    evidence: { verify: tools.verify, toolsSource, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head, overlaidTests: [...changedTest], canary },
+    reason: `RED canary stayed green: "${tools.verify}" exited 0 with all ${canary.sabotaged} test file(s) raising on load — it loads no test file (or swallows its failure), so its green proves nothing`,
+  });
+  process.exit(2);
+}
 emit({
   pass,
-  evidence: { verify: tools.verify, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head, overlaidTests: [...changedTest] },
+  evidence: { verify: tools.verify, toolsSource, trustedExit, headExit, acceptance: tools.acceptance, acceptanceExit, base, head, overlaidTests: [...changedTest], ...(canary ? { canary } : {}) },
+  ...(canary ? { canary } : {}),
   reason: pass
-    ? `verified: base harness × head production green + head-as-is green${acceptanceExit === null ? '' : ' + acceptance oracle green'} (re-executed)`
+    ? `verified: base harness × head production green + head-as-is green${acceptanceExit === null ? '' : ' + acceptance oracle green'}${canary ? ` + RED canary red (exit ${canary.exit}, ${canary.sabotaged} test file(s) sabotaged)` : ''} (re-executed)`
     : trustedExit !== 0
       ? `the immutable base harness failed (exit ${trustedExit}) against head production — the change likely neutered/removed its tests or broke covered code (re-executed)`
       : headExit !== 0

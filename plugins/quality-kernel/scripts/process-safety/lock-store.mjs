@@ -1,0 +1,88 @@
+// Lock-file storage for the repository lock (spec: docs/specs/gate-process-tree/contract.md, PT-C2..C7, PT-C12):
+// one file per repository, keyed by the git common directory so every worktree shares it.
+//
+// Lock schema: {pid, lstart, runId, repo, pgids: [{pgid, start}], descendants: [{pid, start}]}.
+// parseLock is the only reader and is strict: there are no legacy formats (decision 26), so any other shape is corrupt.
+import { spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { constants as fsc, readFileSync, fstatSync, linkSync, unlinkSync, realpathSync, renameSync, openSync, writeSync, closeSync, mkdirSync, lstatSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+
+const RUN_ID_RE = /^[0-9a-f]{16}$/;
+const GROUP_OR_WORLD_WRITABLE = 0o022;
+
+function commonDir(repo) {
+  const r = spawnSync('git', ['-C', repo, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`git common dir unavailable for ${repo}`);
+  return realpathSync(resolve(repo, r.stdout.trim()));
+}
+export function lockPathFor(repo, dir) {
+  const key = createHash('sha1').update(commonDir(repo)).digest('hex').slice(0, 16);
+  return join(dir, `qk-gate-${key}.lock`);
+}
+
+// PT-C12/C13: the reason `st` (an lstat result) cannot be trusted as ours, or null.
+export function untrustedReason(st, uid, kind) {
+  if (kind === 'dir' ? !st.isDirectory() : !st.isFile()) return `is not a real ${kind === 'dir' ? 'directory' : 'file'} (symbolic link or other type)`;
+  if (st.uid !== uid) return `is not owned by uid ${uid}`;
+  if (st.mode & GROUP_OR_WORLD_WRITABLE) return 'is group- or world-writable';
+  return null;
+}
+// PT-C12: create (0700) if absent, then require a real directory we own that others cannot write.
+export function ensureLockDir(dir, uid = process.getuid()) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const why = untrustedReason(lstatSync(dir), uid, 'dir');
+  if (why) throw new Error(`lock directory ${dir} ${why}`);
+  return dir;
+}
+export const defaultLockDir = (base = tmpdir(), uid = process.getuid()) => ensureLockDir(join(base, `qk-gate-${uid}`), uid);
+
+const parseJson = (raw) => { try { return JSON.parse(raw); } catch { return null; } };
+const isPgidEntry = (e) => Boolean(e) && typeof e === 'object' && Number.isInteger(e.pgid) && (e.start === null || typeof e.start === 'string');
+const isDescendant = (e) => Boolean(e) && typeof e === 'object' && Number.isInteger(e.pid) && typeof e.start === 'string';
+const isLock = (j) => Boolean(j) && Number.isInteger(j.pid) && j.pid > 0 && typeof j.runId === 'string' && RUN_ID_RE.test(j.runId)
+  && Array.isArray(j.pgids) && j.pgids.every(isPgidEntry) && Array.isArray(j.descendants) && j.descendants.every(isDescendant);
+// Lock-file text -> the parsed lock, or null when malformed.
+export function parseLock(raw) {
+  const j = parseJson(raw);
+  return isLock(j) ? j : null;
+}
+// PT-C13: a lock is never opened until lstat says regular file (opening a FIFO for reading blocks
+// forever); it is then opened O_NONBLOCK|O_NOFOLLOW and the OPENED descriptor is re-verified (regular,
+// ours), which closes the lstat -> open swap. undefined = no file, null = not a trusted readable file.
+function readRegularFile(path, uid) {
+  let fd;
+  try {
+    if (!lstatSync(path).isFile()) return null;
+    fd = openSync(path, fsc.O_RDONLY | fsc.O_NONBLOCK | fsc.O_NOFOLLOW);
+    const st = fstatSync(fd);
+    return st.isFile() && st.uid === uid ? readFileSync(fd, 'utf8') : null;
+  } catch (e) { return e.code === 'ENOENT' ? undefined : null; }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
+// undefined = no file, null = unreadable/malformed/untrusted, else the parsed lock.
+export function readLock(path, uid = process.getuid()) {
+  const raw = readRegularFile(path, uid);
+  return typeof raw === 'string' ? parseLock(raw) : raw;
+}
+// PT-C12: a fresh temp file, created exclusively (never through a link), mode 0600, unpredictable name.
+export function writeTemp(path, payload, random = randomBytes) {
+  const tmp = `${path}.${process.pid}.${random(6).toString('hex')}.tmp`;
+  const fd = openSync(tmp, 'wx', 0o600);
+  try { writeSync(fd, JSON.stringify(payload)); } finally { closeSync(fd); }
+  return tmp;
+}
+// Replace the lock atomically: temp file, then rename.
+export function replaceLock(path, payload) {
+  const tmp = writeTemp(path, payload);
+  try { renameSync(tmp, path); } catch (e) { try { unlinkSync(tmp); } catch { /* best-effort */ } throw e; }
+}
+// Create the lock with its full content or not at all: write a temp file, then link() it into place
+// (link fails with EEXIST if a lock exists, and no reader ever sees a partial file).
+export function createExclusive(path, payload) {
+  const tmp = writeTemp(path, payload);
+  try { linkSync(tmp, path); return true; }
+  catch (e) { if (e.code === 'EEXIST') return false; throw e; }
+  finally { try { unlinkSync(tmp); } catch { /* best-effort */ } }
+}

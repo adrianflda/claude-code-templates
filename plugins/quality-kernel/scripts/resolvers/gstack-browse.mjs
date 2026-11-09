@@ -21,7 +21,8 @@ import { existsSync } from 'node:fs';
 
 // Default local-target pattern: the consent gate treats these hosts as "local" (mutating them does
 // not hit a real account), so the autonomous breaker may drive them without an interactive prompt.
-export const DEFAULT_LOCAL_PATTERN = 'localhost|127\\.0\\.0\\.1|\\[::1\\]|\\.test$|\\.localhost$';
+// Anchored: an unanchored `localhost` alternative matched `localhost.attacker.com` (consent-gate bypass).
+export const DEFAULT_LOCAL_PATTERN = '^(?:localhost|127\\.0\\.0\\.1|\\[::1\\])$|\\.test$|\\.localhost$';
 
 // Resolve the `$B` binary: explicit arg > env GSTACK_BROWSE_BIN > config.browserEngine.bin > null.
 // Returns an existing path, or null (UI probes unavailable → the breaker falls back to HTTP/CLI probes).

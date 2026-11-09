@@ -2,13 +2,13 @@
 
 A quality-assurance **kernel** for agentic development. It does not replace your
 pipeline — it wraps it with the parts that turn "I think it's good" into a
-declared residual: a six-agent engine, deterministic quality tools, a blind
+declared residual: a seven-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.5.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.12.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
-> It now anchors verification to committed history and an inverted trusted tree. The six agents, the
+> It now anchors verification to committed history and an inverted trusted tree. The agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
 > design.
 >
@@ -17,7 +17,9 @@ issue to a large feature.
 > oracle to probe with. Neither sits on the default path: `hooks/pre-push.sample` invokes
 > `qk-gate.mjs`, which *reports* the unmet breaker requirement as **exit 3** rather than enforcing
 > it, and `breaker-gate.mjs` itself returns 3 unless the caller supplies `--breaker`. Enforcing it
-> is a deliberate opt-in, not a missing milestone. Design chain: [`docs/agentic-harness/`][chain]
+> is a deliberate opt-in, not a missing milestone. Since 0.6.0 the breaker has no shell: a tool-less,
+> context-free model only writes falsifying vectors, deterministic HTTP/UI instruments execute them,
+> and the verdict is computed in code (`scripts/breaker-claude.mjs`). Design chain: [`docs/agentic-harness/`][chain]
 > in the source repository — it is not bundled with the installed plugin.
 
 [panel]: https://github.com/adrianflda/claude-code-templates/blob/main/docs/agentic-harness/validation-panel.v2.md
@@ -47,8 +49,8 @@ the agent's word** — it re-runs your tests itself, against committed history, 
   `tools.json`, human-approved, distinct from the coder's tests — Constitution P3) runs against the
   base-immutable tree — and the gate **refuses (indeterminate)** if the `acceptance` command executes
   a file under `productionGlobs` (which head could overlay), keeping the oracle independent.
-  Fail-closed on any uncertainty (missing/ambiguous contract, symlink, stripped tests, an undeclared
-  changed path, a harness mutation, a case-collision, a command that can't run).
+  Fail-closed on any uncertainty (missing/ambiguous contract, symlink, a `filter` attribute, an
+  undeclared changed path, a harness mutation, a case-collision, a command that can't run).
 - **Composed gate** (`scripts/qk-gate.mjs`) — `route` + `referee` in one verdict. Exit `0` pass ·
   `1` fail · `2` indeterminate · `3` green-but-critical-needs-breaker.
 - **Invoker** (`hooks/pre-push.sample`) — a git pre-push hook that gates the exact **pushed sha**
@@ -58,8 +60,19 @@ Every red-team attack the panel used to break v1 — forged pass, weakened `tool
 neutered / renamed-away test, in-place test-neuter, non-`.sh` runner swap, golden re-goldening,
 committed symlink (incl. an arbitrary write outside the repo), non-ASCII path, worktree/HEAD
 divergence, co-located test overlay, bug outside `productionGlobs`, export-ignore-stripped tests,
-untracked config/tools fallback, pushed-sha-vs-worktree, forged base ref — is now a permanent
-regression test (`scripts/attacks.test.mjs`, `route.test.mjs`, `pre-push.test.mjs`).
+untracked config/tools fallback, pushed-sha-vs-worktree, forged base ref, a local smudge filter or
+`.git/info/attributes` rewriting the harness — is now a permanent regression test
+(`scripts/attacks.test.mjs`, `referee.test.mjs`, `route.test.mjs`, `pre-push.test.mjs`).
+
+**Committed bytes, not a checkout.** Since 0.6.0 the base and head trees are written from raw blobs
+(`git cat-file`), so no checkout-time conversion runs: not the user's or the repo's local git config
+(`core.autocrlf`, filter drivers, `.git/info/attributes`), and not the committed `.gitattributes`
+either (`export-ignore`/`export-subst`, `eol`, `ident`, `working-tree-encoding` are not applied);
+exec bits come from the tree mode. Every blob is re-hashed against its committed id, and git runs with
+replace refs and fsmonitor disabled. Refused as indeterminate: a path with a `filter` attribute
+(committed, or set in `.git/info/attributes`) such as Git LFS, whose committed bytes are a
+placeholder; tree entries git itself would not check out (`..`, `.`, `.git`, duplicates). Requires
+**git >= 2.40** (`check-attr --source`); older git is refused up front.
 
 ### Honest limits (what `qk-gate` does NOT cover — the live breaker's job)
 The referee is an **in-process test oracle** that re-executes the committed change. It cannot, by
@@ -78,6 +91,14 @@ mechanism alone, defend against the change's own code **executing and being trus
   developer can `git push --no-verify`; the "human review" is a workflow, not a mechanical lock. Real
   enforcement is server-side (a protected branch / required check), which is out of this local-first
   tool's scope. Read "gated" as "surfaced for review," not "impossible to bypass."
+- **The local object store is trusted for trees and commits.** Blobs are re-hashed, but a tree or
+  commit object rewritten directly in `.git/objects` (same id, other content) is not detected: git
+  does not verify objects on read. Anyone who can do that already controls the repository; verify
+  from a fresh clone, or server-side, when that matters. (Grafts only rewrite ancestry, which the
+  gate never reads — it compares two explicit trees.)
+- **Killing the gate mid-verify** (SIGINT/SIGTERM) leaves its temp tree behind and the verify command
+  running as an orphan: verify runs through a blocking `spawnSync`, so no signal handler can act until
+  it returns. Normal exits (0/1/2) clean up. Tracked as a follow-up (async spawn + process group).
 
 Closing the first three in general needs a **black-box probe in an environment indistinguishable from
 production** — the live breaker, which `breaker-gate.mjs` enforces and `gstack-*.mjs` instruments.
@@ -92,7 +113,10 @@ human review", not "the code cannot be malicious." Every attack above is reprodu
 Per repo, once, create and **commit** `.quality-kernel/tools.json` (copy `config/tools.example.json`):
 `{ "verify": "npm test", "productionGlobs": ["src/**"], "acceptance": null }` — `verify` is your test
 command (`pytest -q`, `node --test`, ...); `productionGlobs` declares your production source; set
-`verifySetup` (e.g. `npm ci --ignore-scripts`) if the suite needs dependencies. Also commit
+`verifySetup` (e.g. `npm ci --ignore-scripts`) if the suite needs dependencies. With colocated tests
+(`src/x.test.ts` next to `src/x.ts`), add `"productionExclude": ["**/*.test.ts"]` and declare the same
+paths in `testGlobs`; exclude wins over `productionGlobs`, and an excluded path that is not a declared
+test is indeterminate, never skipped. Also commit
 `.quality-kernel/critical-surface.json` (copy `config/critical-surface.example.json` and author its
 globs from the repo's own past incidents). Both are read from the base ref, so they must be committed.
 Then:
@@ -100,11 +124,30 @@ Then:
 - CLI: `node scripts/qk-gate.mjs --repo . --base <base-sha> --head <head-sha>`
 - Auto on push: `cp hooks/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
 
+**Process safety (referee).** Each command (`verifySetup`, `verify`, `acceptance`) runs in its own
+process group with a timeout: `timeoutSeconds` in `tools.json` (integer 1–14400, default 300, read from
+the base ref; anything else is indeterminate). On timeout the whole group gets SIGTERM, then SIGKILL
+after 5 s; after every command the group and every process carrying the run's `QK_RUN_ID` marker are
+killed, so nothing outlives a gate run. Before any temp tree exists the referee checks, in order:
+`tools.json` validation, a **memory-pressure guard**, and a **per-repository lock** (shared by every
+worktree; a lock left by a SIGKILLed run is taken over and its recorded process groups are killed).
+POSIX only (win32 is refused). Environment: `QK_LOCK_DIR` (lock directory, default the OS temp dir);
+`QK_MEM_GUARD=off` skips the guard; `QK_MEM_MAX_PRESSURE_LEVEL` (macOS, default 2) and
+`QK_MEM_MIN_LEVEL_PCT` (macOS level percent, default 20; on Linux MemAvailable/MemTotal percent,
+default 15) tune it; Linux also refuses when PSI `some avg10` > 25 (fixed). A non-numeric value is
+indeterminate, never silently defaulted. A process that leaves its group AND scrubs its environment
+escapes the sweep; a SIGKILLed referee leaves orphans until the next run's takeover. The code lives in
+`scripts/process-safety/`; the referee enters it only through `gate-session.mjs` and the composed gate
+through `proc-forward.mjs` (enforced, with no import cycles, by `scripts/import-graph.test.mjs`).
+
 Verify the gate itself: `node --test scripts/*.test.mjs` and `python3 hooks/test_hooks.py`.
-Tests that spawn git import `scripts/hermetic-git.mjs` first, so your global/system git config
-(excludesfile, XDG ignore, hooksPath) cannot change their result — do the same in new ones.
-`scripts/manifest-consistency.test.mjs` fails the suite if versions (plugin.json, marketplace.json,
-README, CHANGELOG) disagree or an agent declares a literal model ID instead of its alias.
+Property tests are a separate command: `node --test scripts/*.prop.mjs` (dependency-free kit in
+`scripts/prop-kit.mjs`; seeded, a failure prints its seed — replay it with `QK_PROP_SEED=<seed>`).
+Tests that reach git import `scripts/hermetic-git.mjs` first, so your git setup (global/system
+config and attributes, XDG ignore, hooksPath, an outer `git -c`, or any inherited `GIT_*` variable
+such as `GIT_DIR`) cannot change their result; repo-local config is left alone.
+`scripts/test-hygiene.test.mjs` fails the suite if a git-using test forgets that import. `scripts/manifest-consistency.test.mjs` fails it if versions (plugin.json,
+marketplace.json, README, CHANGELOG) disagree or an agent declares a literal model ID.
 
 ## M2 — plan-with-teeth + agentic QA (P2·P4·P5)
 
@@ -120,8 +163,24 @@ most leverage and the least prior mechanism: a **plan that produces a machine-ch
   via `tools.json "acceptance"` (immutable-from-base).
 - **The blind breaker** (qa-paradigms **P5**; constitution P3) — `scripts/breaker-invoke.mjs` builds the
   breaker's input from the **Contract only** (QA procedure + invariants + a live probe + the system URL)
-  and **never** the diff, the coder's tests, or any reasoning; it shells to a breaker command (in
-  production the host `pipeline-breaker` agent; a stub for tests) and reads a typed verdict.
+  and **never** the diff, the coder's tests, or any reasoning; it shells to a breaker command (a stub
+  for tests) and reads a typed verdict.
+- **The isolated breaker launcher** — `scripts/breaker-claude.mjs` is the production breaker command:
+  `--breaker "node <plugin>/scripts/breaker-claude.mjs" [--config .quality-kernel/tools.json]`. Two
+  stages, so no model both sees the system and decides the verdict:
+  1. **Author** — `claude -p --safe-mode --restricted --tools ""` in a fresh empty temp dir (no MCP,
+     no session persistence, allowlisted env) writes falsifying vectors from the blind input with the
+     bundled `breaker/vector-author.md` prompt. It has no tools and loads no CLAUDE.md, memory, hooks
+     or plugins. Live-probed (opt-in `QK_CLAUDE_LIVE=1`, with a positive control): a CLAUDE.md marker
+     a plain `claude -p` returns is not visible to it, and asked to `cat` a file it has no way to.
+  2. **Execute** — `scripts/vector-breaker.mjs` validates the whole vector set (anchored to contract
+     invariants, no unknown keys, at most 30), runs each through a deterministic instrument —
+     `scripts/http-probe.mjs` (methods GET/HEAD/POST/PUT/PATCH/DELETE, same-origin paths only,
+     redirects never followed, per-request timeout) or the gstack UI probe (steps `goto` same-origin and
+     `click` only; asserts `text`/`is`/`attrs`) — then the contract's own probe, and computes the
+     verdict in code. Whatever the author writes in prose is ignored.
+  The blind input with any key beyond the four above is refused. **Residual:** the contract probe is
+  a shell command from the human-approved contract and runs with the gate's privileges.
   `scripts/breaker-gate.mjs` = the composed gate + the enforced breaker: on the critical surface a green
   referee is not enough — the breaker must **PASS**.
 - **Cost** — `scripts/run-ledger.mjs` records tokens/$/wall-clock/human-interventions per dogfood run,
@@ -144,13 +203,14 @@ closes those seams with three principles:
 3. **Rigor ∝ blast-radius** — maximum rigor where it can hurt; the trivial path
    stays fast, so the gates never get bypassed.
 
-## The engine — six agents (a SwarmForge-style chain)
+## The engine — seven agents (a SwarmForge-style chain)
 
-`specifier → coder → cleaner → architect → hardener → qa`
+`specifier → designer → coder → cleaner → architect → hardener → qa`
 
 | Agent | Owns | Deterministic tool |
 |-------|------|--------------------|
 | **specifier** | EARS criteria + Gherkin + e2e QA + external invariants | Gherkin DRY check |
+| **designer** | fit of the contract to the ticket + 2–3 options (always the simplest) + recommendation; no code | none (its output goes to the human) |
 | **coder** | implementation + unit tests (genuine RED) + accept. harness | TDD, oracle-signal check |
 | **cleaner** | structure-preserving cleanup | CRAP ≤ 6, jscpd, mutation-site count |
 | **architect** | module boundaries, dependency direction | dependency-cruiser / import-linter |
@@ -158,8 +218,8 @@ closes those seams with three principles:
 | **qa** | final independent verification, UI-only | the QA script **is the breaker's probe** |
 
 **Models.** Agents declare model *aliases*, never literal IDs, so each user's provider decides
-which model runs: specifier, coder and cleaner use `sonnet`; architect, hardener and qa use
-`opus` (hardener and qa moved up from `sonnet` in 0.5.0 — mutation triage and the breaker's
+which model runs: specifier, coder and cleaner use `sonnet`; designer, architect, hardener and
+qa use `opus` (hardener and qa moved up from `sonnet` in 0.5.0 — mutation triage and the breaker's
 probe benefit most from the stronger tier, at a higher per-run cost). Aliases resolve through
 `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_OPUS_MODEL`; on Bedrock, Vertex or a
 gateway, set those to the IDs your provider accepts. To pin the tier on the first-party API:
@@ -187,9 +247,37 @@ not establish completeness"). Roles are fixed; **domain expertise is injected**
   **never lower** it below what blast-radius requires;
 - runs the chain for that tier, passing **artifacts + context** (not chat) with
   a PM-router and **voting** (not debate) where a judgment is needed;
+- for T1+, runs the **designer** before the intention gate, so the human approves the
+  contract and picks how it is built in that one stop (see *Design before code* below);
 - enforces the gates: **intention (human)**, genuine RED, mutation (async),
   **blind breaker (live oracle, default-deny)**, evidence-gate, and the
   `pre-push-review` panel.
+
+## Design before code
+
+The specifier may not prescribe implementation and the architect reviews code that already
+exists, so without a design stage nobody compares the contract to the ticket and nobody
+chooses the "how" before the coder does. The **designer** (T1+, between the specifier and the
+intention gate) writes `design.md` beside the contract:
+
+1. **Fit to the ticket** — where the contract contradicts the ticket, goes beyond its
+   "Done when" or business reason, or carries a rule from elsewhere the ticket does not ask for.
+2. **2–3 options** — always including the simplest one that meets the ticket — each with
+   effort, risk and what it leaves out.
+3. **One recommendation** with the reason.
+
+The intention gate presents contract + review report + `design.md` together; the human approves
+the contract and picks the option there (no extra stop). The chosen option is a constraint for
+the coder and the reference design for the architect.
+
+`/develop` keeps its single approval. In Phase 1 it runs the designer for the system
+(architecture, stack, subproject split) and for every feature whose "how" the system design leaves
+open, and shows all of those options together in its one approval gate, where the human picks each.
+After approval every feature is `design: settled`, and develop calls
+`/forge --design-settled <design file>`, which skips the designer (a missing file or an empty
+`## Chosen option` counts as not settled). Forge stops for a design choice only when a new decision
+appears during the build that the plan could not have foreseen, which should be rare; develop then
+tells the human which decision and why.
 
 ## Gates & hooks
 
@@ -204,12 +292,15 @@ Automatic, always on (no invocation needed):
 - **`hooks/evidence-gate.py`** (PostToolUse + PostToolUseFailure / Bash) — records
   test/build/verify commands with their real exit code (`0` on PostToolUse, `N`
   from the `Exit code N` line on PostToolUseFailure) and `duration_ms` to
-  `.quality-kernel/evidence-ledger.jsonl`. Tool output is never stored and the
+  `.quality-kernel/evidence-ledger.jsonl` at the git top level of where the command ran: its
+  leading `cd <dir> &&` target, else the session cwd (so `proof.mjs --repo <repo>` finds runs made
+  from an org folder above the repo). Runners include `pytest`, `python -m unittest`, `node --test`,
+  `tofu test` / `terraform test`, `npm test` and the other tools listed in the hook. Tool output is never stored and the
   command is stored redacted. Inside a git repo the ledger is written only when
   `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
   model as context. Recording only; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.5.0)
+## Gate status — teeth vs. prose (v0.12.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.
@@ -219,11 +310,16 @@ installing the plugin does not imply the full guarantee.
 | Epistemic guard (G1) | **wired (teeth)**, advisory | hook; injects the preamble by default, `block` via env |
 | Evidence-gate (G2) | **wired, record-only** | hook writes a ledger; hard-block is v1 |
 | CRAP gate | **wired (teeth)** | deterministic script, non-zero exit over threshold |
+| DRY gate | **script (teeth when run)** | `scripts/dry-gate.mjs` over a jscpd report; the cleaner/hardener/qa run it, no hook forces it |
+| Commit proof | **script (teeth when run)** | `scripts/proof.mjs` turns ledger events since the last commit into `Proof:` trailers; a piped exit 0 is `Unverified`, never proof; exit 1 on any unproven command; the referee's own verdict rows in the ledger are skipped |
 | Pre-push panel | **wired (teeth)** | the existing `pre-push-review` plugin |
+| Gate on push | **wired (teeth), opt-in per repo** | `pre-push-review` runs `qk-gate.mjs` before the panel when the org `tools.json` says `"runOnPush": true`; a failing gate or one that cannot run (memory pressure, timeout) blocks the push |
 | Re-executing referee | **wired (teeth)** | `scripts/referee.mjs`; commit-anchored, two-run, fail-closed; red-team suite in `scripts/attacks.test.mjs` |
-| Blind breaker (live oracle) | **by-reference** | invokes the host's `pipeline-breaker`, not bundled; **the only thing that closes the in-process limit (M2)** |
+| Blind breaker (live oracle) | **bundled, tool-less author + deterministic instruments** | `scripts/breaker-claude.mjs`: a no-tools, no-context model writes vectors; `vector-breaker.mjs` executes them (HTTP/UI) and computes the verdict; **the only thing that closes the in-process limit (M2)** |
 | Adversarial critic (Opus) | **by-reference** | invokes the host's `adversarial-critic` |
+| Blind contract review | **script (teeth when run)** | `scripts/contract-review.mjs`: two isolated, tool-less reviewers (comprehension, critic) see only the contract; strict JSON findings; exit 1 on any blocker, 2 when a reviewer cannot be read |
 | Intention gate (G0) | **prose** | instruction to the orchestrator in `/forge`; forcing function is v1 |
+| Design fit + options | **prose** | the `designer` agent before G0 (T1+); the human picks the option at G0 |
 | Tier router | **wired (teeth)** | `scripts/route.mjs`, deterministic classifier; LLM may raise, never lower the floor |
 | Mutation as CI gate | **script only** | `crap.mjs` / mutation ship; wiring into CI is v1 (F3) |
 
@@ -237,21 +333,110 @@ Copy the examples into your repo's `.quality-kernel/`:
   blast-radius override. If absent, `/forge` treats anything outside
   docs/tests/styling/tooling as critical (fail-safe).
 
+### Org orientation lives in `org-workspace`
+
+Discovering an org folder's repos, mapping who calls whom (`SYSTEM-MAP.md`) and keeping a short
+guide in the org-root `CLAUDE.md` moved to the **org-workspace** plugin (`/org-init`, `/org-learn`)
+in 0.10.0. quality-kernel keeps what verifies work: `/gate`, org mode below, and the referee's
+opt-in **RED canary** (`--canary`): after a green run the verify command is re-run on head with every
+JS/TS/Python test file raising on load and must fail — it shows the command reacts to broken test
+files, not which tests it executes (a lint command that parses them also passes). Gate configs
+(`tools.json`) are written by hand.
+
+### Org mode (several repos in one org folder — the system as a whole)
+
+An org folder holds its repos side by side. The **org-workspace** plugin keeps its guide: a short
+block in `<org>/CLAUDE.md` (for agents) and the same data in `<org>/.claude/org-workspace/guide.json`
+(for tools). quality-kernel reads the guide for WHICH repos form the system, and keeps their gate
+config outside every product repo:
+
+```
+<org>/
+├── CLAUDE.md                                  # the org guide block (org-workspace)
+├── SYSTEM-MAP.md                              # who calls whom, cited (org-workspace)
+├── .claude/org-workspace/guide.json           # repos, roles, base branches, harnesses, forbidden
+├── .quality-kernel/repos/<name>/tools.json    # and critical-surface.json — written by hand
+├── <name>/
+└── ...
+```
+
+- **Explicit only:** pass `--org <dir>` to `route` / `referee` / `qk-gate` (`qk-org-gate` always
+  does). Without it nothing changes — there is no auto-discovery.
+- With it, a listed app's `tools.json` / `critical-surface.json` come from
+  `<org>/.quality-kernel/repos/<name>/` and **win over the repo's own** (used only when the org has
+  none; the fallback is per file). An org that cannot serve the repo (not listed, forbidden, not
+  `role: "app"`, not directly under the org folder, no guide, an empty `--org`) is indeterminate,
+  never a silent fallback. Symlinks anywhere in the config are refused.
+- The config is pinned **by content**: `qk-gate` hashes the guide and every config file once
+  (`orgPin`), passes that pin to route and referee (each re-hashes and refuses a mismatch), reports
+  `org: { dir, pin }` and re-checks the pin after the run — a change during the run is indeterminate.
+- Gate a feature across every listed app that has its branch:
+  `node scripts/qk-org-gate.mjs --org <org> --branch feature/<name>`
+  (exit 1 > 2 > 3 > 0; anything listed that cannot be verified = 2; harness entries are not gated,
+  a missing harness branch is a note). It resolves every repo's refs before running any gate and
+  re-checks them and the pin after, so one repo's executed code cannot drop another from the feature.
+- **Working as one system:** `/forge` and `/develop` run inside an org folder use the guide and the
+  `SYSTEM-MAP.md` sections of the repos they touch to find who consumes what they change; those
+  consumers become acceptance criteria, and QA closes with `qk-org-gate` on the feature branch.
+- **Trust limit:** a repo's own change under review cannot touch its config (it lives outside every
+  repo). Whoever can write the org folder owns every listed repo's contract. Code the gate executes
+  runs with your rights (see "Honest limits"): dirs shared through `linkPaths` (e.g. `node_modules`),
+  git objects and the plugin's own scripts are writable, so code run while gating one repo can change
+  what a LATER repo of the same run reads — the pin catches config changes, not those. Isolation per
+  repo is the real fix for that class.
+
 ## Tools
 
 - **`scripts/crap.mjs`** — CRAP calculator: `CRAP = c² · (1−cov)³ + c`. Feed it
   a JSON array of `{ name, file, complexity, coverage }` (from your coverage +
   complexity tools); exits non-zero if any function exceeds the threshold
   (default 6).
+- **`scripts/dry-gate.mjs`** — DRY gate over a jscpd JSON report
+  (`jscpd --reporters json --output <dir>`): `--files a,b` fails on any clone
+  touching those files (differential), no `--files` fails on any clone,
+  `--max-percent N` also fails above N% duplicated lines. Exit `0` pass · `1`
+  clones · `2` unrecognized report (fail-closed). jscpd finds token clones; it
+  does not score structural near-duplicates by similarity.
+- **`scripts/proof.mjs`** — commit proof: reads `.quality-kernel/evidence-ledger.jsonl`
+  since a ref (default `HEAD`) and prints one trailer per command, latest run only —
+  `Proof:` (exit 0 of an allowlisted command: plain words, quoted strings, simple
+  redirects, `&&` chains), `Unverified:` (any other exit 0 — `|`, `;`, `||` or `&` report
+  only the last command's code; `$`, backticks, subshells and heredocs are not modeled;
+  or truncated by the hook — listed, never counted), `Unproven:` (non-zero, unknown or
+  interrupted). Commands print escaped on one line, so ledger text cannot forge a trailer. Exit `0`
+  only when at least one command was proved and none is unproven. Run proof commands
+  without pipes: `node --test x.test.mjs > out.log 2>&1`, not `node --test | tail`.
+
+- **`scripts/contract-review.mjs`** — blind review of a specifier contract before the intention
+  gate. Two reviewers run as separate isolated sessions (the breaker launcher's `runIsolated`: no
+  tools, no CLAUDE.md, memory, hooks, plugins or MCP): `reviewers/comprehension.md` (a newcomer:
+  undefined terms, ambiguity, assumed knowledge) and `reviewers/critic.md` (unfalsifiable criteria,
+  missing `IF … THEN` behavior, invariants without probes, missing re-run invariants,
+  contradictions). Each must reply `{ findings: [{ severity, where, finding, suggestion? }] }`;
+  `--out` writes a markdown report. Exit `0` no blocker · `1` blocker(s) · `2` a reviewer could not
+  run or answered off-format. Idea from Google's Elephant-Goldfish Model (zero-context reviewers).
 
 ## Tests
 
 - `scripts/crap.test.mjs` — `node --test plugins/quality-kernel/scripts/crap.test.mjs`
+- `scripts/dry-gate.test.mjs`, `scripts/proof.test.mjs` — `node --test` likewise
 - `hooks/test_hooks.py` — `python3 plugins/quality-kernel/hooks/test_hooks.py`
 
 They cover the deterministic gate (CRAP formula + CLI exit codes) and the hook
 behavior (marker/exempt detection, log-vs-block mode, fail-open, and the ledger
 recording including the `unknown-schema` sentinel).
+
+**These suites run locally, before every push — there is no CI job for them.** In the source
+repository, `.githooks/pre-push` runs both suites, plus the gate's own tests, whenever a push touches
+`plugins/quality-kernel/` or `.githooks/`,
+on the **pushed commit** in a temporary worktree (an uncommitted fix cannot green a red commit),
+and blocks the push on any failure. Enable it once per clone:
+
+    git config core.hooksPath .githooks
+
+The suites ignore the developer's own git config (`scripts/hermetic-git.mjs`, and the same pinning
+in `hooks/test_hooks.py`), so a personal excludes file that lists `.quality-kernel/` cannot turn
+them red or green.
 
 ## Design docs
 
