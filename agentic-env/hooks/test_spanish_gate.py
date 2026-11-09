@@ -73,5 +73,43 @@ class PushTest(unittest.TestCase):
         self.assertEqual(self.push(ENGLISH[0]), (0, ''))
 
 
+class MergedBaseTest(unittest.TestCase):
+    """A feature branch that merges main brings main's lines into the diff against its upstream."""
+
+    def test_lines_already_on_main_are_not_flagged_but_new_ones_are(self):
+        tmp = Path(tempfile.mkdtemp())
+        remote, repo = tmp / 'remote.git', tmp / 'work'
+        run = lambda *a, cwd=None: subprocess.run(a, cwd=cwd, capture_output=True, text=True, check=True)  # noqa: E731
+        run('git', 'init', '-q', '--bare', '-b', 'main', str(remote))
+        run('git', 'clone', '-q', str(remote), str(repo))
+        git = lambda *a: run('git', '-C', str(repo), '-c', 'user.email=t@example.com', '-c', 'user.name=t', *a)  # noqa: E731
+        (repo / 'a.md').write_text('start\n')
+        git('add', '.')
+        git('commit', '-qm', 'base')
+        git('push', '-q', 'origin', 'main')
+        git('checkout', '-qb', 'feature')
+        git('push', '-q', '-u', 'origin', 'feature')
+        git('checkout', '-q', 'main')
+        (repo / 'b.md').write_text(SPANISH[1] + '\n')
+        git('add', '.')
+        git('commit', '-qm', 'main gets a line')
+        git('push', '-q', 'origin', 'main')
+        git('checkout', '-q', 'feature')
+        git('merge', '-q', '--no-edit', 'origin/main')
+
+        def gate_run():
+            return subprocess.run([sys.executable, str(HOOK)], capture_output=True, text=True, timeout=30,
+                                  input=json.dumps({'tool_input': {'command': 'git push'}, 'cwd': str(repo)}))
+
+        r = gate_run()
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        (repo / 'b.md').write_text(SPANISH[1] + '\n' + SPANISH[0] + '\n')
+        git('commit', '-qam', 'feature adds its own line')
+        r = gate_run()
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn(SPANISH[0], r.stderr)
+        self.assertNotIn(SPANISH[1], r.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()

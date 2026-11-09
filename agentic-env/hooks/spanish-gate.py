@@ -49,6 +49,28 @@ def is_spanish(line):
     return None
 
 
+def default_branch_lines(repo, path, _cache={}):
+    """Lines of `path` on the remote's default branch, or an empty set. A merge of main into a
+    feature branch brings main's lines into the diff against the branch's upstream; those lines are
+    already in main, so they are not this push's to answer for."""
+    key = (repo, path)
+    if key in _cache:
+        return _cache[key]
+    lines = set()
+    for ref in ('origin/HEAD', 'origin/main', 'origin/master', 'origin/development', 'origin/dev'):
+        r = subprocess.run(['git', '-C', repo, 'show', f'{ref}:{path}'],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode == 0:
+            lines = set(r.stdout.splitlines())
+            break
+        ok = subprocess.run(['git', '-C', repo, 'rev-parse', '--verify', '-q', ref],
+                            capture_output=True, text=True, timeout=15)
+        if ok.returncode == 0:
+            break  # the default branch exists but does not have this file: every line is new
+    _cache[key] = lines
+    return lines
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read())
@@ -98,7 +120,7 @@ def main():
                     continue
                 if cur_file and cur_file.endswith(CODE_DOC) and 'node_modules' not in cur_file:
                     kind = is_spanish(line[1:])
-                    if kind:
+                    if kind and line[1:] not in default_branch_lines(repo, cur_file):
                         findings.append((cur_file, kind, line[1:].strip()[:90]))
 
         if not findings:
