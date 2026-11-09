@@ -168,6 +168,8 @@ def install(with_plugins):
             if ours and not ours.get('enabled'):
                 step(['claude', 'plugin', 'enable', f'{name}@{mkt}'])
             step(['claude', 'plugin', 'update' if ours else 'install', f'{name}@{mkt}'])
+            for other in foreign_copies(name, installed):
+                print(f'warning   {other} is also enabled (its hooks run twice): claude plugin uninstall {other}')
         step(['node', str(GIT_HOOK)])
     print(f'done: {copied} file(s) updated. Restart Claude Code to load them.')
 

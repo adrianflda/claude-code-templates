@@ -47,8 +47,8 @@ Behaviour:
   installer again.
 - **A second copy of a plugin.** A manifest plugin that is also enabled from another marketplace
   (an older local one, for example) runs its hooks twice, and the other copy is usually stale.
-  `--check` reports it with the `claude plugin uninstall` command to run; the installer does not
-  remove it, since it never deletes anything.
+  `--check` reports it, and the installer warns about it, with the `claude plugin uninstall` command
+  to run; neither removes it, since the installer never deletes anything.
 - **Partial install.** `--no-plugins` skips the `claude plugin` and git steps. It installs only the
   files and the hook wiring.
 
