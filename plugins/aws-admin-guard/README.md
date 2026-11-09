@@ -30,7 +30,9 @@ A `UserPromptSubmit` hook tells Claude where the grant stands after each relevan
   symlink or hard link to the transcript, `//`, `/./`, `..`, any letter case, a `cd` into `.claude`,
   a glob, `$HOME`/`$PWD` or `$CLAUDE_CONFIG_DIR` all reach it, and so does linking one (`ln`,
   `cp -l`, `cp -s`). A literal word that is such an alias arms the same checks the transcript's own
-  path does (inline code, stdin scripts, awk, nested shells).
+  path does (inline code, stdin scripts, awk, nested shells). `$HOME` and `$PWD` are expanded from
+  the hook's own environment, so a command that may change them (`HOME=...`, `export`, `read`,
+  `${HOME:=...}`, a `cd` before `$PWD`) arms those checks too.
 
 ## Settings
 

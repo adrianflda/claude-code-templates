@@ -301,6 +301,7 @@ test('a transcript is protected under every alias: spelling, symlink, hard link,
   writeFileSync(s.path, '');
   symlinkSync(s.path, join(home, 'link'));
   linkSync(s.path, join(home, 'hard'));
+  symlinkSync(dir, join(home, 'pdir'));
   const env = { HOME: home, CLAUDE_CONFIG_DIR: '' };
   const run = (command) => node(GUARD, { tool_name: 'Bash', transcript_path: s.path, cwd: home, tool_input: { command } }, env);
   const edit = (file_path) => node(GUARD, { tool_name: 'Write', transcript_path: s.path, cwd: home, tool_input: { file_path } }, env);
@@ -338,6 +339,16 @@ test('a transcript is protected under every alias: spelling, symlink, hard link,
     'cd "$HOME" && echo x >> link',
     'echo x >> ~/hard; echo "unbalanced',
     'f=~/.cl; ln -s ${f}aude/projects/p/s.jsonl a; echo x >> a',
+    // $HOME / $PWD are known only while the command does not change them
+    'HOME=~/.cl; ln -s ${HOME}aude/projects/p/s.jsonl a; echo x >> a',
+    'export HOME=~/.cl && ln -s "$HOME"aude/projects/p/s.jsonl a && echo x >> a',
+    ': ${HOME:=x}; ln -s ${HOME}/y a',
+    "cd ~/.cl''aude && ln -s \"$PWD/projects/p/s.jsonl\" a && echo x >> a",
+    'cd -P ~/.claude && echo x >> projects/p/s.jsonl',
+    'cd -- ~/.claude && echo x >> projects/p/s.jsonl',
+    // a new transcript reached through a symlinked folder: only its real parent shows where it is
+    `echo x >> ${home}/pdir/new.jsonl`,
+    'cd pdir && echo x >> new.jsonl',
   ]) {
     const r = run(c);
     assert.equal(r.code, 2, `expected BLOCK: ${c}\n${r.stderr}`);
@@ -369,6 +380,9 @@ test('a transcript is protected under every alias: spelling, symlink, hard link,
     `python3 -c "open('notes.txt','a').write('x')"`,
     'echo x >> "$HOME/notes.txt"',
     'cd ~/.claude/projects/p/memory && echo x >> note.md',
+    // links whose source is only $HOME / $PWD are resolved, not treated as unknown
+    'ln -s "$HOME/dotfiles/zshrc" ~/.zshrc',
+    'ln -sf "$PWD/bin/tool" /tmp/tool',
   ]) {
     const r = run(c);
     assert.equal(r.code, 0, `expected ALLOW: ${c}\n${r.stderr}`);

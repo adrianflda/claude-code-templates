@@ -174,10 +174,11 @@ function transcriptOnDisk(text, ctx) {
 function workDirs(cmds, cwd) {
   const dirs = [cwd];
   for (const c of cmds) {
-    const w = unwrap(c.words);
-    if (w.length > 1 && (w[0].text === 'cd' || w[0].text === 'pushd')) {
-      const t = expandKnown(w[1].text, cwd);
-      if (!w[1].dynamic || !UNRESOLVED.test(t)) dirs.push(resolvePath(cwd, t));
+    const [p, ...args] = unwrap(c.words);
+    if (p && (p.text === 'cd' || p.text === 'pushd')) {
+      const target = args.find((w) => !w.text.startsWith('-')); // past -P, -L, -e, --
+      const t = target && expandKnown(target.text, cwd);
+      if (t && !UNRESOLVED.test(t)) dirs.push(resolvePath(cwd, t));
     }
   }
   return dirs;
@@ -207,8 +208,31 @@ function diskMention(command, ctx) {
 const linksUnknown = (cmds) => cmds.some((c) => {
   const [p, ...args] = unwrap(c.words);
   const links = p && (basename(p.text) === 'ln' || (basename(p.text) === 'cp' && args.some((w) => CP_LINKS.test(w.text))));
-  return links && args.some((w) => w.dynamic);
+  return links && args.some((w) => w.dynamic && UNRESOLVED.test(expandKnown(w.text, '/')));
 });
+
+/** The reasons a command may name a transcript, each a named check so a test can point at one. */
+const MENTIONS = [
+  ['transcript path', (c) => Boolean(c.transcriptPath && c.command.includes(c.transcriptPath))],
+  ['projects *.jsonl', (c) => /\.claude\/projects\b[\s\S]*\.jsonl/.test(c.spelled)],
+  ['projects folder outside memory/', (c) => /\.claude\/projects/.test(spelling(c.outsideMemory))],
+  ['glob under .claude/', (c) => /\.claude\/[*?[]|\.claude\/proj[^/\s'"]*[*?[]/.test(c.spelled)],
+  ['cd into .claude', (c) => /\b(cd|pushd)(\s+-\S*)*\s+[^\s;&|]*\.claude\/?(?=$|[\s;&|)])/.test(c.spelled)],
+  ['CLAUDE_CONFIG_DIR', (c) => /CLAUDE_CONFIG_DIR/.test(c.command)],
+  // expandKnown trusts the hook's own $HOME / $PWD; a command that may change them (an assignment,
+  // export, read, ${HOME:=...}, or a cd before a $PWD) is judged as if it named a transcript.
+  ['HOME / PWD changed', (c) => /\b(HOME|PWD)\b/.test(c.command.replace(/\$(HOME|PWD)\b|\$\{(HOME|PWD)\}/g, '')) ||
+    (/\$\{?PWD\b/.test(c.command) && /\b(cd|pushd|popd)\b/.test(c.command))],
+  ['token on disk', (c) => diskMention(c.command, c.ctx)],
+  ['link from an unknown word', (c) => c.cmds !== null && linksUnknown(c.cmds)],
+];
+
+/** The verdict when the shell reader fails on a command that names a transcript (fail-closed). */
+function readerFailed(e, command) {
+  if (e instanceof ShellParseError) return WRITE_INTENT.test(command);
+  process.stderr.write(`[aws-admin-guard] shell reader error (${e?.message || e}); treating the command as a write.\n`);
+  return true;
+}
 
 function writesTranscript(command, transcriptPath, cwd) {
   const base = cwd || process.cwd();
@@ -219,30 +243,15 @@ function writesTranscript(command, transcriptPath, cwd) {
   let parseError = null;
   try { cmds = simpleCommands(command); } catch (e) { parseError = e; }
   const ctx = { transcriptPath, cwd: base, dirs: cmds ? workDirs(cmds, base) : [base], disk: diskView(transcriptPath) };
-  // Text that may name a transcript. Only then do unknowable write targets (a variable, a glob, $(...)),
-  // relative *.jsonl and the code heuristics count. It is armed by: the transcript path; text reaching
-  // the projects folder in any spelling (`.Claude//projects`, a glob such as `.claude/proj*` or
-  // `.claude/*`, a cd into `.claude`); CLAUDE_CONFIG_DIR; a literal token that is the transcript or
-  // sits in the projects folder on disk (a symlink, a hard link, a relative path); or a link made from
-  // a word that cannot be resolved now.
-  const s = spelling(command);
-  const mentions = Boolean(transcriptPath && command.includes(transcriptPath)) ||
-    /\.claude\/projects\b[\s\S]*\.jsonl/.test(s) || /\.claude\/projects/.test(spelling(outsideMemory)) ||
-    /\.claude\/[*?[]|\.claude\/proj[^/\s'"]*[*?[]/.test(s) ||
-    /\b(cd|pushd)\s+[^\s;&|]*\.claude\/?(?=$|[\s;&|)])/.test(s) ||
-    /CLAUDE_CONFIG_DIR/.test(command) || diskMention(command, ctx) || (cmds !== null && linksUnknown(cmds));
-  if (!mentions) return false;
-  if (parseError) {
-    if (parseError instanceof ShellParseError) return WRITE_INTENT.test(command);
-    process.stderr.write(`[aws-admin-guard] shell reader error (${parseError?.message || parseError}); treating the command as a write.\n`);
-    return true;
-  }
+  // Only a command that may name a transcript (MENTIONS) has its unknowable write targets (a variable,
+  // a glob, $(...)), relative *.jsonl and inline code judged as transcript writes.
+  const facts = { command, transcriptPath, outsideMemory, spelled: spelling(command), ctx, cmds };
+  if (!MENTIONS.some(([, check]) => check(facts))) return false;
+  if (parseError) return readerFailed(parseError, command);
   try {
     return writesIn(command, ctx, 0, cmds);
   } catch (e) {
-    if (e instanceof ShellParseError) return WRITE_INTENT.test(command);
-    process.stderr.write(`[aws-admin-guard] shell reader error (${e?.message || e}); treating the command as a write.\n`);
-    return true;
+    return readerFailed(e, command);
   }
 }
 
