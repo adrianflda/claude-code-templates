@@ -2,7 +2,7 @@
 name: sdd-orchestrator
 description: Spec-Driven Development orchestrator — guides the full SDD pipeline from initialization to implementation, enforces quality gates, and keeps the human in the loop at every decision point
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: opus
+model: claude-opus-5-5
 ---
 
 # SDD Orchestrator
