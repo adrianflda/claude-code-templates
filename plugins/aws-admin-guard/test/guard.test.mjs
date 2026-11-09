@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, linkSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -291,6 +291,69 @@ test('Claude cannot forge a prompt by writing to a transcript', () => {
     assert.equal(r.code, 2, tool);
   }
   assert.equal(bash(s, `tail -5 ${s.path} | python3 -m json.tool`).code, 0, 'reading is fine');
+});
+
+test('a transcript is protected under every alias: spelling, symlink, hard link, cd, glob, config dir', () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'aag-home-')));
+  const dir = join(home, '.claude', 'projects', 'p');
+  mkdirSync(join(dir, 'memory'), { recursive: true });
+  const s = { path: join(dir, 's.jsonl') };
+  writeFileSync(s.path, '');
+  symlinkSync(s.path, join(home, 'link'));
+  linkSync(s.path, join(home, 'hard'));
+  const env = { HOME: home, CLAUDE_CONFIG_DIR: '' };
+  const run = (command) => node(GUARD, { tool_name: 'Bash', transcript_path: s.path, cwd: home, tool_input: { command } }, env);
+  const edit = (file_path) => node(GUARD, { tool_name: 'Write', transcript_path: s.path, cwd: home, tool_input: { file_path } }, env);
+  for (const c of [
+    'cd ~/.claude && echo x >> projects/p/s.jsonl',
+    `cd ${home}/.claude/projects && tee -a p/s.jsonl < /dev/null`,
+    'echo x >> ~/.claude/proj*/p/s.jsonl',
+    'echo x >> "$CLAUDE_CONFIG_DIR/projects/p/s.jsonl"',
+    'echo x >> ~/.Claude/projects/p/s.jsonl',
+    'echo x >> ~/.claude//projects/p/s.jsonl',
+    'echo x >> ~/.claude/./projects/p/s.jsonl',
+    `echo x >> ${home}/link`,
+    `echo x >> ${home}/hard`,
+    'echo x >> link',
+    `cp forged ${home}/hard`,
+    `ln ${s.path} /tmp/alias`,
+    `ln -s ~/.claude/projects/p/s.jsonl /tmp/alias`,
+    `cp -l ${s.path} /tmp/alias`,
+    `cp --symbolic-link ${s.path} /tmp/alias`,
+  ]) {
+    const r = run(c);
+    assert.equal(r.code, 2, `expected BLOCK: ${c}\n${r.stderr}`);
+    assert.match(r.stderr, /would write a session transcript/, c);
+  }
+  for (const f of [
+    `${home}/.claude//projects/p/s.jsonl`,
+    `${home}/.claude/./projects/p/s.jsonl`,
+    `${home}/.claude/projects/p/memory/../s.jsonl`,
+    `${home}/.CLAUDE/projects/p/s.jsonl`,
+    `${home}/link`,
+    `${home}/hard`,
+    'link',
+  ]) {
+    const r = edit(f);
+    assert.equal(r.code, 2, `expected BLOCK: Write ${f}\n${r.stderr}`);
+    assert.match(r.stderr, /consent record/, f);
+  }
+  for (const c of [
+    `cat ${home}/link`,
+    `tail -1 ${home}/hard | jq .`,
+    `echo x >> ${home}/notes.txt`,
+    'cd ~/.claude && echo x >> settings.json',
+    'echo x >> ~/.claude/projects/p/memory/note.md',
+    'ln -s /tmp/a /tmp/b',
+    `cp ${s.path} /tmp/copy.jsonl`,
+  ]) {
+    const r = run(c);
+    assert.equal(r.code, 0, `expected ALLOW: ${c}\n${r.stderr}`);
+  }
+  for (const f of [`${home}/.claude/projects/p/memory/note.md`, `${home}/other.jsonl`, `${home}/notes.txt`]) {
+    const r = edit(f);
+    assert.equal(r.code, 0, `expected ALLOW: Write ${f}\n${r.stderr}`);
+  }
 });
 
 // 2026-10-28 audit: 12 of 12 transcript-write blocks in 30 days were read-only commands like these.

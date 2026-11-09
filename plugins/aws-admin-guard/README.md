@@ -26,7 +26,9 @@ A `UserPromptSubmit` hook tells Claude where the grant stands after each relevan
   `--profile=admin`, `AWS_PROFILE=admin`, `AWS_DEFAULT_PROFILE=admin`, `-e AWS_PROFILE=admin`,
   `-var profile=admin`, `profile = "admin"`.
 - Any write to a session transcript (`>`, `tee`, `sed -i`, `open(...,'a')`, the Write/Edit tools).
-  Reading transcripts is fine.
+  Reading transcripts is fine. A path counts as the file it is on disk, not only as spelled: a
+  symlink or hard link to the transcript, `//`, `/./`, `..`, any letter case, a `cd` into `.claude`,
+  a glob or `$CLAUDE_CONFIG_DIR` all reach it, and so does linking one (`ln`, `cp -l`, `cp -s`).
 
 ## Settings
 
