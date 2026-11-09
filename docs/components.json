@@ -3134,7 +3134,7 @@
       "path": "development-tools/qa-expert.md",
       "category": "development-tools",
       "type": "agent",
-      "description": "Use this agent when you need comprehensive quality assurance strategy, test planning across the entire development cycle, or quality metrics analysis to improve overall software quality. Specifically:\\n\\n<example>\\nContext: A development team is about to start a critical 6-month feature development and needs a complete QA strategy before coding begins.\\nuser: \"We need a comprehensive QA strategy for our upcoming project. What should our testing approach be for a complex e-commerce platform?\"\\nassistant: \"I'll develop a complete QA strategy addressing test planning, resource allocation, risk assessment, automation approach, and quality metrics. I'll analyze your architecture, identify critical test areas, recommend manual vs automated testing split, design test coverage targets, and establish quality gates for each release phase.\"\\n<commentary>\\nInvoke qa-expert when you need strategic QA planning across the full development lifecycle. This agent designs the overall quality approach, unlike test-automator which focuses specifically on automation implementation.\\n</commentary>\\n</example>\\n\\n<example>\\nContext: A team's current quality metrics show declining quality: defect escape rate is 15%, test coverage is only 52%, and production issues are increasing.\\nuser: \"Our quality metrics are getting worse. Defect escape rate is up, coverage is down, and we're getting customer complaints. How do we fix this?\"\\nassistant: \"I'll analyze your defect patterns, test coverage gaps, and quality process breakdowns. I'll conduct a comprehensive quality audit to identify root causes, recommend specific improvements to your testing strategy, suggest coverage targets, and implement quality metrics tracking to prevent regression.\"\\n<commentary>\\nUse the qa-expert when you need to diagnose systemic quality problems and develop a quality improvement plan. This agent conducts deep analysis and recommends strategic changes, not just automation or code review feedback.\\n</commentary>\\n</example>\\n\\n<example>\\nContext: A team is preparing for a major release and needs to validate that all quality standards are met before deployment.\\nuser: \"We're about to release a critical update. How do we ensure quality is acceptable for production release?\"\\nassistant: \"I'll conduct a comprehensive pre-release quality assessment: review test coverage against requirements, validate defect severity and resolution, check test execution results, assess risk areas, verify automated test reliability, and provide a go/no-go recommendation based on established quality gates.\"\\n<commentary>\\nInvoke qa-expert for pre-release quality validation and release readiness assessments. This agent provides holistic quality evaluation and release recommendation, complementing the detailed code review feedback from other agents.\\n</commentary>\\n</example>",
+      "description": "QA strategy and test-coverage review: test planning, coverage gaps ranked by severity, whether tests would fail on broken code, quality metrics and release readiness. /quality-gate runs it next to adversarial-critic.",
       "author": "",
       "repo": "",
       "version": "",
@@ -4436,7 +4436,7 @@
       "path": "epistemic-discipline/pipeline-breaker.md",
       "category": "epistemic-discipline",
       "type": "agent",
-      "description": "Blind breaker for the pre-push review pipeline (step 4.5, between qa-expert and se-security-reviewer) — and the generic blind verifier for any completed work. Receives ONLY the contract (acceptance criteria / declared invariants) plus a live system URL and probe command — NEVER the diff, the author's reasoning, or prior reviewers' output. It derives falsifying vectors from the contract, EXECUTES each against the live system, and returns a typed verdict with evidence. The review gate is only unlocked on BREAKER_PASS. A step that only reads code does not count as completed.",
+      "description": "Blind breaker for the pre-push review pipeline (Agent 4.5 of /sdd-review, spawned in parallel with the other reviewers) — and the generic blind verifier for any completed work. Receives ONLY the contract (acceptance criteria / declared invariants) plus a live system URL and probe command — NEVER the diff, the author's reasoning, or prior reviewers' output. It derives falsifying vectors from the contract, EXECUTES each against the live system, and returns a typed verdict with evidence. The review gate is only unlocked on BREAKER_PASS. A step that only reads code does not count as completed.",
       "author": "",
       "repo": "",
       "version": "",
@@ -9927,6 +9927,27 @@
       "category": "epistemic-discipline",
       "type": "command",
       "description": "Disciplined diagnosis entry point — probe the real system first, enumerate all mutation paths, attempt to refute the leading hypothesis, and report in the mandatory diagnostic-report format (residual risk first, OBSERVED vs INFERRED separated).",
+      "author": "",
+      "repo": "",
+      "version": "",
+      "license": "",
+      "keywords": [],
+      "downloads": 0,
+      "security": {
+        "validated": false,
+        "valid": null,
+        "score": null,
+        "errorCount": 0,
+        "warningCount": 0,
+        "lastValidated": null
+      }
+    },
+    {
+      "name": "quality-gate",
+      "path": "epistemic-discipline/quality-gate.md",
+      "category": "epistemic-discipline",
+      "type": "command",
+      "description": "Mid-task adversarial quality gate — runs adversarial-critic + qa-expert on current changes. Use before committing, not just before pushing.",
       "author": "",
       "repo": "",
       "version": "",
@@ -50176,6 +50197,55 @@
   ],
   "plugins": [
     {
+      "name": "aws-admin-guard",
+      "id": "aws-admin-guard",
+      "type": "plugin",
+      "description": "Rule + hooks: the AWS admin profile is usable only after the human authorizes it and confirms a second time in two separate typed messages; consent is read from the session transcript and expires.",
+      "version": "1.0.0",
+      "keywords": [
+        "rules",
+        "guard",
+        "hooks",
+        "aws",
+        "iam",
+        "admin",
+        "consent"
+      ],
+      "author": "",
+      "commands": 0,
+      "agents": 0,
+      "mcpServers": 0,
+      "commandsList": [],
+      "agentsList": [],
+      "mcpServersList": [],
+      "installCommand": "/plugin install aws-admin-guard@claude-code-templates",
+      "downloads": 0
+    },
+    {
+      "name": "chat-language-guard",
+      "id": "chat-language-guard",
+      "type": "plugin",
+      "description": "Rule + hooks: Claude talks to the user in Spanish while code, commits, PRs and files stay English; a Stop check sends English replies back for a Spanish rewrite.",
+      "version": "1.0.0",
+      "keywords": [
+        "rules",
+        "guard",
+        "hooks",
+        "language",
+        "spanish",
+        "chat"
+      ],
+      "author": "",
+      "commands": 0,
+      "agents": 0,
+      "mcpServers": 0,
+      "commandsList": [],
+      "agentsList": [],
+      "mcpServersList": [],
+      "installCommand": "/plugin install chat-language-guard@claude-code-templates",
+      "downloads": 0
+    },
+    {
       "name": "org-workspace",
       "id": "org-workspace",
       "type": "plugin",
@@ -50196,6 +50266,31 @@
       "agentsList": [],
       "mcpServersList": [],
       "installCommand": "/plugin install org-workspace@claude-code-templates",
+      "downloads": 0
+    },
+    {
+      "name": "pr-draft-guard",
+      "id": "pr-draft-guard",
+      "type": "plugin",
+      "description": "Rule + hook: every pull request Claude opens is a draft; Claude never merges or un-drafts one, and asks before merging a base branch into a feature branch.",
+      "version": "1.0.0",
+      "keywords": [
+        "rules",
+        "guard",
+        "hooks",
+        "pull-request",
+        "draft",
+        "merge",
+        "gh"
+      ],
+      "author": "",
+      "commands": 0,
+      "agents": 0,
+      "mcpServers": 0,
+      "commandsList": [],
+      "agentsList": [],
+      "mcpServersList": [],
+      "installCommand": "/plugin install pr-draft-guard@claude-code-templates",
       "downloads": 0
     },
     {
@@ -50392,6 +50487,53 @@
           "cost",
           "subagents",
           "context-window"
+        ]
+      },
+      {
+        "name": "pr-draft-guard",
+        "source": "./plugins/pr-draft-guard",
+        "description": "Rule + hook: every pull request Claude opens is a draft; Claude never merges or un-drafts one, and asks before merging a base branch into a feature branch.",
+        "version": "1.0.0",
+        "category": "rule-guards",
+        "keywords": [
+          "rules",
+          "guard",
+          "hooks",
+          "pull-request",
+          "draft",
+          "merge",
+          "gh"
+        ]
+      },
+      {
+        "name": "aws-admin-guard",
+        "source": "./plugins/aws-admin-guard",
+        "description": "Rule + hooks: the AWS admin profile is usable only after the human authorizes it and confirms a second time in two separate typed messages; consent is read from the session transcript and expires.",
+        "version": "1.0.0",
+        "category": "rule-guards",
+        "keywords": [
+          "rules",
+          "guard",
+          "hooks",
+          "aws",
+          "iam",
+          "admin",
+          "consent"
+        ]
+      },
+      {
+        "name": "chat-language-guard",
+        "source": "./plugins/chat-language-guard",
+        "description": "Rule + hooks: Claude talks to the user in Spanish while code, commits, PRs and files stay English; a Stop check sends English replies back for a Spanish rewrite.",
+        "version": "1.0.0",
+        "category": "rule-guards",
+        "keywords": [
+          "rules",
+          "guard",
+          "hooks",
+          "language",
+          "spanish",
+          "chat"
         ]
       }
     ]
