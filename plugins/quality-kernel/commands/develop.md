@@ -55,21 +55,54 @@ NOT write any implementation code before approval.** This is the one required ch
 
 ## Phase 3 — Build autonomously (after approval)
 - Scaffold the project (e.g. `create-next-app`, Prisma/DB, auth) and commit a baseline.
-- Decompose and build: for multi-subproject work use `/orchestrate-project` (installed from the
-  `orchestration` commands, so it may be namespaced as `/orchestration:orchestrate-project`; one PM per subproject,
-  each running SDD → TDD build → review loop), else drive `/forge` per feature. Every
+- Decompose and build: drive `/forge` per feature yourself, one task at a time, with the run journal
+  (below) as the run's state — across one repo or several repos of an org folder. Every
   feature is `design: settled` after approval: call forge with `--design-settled <its design
   file>` (the feature's own, or `system.design.md` when the system design decides it), so forge
   runs no designer and does not stop for a design choice. Forge stops only if a new design decision
   appears during the build that the approved plan could not have foreseen; this should be rare.
-  When it happens, that feature pauses and the others carry on (a subproject PM reports the stop
-  in its structured report; it does not wait silently). Tell the human which decision, why the
+  When it happens, that feature pauses (journal it `blocked` with the reason) and the others carry
+  on; it never waits silently. Tell the human which decision, why the
   plan did not settle it, and the options. Add the pick to that feature's design file under
-  `## Chosen option`, with the date and the reason, then call forge again with
-  `--design-settled` on that file. Tests are authored
+  `## Chosen option`, with the date and the reason, journal a `decision` record pointing at it,
+  then call forge again with `--design-settled` on that file. Tests are authored
   **anchored to the Contract** (exact values), following the qa-paradigms decision rule (P2 static +
   P4 contract-anchored + P5 independent validation); a broken selector/test must FAIL, never auto-heal.
 - Bounded loops: cap retries per task; on cap, escalate (stop + report), never loop forever.
+
+### Run journal — the run's state lives outside this conversation
+A run lasts days and this context is compacted many times; progress is never kept only in memory.
+Spec: `docs/agentic-harness/spec-run-journal.v1.md`. `J="${CLAUDE_PLUGIN_ROOT}/scripts/run-journal.mjs"`,
+`<org>` = the org folder (the journal is refused inside a product repo).
+- **Start**, right after approval: run id `openssl rand -hex 8` (16 lowercase hex); append
+  `{"v":1,"type":"run_started","run_id":"<id>","plan_ref":"<approved plan file>","repos":[{"name":"<repo>","base_sha":"<40-hex>"}]}`
+  with `node "$J" append --org <org> --run <id> --expect-seq 0 --record '<json>'`. Tell the human the
+  run id and the org folder: they are what a resume needs.
+- **Every task transition** is one append, in this order only: `pending` → `in_progress` →
+  `committed` (with `head_sha`) → `gate_green` / `gate_red` (with `gate: {exit, at}` from the gate run on
+  that `head_sha`); `gate_red` → `in_progress` to retry, at most 3 `gate_red`, then `blocked` with a
+  `reason`. Each record carries `task_id`, `repo`, `branch`, `worktree` (repo and worktree by name).
+  `--expect-seq` is the current record count (`fold` returns it as `seq`); exit 3 means another
+  writer moved it — re-`fold`, never retry blindly. Exit 2 = the record is invalid: fix it, do not skip it.
+- **Every commit of a task** carries the trailer `QK-Task: <task_id>` (`git commit --trailer
+  "QK-Task: <task_id>"`): resume finds commits nobody journaled and commits made after a task went green
+  by this trailer.
+- **One short-lived subagent per task**: give it the task id, its contract and design file, the repo,
+  branch and worktree — not this conversation. It builds, commits with the trailer and returns the
+  `head_sha`; you run the gate and write the journal. Its context ends with the task, so a long run
+  never depends on one ever-growing context.
+- **Finish** in Phase 5: append `{"v":1,"type":"run_finished","verdict":"pass|fail|kill"}`.
+
+### Resuming a run (after a crash, reboot, kill or a `claude --resume`)
+Never continue from memory or from a summary. `node "$J" open --org <org>` lists unfinished runs;
+then `node "$J" resume --org <org> --run <id>` (read-only: it checks the journal against git and
+re-runs the gate once per repo at the latest green SHA):
+- exit 0: skip everything in `done`, restart each task in `continue` from its journaled state, and
+  report each `blocked` task (`reason`) to the human; the rest of the run continues.
+- exit 1: the journal and git (or the gate) disagree — STOP and report every `divergences` entry
+  (`sha_unreachable`, `commits_after_green`, `orphan_commits`, `gate_red_now`, ...) to the human.
+  Do not repair the journal or the branches yourself.
+- exit 2: resume could not decide (`error`) — STOP and report; never treat it as green.
 
 ## Phase 4 — Verify with the gate (the arbiter of "tested")
 - For every change, run the gate: `node "${CLAUDE_PLUGIN_ROOT}/scripts/qk-gate.mjs" --repo <dir>

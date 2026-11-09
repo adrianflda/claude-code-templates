@@ -11,6 +11,8 @@ import { acquireLock, defaultLockDir } from './gate-lock.mjs';
 import { runMemoryGuard } from './mem-guard.mjs';
 
 export { resolveTimeoutSeconds, unsupportedPlatformReason } from './proc-tree.mjs';
+// The lock primitives the run journal builds its journal.lock on (spec-run-journal.v1.md §4).
+export { createExclusive, readLock, classifyLock, processStart } from './gate-lock.mjs';
 
 const NOT_EXECUTABLE_CODES = new Set([126, 127]);
 const incompleteDetail = (r) => (r.error ? r.error.message : (r.signal ? `killed by ${r.signal}` : 'no exit status'));
