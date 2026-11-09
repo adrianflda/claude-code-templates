@@ -210,6 +210,10 @@ test('a command substitution is judged as its own command, inside double quotes 
     'echo "$(echo $(git config --global core.hooksPath /tmp/x))"',
     'echo "$(git config --get core.hooksPath)" && git config core.hooksPath /tmp/x',
     'echo "$(git config --get core.hooksPath)"; bash -c "git config core.hooksPath /tmp/x"',
+    'git config "$(printf core.hooksPath)" /tmp/x',
+    'git config $(echo hook.ai-review.command) x',
+    'git config --global `echo core.hooksPath` /tmp/x',
+    'git config core.hooksPath "$(pwd)/h"',
   ]) {
     const r = guard({ command, cwd: repo, timeout: null });
     assert.equal(r.code, 2, command);

@@ -127,7 +127,10 @@ function changesGateConfig(line) {
   const chars = line.split('');
   for (const [s, e] of spans) chars.fill(' ', s, e);
   const seg = chars.join('');
-  if (!GIT_WORD.test(seg) || !GATE_KEY.test(seg)) return false;
+  if (!GIT_WORD.test(seg)) return false;
+  // The key was only inside a substitution: a `git config` whose key or value the shell
+  // computes may write it (when in doubt, block).
+  if (!GATE_KEY.test(seg)) return /(^|\s)config(\s|$)/.test(seg);
   const w = words(seg);
   const at = w.indexOf('config');
   if (at === -1) return /(^|\s)config(\s|$)/.test(seg);
