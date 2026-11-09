@@ -24,7 +24,7 @@ Everything comes from [`manifest.json`](manifest.json):
 
 | Piece | Where it goes |
 |---|---|
-| agents `adversarial-critic`, `pipeline-breaker`, `qa-expert` | `~/.claude/agents/` |
+| agents `adversarial-critic`, `pipeline-breaker`, `qa-expert` (from `cli-tool/components`) and the nine in `agentic-env/agents/` (the catalog agents with their Opus/Sonnet pins and one-paragraph descriptions: every description is loaded into each session) | `~/.claude/agents/` |
 | skills `epistemic-discipline`, `qa-paradigms`, `skill-audit-3r` | `~/.claude/skills/<name>/` |
 | commands `/diagnose`, `/quality-gate` | `~/.claude/commands/` |
 | hooks in [`hooks/`](hooks) | `~/.claude/hooks/`; each one is wired into `~/.claude/settings.json` |

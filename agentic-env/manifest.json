@@ -6,7 +6,16 @@
   "agents": [
     "cli-tool/components/agents/epistemic-discipline/adversarial-critic.md",
     "cli-tool/components/agents/epistemic-discipline/pipeline-breaker.md",
-    "cli-tool/components/agents/development-tools/qa-expert.md"
+    "cli-tool/components/agents/development-tools/qa-expert.md",
+    "agentic-env/agents/architect-reviewer.md",
+    "agentic-env/agents/backend-developer.md",
+    "agentic-env/agents/code-reviewer.md",
+    "agentic-env/agents/devops-engineer.md",
+    "agentic-env/agents/documentation-expert.md",
+    "agentic-env/agents/react-specialist.md",
+    "agentic-env/agents/research-analyst.md",
+    "agentic-env/agents/se-security-reviewer.md",
+    "agentic-env/agents/security-engineer.md"
   ],
   "skills": [
     "cli-tool/components/skills/epistemic-discipline",
