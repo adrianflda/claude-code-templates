@@ -21,6 +21,8 @@ const WRAPPER_VALUE_OPTS = {
   caffeinate: new Set(['-t', '-w']),
 };
 const MAX_SUBSTITUTION_DEPTH = 16;
+// `bash -c` / `eval` levels to expand; deeper nesting blocks (fail-closed) instead of being skipped.
+const MAX_SHELL_DEPTH = 4;
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
 
 /** Index just past the `)` that closes the `(` at `open`, skipping quoted text and escapes. */
@@ -219,13 +221,14 @@ export function normalise(argv) {
   }
 }
 
-/** Every simple command the line runs, nested shells expanded, depth-limited. */
+/** Every simple command the line runs, nested shells expanded; nesting past MAX_SHELL_DEPTH throws. */
 export function simpleCommands(src, depth = 0) {
   const out = [];
   for (const argv of readCommands(src)) {
     const n = normalise(argv);
     if (n.nested !== undefined) {
-      if (depth < 4) out.push(...simpleCommands(n.nested, depth + 1));
+      if (depth >= MAX_SHELL_DEPTH) throw new Error('bash -c / eval nested too deep');
+      out.push(...simpleCommands(n.nested, depth + 1));
       continue;
     }
     if (n.argv.length) out.push({ assigns: n.assigns, argv: n.argv });

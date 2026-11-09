@@ -98,6 +98,14 @@ test('substitutions nested past the depth limit block instead of passing', () =>
   assert.match(r.stderr, /could not parse the command/);
 });
 
+test('bash -c / eval nested past the limit blocks instead of being skipped', () => {
+  allowed('eval eval eval eval gh pr view 1');
+  blocked('eval eval eval eval gh pr merge 1');
+  const r = blocked('eval eval eval eval eval gh pr merge 1');
+  assert.match(r.stderr, /could not parse the command .*nested too deep/);
+  blocked('eval eval eval eval eval ls');
+});
+
 test('any gh pr merge is blocked, including auto-merge', () => {
   blocked('gh pr merge 280 --squash');
   blocked('gh pr merge --auto --merge 12');
