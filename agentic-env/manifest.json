@@ -1,8 +1,7 @@
 {
   "comment": "What install.py puts on a machine. Paths are relative to the repo root; nothing here is machine-specific.",
   "marketplace": "adrianflda-claude-code-templates",
-  "plugins": ["quality-kernel", "pre-push-review", "usage-guard"],
-  "optionalPlugins": ["pr-draft-guard", "aws-admin-guard"],
+  "plugins": ["quality-kernel", "pre-push-review", "usage-guard", "pr-draft-guard", "aws-admin-guard"],
   "agents": [
     "cli-tool/components/agents/epistemic-discipline/adversarial-critic.md",
     "cli-tool/components/agents/epistemic-discipline/pipeline-breaker.md",

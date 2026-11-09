@@ -90,21 +90,15 @@ def installed_plugins():
     return {p['id']: p for p in json.loads(r.stdout)}
 
 
-def wanted_plugins():
-    """-> [(name, required)] ; optional plugins only if this repo's marketplace lists them."""
-    catalog = json.loads((REPO / '.claude-plugin' / 'marketplace.json').read_text())
-    listed = {p['name'] for p in catalog['plugins']}
-    return ([(n, True) for n in MANIFEST['plugins']] +
-            [(n, False) for n in MANIFEST['optionalPlugins'] if n in listed])
+def plugin_present(name, installed):
+    p = installed.get(f"{name}@{MANIFEST['marketplace']}")
+    return bool(p and p.get('enabled'))
 
 
-def plugin_present(name, required, installed):
-    mkt = MANIFEST['marketplace']
-    if required:
-        p = installed.get(f'{name}@{mkt}')
-        return bool(p and p.get('enabled'))
-    # an optional guard may come from another marketplace (e.g. a local one) — any enabled copy counts
-    return any(i.split('@')[0] == name and p.get('enabled') for i, p in installed.items())
+def foreign_copies(name, installed):
+    """-> enabled ids of `name` from another marketplace: a second copy whose hooks also run, often stale."""
+    return sorted(i for i, p in installed.items()
+                  if i.split('@')[0] == name and i != f"{name}@{MANIFEST['marketplace']}" and p.get('enabled'))
 
 
 GIT_HOOK = REPO / 'plugins' / 'pre-push-review' / 'scripts' / 'install-git-hook.mjs'
@@ -129,9 +123,11 @@ def check(with_plugins):
             drift.append(f"market    {MANIFEST['marketplace']} reads {mkt.get('path') or mkt.get('source')}, "
                          f"not this clone {REPO}")
         installed = installed_plugins()
-        for name, required in wanted_plugins():
-            if not plugin_present(name, required, installed):
+        for name in MANIFEST['plugins']:
+            if not plugin_present(name, installed):
                 drift.append(f"plugin    {name}@{MANIFEST['marketplace']} not installed/enabled")
+            for other in foreign_copies(name, installed):
+                drift.append(f'plugin    {other} also installed: claude plugin uninstall {other}')
         r = run(['node', str(GIT_HOOK), '--check'])
         if r.returncode != 0:
             drift.append(f"git-gate  {(r.stdout + r.stderr).strip().splitlines()[-1:]}")
@@ -167,14 +163,13 @@ def install(with_plugins):
         else:
             step(['claude', 'plugin', 'marketplace', 'update', mkt])
         installed = installed_plugins()
-        for name, required in wanted_plugins():
+        for name in MANIFEST['plugins']:
             ours = installed.get(f'{name}@{mkt}')
             if ours and not ours.get('enabled'):
                 step(['claude', 'plugin', 'enable', f'{name}@{mkt}'])
-            if ours:
-                step(['claude', 'plugin', 'update', f'{name}@{mkt}'])
-            elif not plugin_present(name, required, installed):
-                step(['claude', 'plugin', 'install', f'{name}@{mkt}'])
+            step(['claude', 'plugin', 'update' if ours else 'install', f'{name}@{mkt}'])
+            for other in foreign_copies(name, installed):
+                print(f'warning   {other} is also enabled (its hooks run twice): claude plugin uninstall {other}')
         step(['node', str(GIT_HOOK)])
     print(f'done: {copied} file(s) updated. Restart Claude Code to load them.')
 
