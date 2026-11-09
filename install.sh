@@ -13,7 +13,8 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || echo "$SCRIPT_DIR")"
 COMPONENTS="$REPO_ROOT/cli-tool/components"
 DEST="$HOME/.claude"
 FORCE=false
@@ -94,6 +95,18 @@ list_components() {
   echo ""
 }
 
+copy_file() {
+  local src="$1" dst="$2"
+  if [ ! -f "$src" ]; then
+    warn "Source not found: $src"
+    return
+  fi
+  mkdir -p "$(dirname "$dst")"
+  if $FORCE || [ ! -f "$dst" ]; then
+    cp -f "$src" "$dst"
+  fi
+}
+
 # ── Install SDD only ──────────────────────────────────────────────────────────
 install_sdd() {
   info "Installing SDD workflow..."
@@ -101,6 +114,12 @@ install_sdd() {
   copy_dir "$COMPONENTS/agents/workflow-methodology" "$DEST/agents/workflow-methodology"
   copy_dir "$COMPONENTS/agents/development-team"    "$DEST/agents/development-team"
   copy_dir "$COMPONENTS/skills/sdd"            "$DEST/skills/sdd"
+  # /sdd-review spawns these by subagent_type; without them the review cannot complete
+  local agent
+  for agent in security/security-engineer development-tools/code-reviewer development-tools/architect-reviewer \
+               development-tools/qa-expert epistemic-discipline/pipeline-breaker security/se-security-reviewer; do
+    copy_file "$COMPONENTS/agents/$agent.md" "$DEST/agents/$(basename "$agent").md"
+  done
   success "SDD workflow installed."
   echo ""
   echo "  Start with: /sdd-init"
