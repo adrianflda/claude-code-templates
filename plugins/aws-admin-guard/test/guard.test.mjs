@@ -320,6 +320,24 @@ test('a transcript is protected under every alias: spelling, symlink, hard link,
     `ln -s ~/.claude/projects/p/s.jsonl /tmp/alias`,
     `cp -l ${s.path} /tmp/alias`,
     `cp --symbolic-link ${s.path} /tmp/alias`,
+    `cp -s ${s.path} /tmp/alias`,
+    `cp --link ${s.path} /tmp/alias`,
+    `cp -rl ${home}/hard /tmp/alias`,
+    'pushd ~/.claude && echo x >> projects/p/s.jsonl',
+    // an alias with no `.claude` in its name still arms the code heuristics (2026-11-09 panel)
+    `python3 -c "open('link','a').write('x')"`,
+    `node -e "require('fs').appendFileSync('${home}/hard', 'x')"`,
+    `awk 'BEGIN{print 1 > "link"}'`,
+    'echo "echo x >> link" | bash',
+    `bash -c "bash -c \\"bash -c 'echo x >> ~/hard'\\""`,
+    `eval "eval \\"eval 'echo x >> link'\\""`,
+    'echo x >> "$HOME/link"',
+    'echo x >> "${HOME}/hard"',
+    'tee -a "$PWD"/link < /dev/null',
+    'cp forged "$HOME/hard"',
+    'cd "$HOME" && echo x >> link',
+    'echo x >> ~/hard; echo "unbalanced',
+    'f=~/.cl; ln -s ${f}aude/projects/p/s.jsonl a; echo x >> a',
   ]) {
     const r = run(c);
     assert.equal(r.code, 2, `expected BLOCK: ${c}\n${r.stderr}`);
@@ -346,6 +364,11 @@ test('a transcript is protected under every alias: spelling, symlink, hard link,
     'echo x >> ~/.claude/projects/p/memory/note.md',
     'ln -s /tmp/a /tmp/b',
     `cp ${s.path} /tmp/copy.jsonl`,
+    // a project's own .claude/ folder does not arm the broad checks
+    `jq '.x=1' .claude/settings.json > "$tmp" && mv "$tmp" .claude/settings.json`,
+    `python3 -c "open('notes.txt','a').write('x')"`,
+    'echo x >> "$HOME/notes.txt"',
+    'cd ~/.claude/projects/p/memory && echo x >> note.md',
   ]) {
     const r = run(c);
     assert.equal(r.code, 0, `expected ALLOW: ${c}\n${r.stderr}`);
@@ -354,6 +377,25 @@ test('a transcript is protected under every alias: spelling, symlink, hard link,
     const r = edit(f);
     assert.equal(r.code, 0, `expected ALLOW: Write ${f}\n${r.stderr}`);
   }
+});
+
+test('with CLAUDE_CONFIG_DIR set, its projects folder is protected even without .claude in the path', () => {
+  const cfg = realpathSync(mkdtempSync(join(tmpdir(), 'aag-cfg-')));
+  mkdirSync(join(cfg, 'projects', 'q', 'memory'), { recursive: true });
+  const other = join(cfg, 'projects', 'q', 'other.jsonl');
+  writeFileSync(other, '');
+  const mine = join(cfg, 'projects', 'q', 'mine.jsonl');
+  writeFileSync(mine, '');
+  const env = { CLAUDE_CONFIG_DIR: cfg };
+  const run = (command) => node(GUARD, { tool_name: 'Bash', transcript_path: mine, cwd: cfg, tool_input: { command } }, env);
+  const edit = (file_path) => node(GUARD, { tool_name: 'Write', transcript_path: mine, cwd: cfg, tool_input: { file_path } }, env);
+  const note = join(cfg, 'projects', 'q', 'memory', 'note.md');
+  for (const c of [`echo x >> ${other}`, 'echo x >> projects/q/other.jsonl', `rm ${other}`]) {
+    assert.equal(run(c).code, 2, `expected BLOCK: ${c}`);
+  }
+  assert.equal(edit(other).code, 2, 'Write to another session transcript');
+  assert.equal(run(`echo x >> ${note}`).code, 0, 'memory note via Bash');
+  assert.equal(edit(note).code, 0, 'memory note via Write');
 });
 
 // 2026-10-28 audit: 12 of 12 transcript-write blocks in 30 days were read-only commands like these.

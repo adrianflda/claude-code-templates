@@ -28,7 +28,9 @@ A `UserPromptSubmit` hook tells Claude where the grant stands after each relevan
 - Any write to a session transcript (`>`, `tee`, `sed -i`, `open(...,'a')`, the Write/Edit tools).
   Reading transcripts is fine. A path counts as the file it is on disk, not only as spelled: a
   symlink or hard link to the transcript, `//`, `/./`, `..`, any letter case, a `cd` into `.claude`,
-  a glob or `$CLAUDE_CONFIG_DIR` all reach it, and so does linking one (`ln`, `cp -l`, `cp -s`).
+  a glob, `$HOME`/`$PWD` or `$CLAUDE_CONFIG_DIR` all reach it, and so does linking one (`ln`,
+  `cp -l`, `cp -s`). A literal word that is such an alias arms the same checks the transcript's own
+  path does (inline code, stdin scripts, awk, nested shells).
 
 ## Settings
 

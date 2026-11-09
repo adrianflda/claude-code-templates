@@ -113,69 +113,134 @@ const PROJECTS_DIR = (() => {
   const dir = resolvePath(process.env.CLAUDE_CONFIG_DIR || resolvePath(homedir(), '.claude'), 'projects');
   try { return realpathSync.native(dir).toLowerCase(); } catch { return dir.toLowerCase(); }
 })();
-/** The spelling the path checks compare: lowercase, `//` and `/./` collapsed. `..` is kept, because the
+/** The spelling the text checks compare: lowercase, `//` and `/./` collapsed. `..` is kept, because the
  * memory carve-out treats any `..` as leaving memory/. */
 const spelling = (t) => t.toLowerCase().replace(/\/{2,}/g, '/').replace(/\/\.(?=\/|$)/g, '');
-const expandHome = (t) => t.replace(/^~(?=\/|$)/, homedir());
-const sameFile = (a, b) => {
-  try {
-    const x = statSync(a);
-    const y = statSync(b);
-    return x.dev === y.dev && x.ino === y.ino;
-  } catch { return false; }
-};
+/** `~`, `$HOME`, `$PWD` (and their `${}` forms) expanded from the hook's own environment: the values the
+ * command starts with. A word that still holds `$`, a backtick or a glob after this is not resolved. */
+function expandKnown(t, cwd) {
+  return t.replace(/^~(?=\/|$)/, homedir())
+    .replace(/\$(\{HOME\}|HOME\b)/g, homedir())
+    .replace(/\$(\{PWD\}|PWD\b)/g, cwd);
+}
+const UNRESOLVED = /[$`*?[\]{}]/;
 
-/** True when `p` is, on disk, a session transcript: the same file as the hook's own transcript
- * (through a symlink or a hard link, wherever it sits) or a *.jsonl inside Claude Code's projects
- * folder once symlinks, `..`, `//` and case are resolved. A file that does not exist yet is judged by
- * its real parent folder. Relative paths resolve against each of `dirs`. */
-function transcriptOnDisk(p, transcriptPath, dirs) {
-  const text = expandHome(p);
-  for (const dir of text.startsWith('/') ? ['/'] : dirs) {
-    const abs = resolvePath(dir, text);
-    if (transcriptPath && sameFile(abs, transcriptPath)) return true;
+/** Where a real (symlink-resolved, lowercased) path sits: 'transcripts' anywhere in the projects folder
+ * but a project's memory/ (where *.jsonl still counts), else null. */
+function projectsArea(real) {
+  if (real !== PROJECTS_DIR && !real.startsWith(PROJECTS_DIR + '/')) return null;
+  const rest = real.slice(PROJECTS_DIR.length + 1);
+  return /^[^/]+\/memory(\/|$)/.test(rest) && !rest.endsWith('.jsonl') ? 'memory' : 'transcripts';
+}
+
+/** One disk view per hook run: the transcript's identity is read once, each path at most once. */
+function diskView(transcriptPath) {
+  let id = null;
+  try { const st = statSync(transcriptPath); id = `${st.dev}:${st.ino}`; } catch { /* none */ }
+  const memo = new Map();
+  /** { alias, area } for an absolute path: alias = the same file as the transcript (through a symlink
+   * or a hard link, wherever it sits); area = projectsArea of where it really is. A file that does not
+   * exist yet is judged by its real parent folder. */
+  return (abs) => {
+    if (memo.has(abs)) return memo.get(abs);
+    let alias = false;
+    try { const st = statSync(abs); alias = id !== null && `${st.dev}:${st.ino}` === id; } catch { /* missing */ }
     let real = null;
     try { real = realpathSync.native(abs); } catch {
       try { real = resolvePath(realpathSync.native(posix.dirname(abs)), posix.basename(abs)); } catch { /* no parent */ }
     }
-    const r = (real ?? abs).toLowerCase();
-    if (r.endsWith('.jsonl') && r.startsWith(PROJECTS_DIR + '/') && !inMemory(spelling(abs))) return true;
-  }
-  return false;
+    const r = { alias, area: projectsArea((real ?? abs).toLowerCase()) };
+    memo.set(abs, r);
+    return r;
+  };
 }
 
-/** The folders a relative path in the command may resolve against: the hook's cwd and every literal
- * cd / pushd target (a dynamic one is left to the text checks, which the `.claude` mention arms). */
+/** Every absolute path a word may name: absolute as written, else against each of `dirs`. */
+const candidates = (text, dirs) => (text.startsWith('/') ? [resolvePath(text)] : dirs.map((d) => resolvePath(d, text)));
+
+/** True when a literal word is, on disk, a session transcript: an alias of the hook's own transcript,
+ * or a *.jsonl in the projects folder outside memory/. */
+function transcriptOnDisk(text, ctx) {
+  const t = expandKnown(text, ctx.cwd);
+  if (UNRESOLVED.test(t)) return false;
+  return candidates(t, ctx.dirs).some((abs) => {
+    const d = ctx.disk(abs);
+    return d.alias || (d.area === 'transcripts' && abs.toLowerCase().endsWith('.jsonl'));
+  });
+}
+
+/** The folders a relative path may resolve against: the hook's cwd and every literal cd / pushd target
+ * of the top-level commands (a cd inside bash -c is not followed). */
 function workDirs(cmds, cwd) {
-  const base = cwd || process.cwd();
-  const dirs = [base];
+  const dirs = [cwd];
   for (const c of cmds) {
     const w = unwrap(c.words);
-    if (w.length > 1 && (w[0].text === 'cd' || w[0].text === 'pushd') && !w[1].dynamic) {
-      dirs.push(resolvePath(base, expandHome(w[1].text)));
+    if (w.length > 1 && (w[0].text === 'cd' || w[0].text === 'pushd')) {
+      const t = expandKnown(w[1].text, cwd);
+      if (!w[1].dynamic || !UNRESOLVED.test(t)) dirs.push(resolvePath(cwd, t));
     }
   }
   return dirs;
 }
 
+// Path-like tokens of the raw text, including those inside quoted code (`open('link','a')`).
+const PATH_TOKEN = /[^\s'"`;&|<>(),=]+/g;
+const MAX_TOKENS = 256;
+/** True when some literal token of the raw text reaches the transcripts on disk: an alias of the
+ * transcript, or a path into the projects folder (a folder too: `cd` into it, a glob under it). Past
+ * MAX_TOKENS distinct tokens the answer is yes (only the text heuristics are armed, nothing blocks). */
+function diskMention(command, ctx) {
+  // Read twice: split at quotes (code such as open('link','a')) and with quotes dropped ("$PWD"/link).
+  const tokens = new Set([...(command.match(PATH_TOKEN) || []), ...(command.replace(/['"]/g, '').match(PATH_TOKEN) || [])]);
+  if (tokens.size > MAX_TOKENS) return true;
+  for (const tok of tokens) {
+    const t = expandKnown(tok, ctx.cwd);
+    if (UNRESOLVED.test(t) || t === '-' || /^-/.test(t)) continue;
+    if (candidates(t, ctx.dirs).some((abs) => { const d = ctx.disk(abs); return d.alias || d.area === 'transcripts'; })) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A link made from a word the hook cannot resolve may become an alias the disk check never sees. */
+const linksUnknown = (cmds) => cmds.some((c) => {
+  const [p, ...args] = unwrap(c.words);
+  const links = p && (basename(p.text) === 'ln' || (basename(p.text) === 'cp' && args.some((w) => CP_LINKS.test(w.text))));
+  return links && args.some((w) => w.dynamic);
+});
+
 function writesTranscript(command, transcriptPath, cwd) {
+  const base = cwd || process.cwd();
   // The memory carve-out holds only while the command cannot leave memory/: no "..", at most one cd.
   const staysInMemory = !command.includes('..') && (command.match(/\b(cd|pushd|popd)\b/g) || []).length <= 1;
   const outsideMemory = staysInMemory ? command.replace(MEMORY_PATH, (m) => (inMemory(spelling(m)) ? '' : m)) : command;
-  // Text that may name a transcript: then unknowable write targets (a variable, a glob, $(...)) and
-  // relative *.jsonl count as one. `.claude` in any case or spelling arms it (a cd into it, a glob such
-  // as ~/.claude/proj*, ~/.Claude), and so does CLAUDE_CONFIG_DIR.
+  let cmds = null;
+  let parseError = null;
+  try { cmds = simpleCommands(command); } catch (e) { parseError = e; }
+  const ctx = { transcriptPath, cwd: base, dirs: cmds ? workDirs(cmds, base) : [base], disk: diskView(transcriptPath) };
+  // Text that may name a transcript. Only then do unknowable write targets (a variable, a glob, $(...)),
+  // relative *.jsonl and the code heuristics count. It is armed by: the transcript path; text reaching
+  // the projects folder in any spelling (`.Claude//projects`, a glob such as `.claude/proj*` or
+  // `.claude/*`, a cd into `.claude`); CLAUDE_CONFIG_DIR; a literal token that is the transcript or
+  // sits in the projects folder on disk (a symlink, a hard link, a relative path); or a link made from
+  // a word that cannot be resolved now.
+  const s = spelling(command);
   const mentions = Boolean(transcriptPath && command.includes(transcriptPath)) ||
-    /\.claude\/projects\b[\s\S]*\.jsonl/i.test(command) || /\.claude/i.test(outsideMemory) ||
-    /CLAUDE_CONFIG_DIR/.test(command);
-  let ctx;
+    /\.claude\/projects\b[\s\S]*\.jsonl/.test(s) || /\.claude\/projects/.test(spelling(outsideMemory)) ||
+    /\.claude\/[*?[]|\.claude\/proj[^/\s'"]*[*?[]/.test(s) ||
+    /\b(cd|pushd)\s+[^\s;&|]*\.claude\/?(?=$|[\s;&|)])/.test(s) ||
+    /CLAUDE_CONFIG_DIR/.test(command) || diskMention(command, ctx) || (cmds !== null && linksUnknown(cmds));
+  if (!mentions) return false;
+  if (parseError) {
+    if (parseError instanceof ShellParseError) return WRITE_INTENT.test(command);
+    process.stderr.write(`[aws-admin-guard] shell reader error (${parseError?.message || parseError}); treating the command as a write.\n`);
+    return true;
+  }
   try {
-    const cmds = simpleCommands(command);
-    ctx = { transcriptPath, mentions, dirs: workDirs(cmds, cwd) };
-    return writesIn(command, ctx, 0);
+    return writesIn(command, ctx, 0, cmds);
   } catch (e) {
-    if (e instanceof ShellParseError) return mentions && WRITE_INTENT.test(command);
-    if (!mentions) return false; // a reader bug must not block every command; only the disk check is lost
+    if (e instanceof ShellParseError) return WRITE_INTENT.test(command);
     process.stderr.write(`[aws-admin-guard] shell reader error (${e?.message || e}); treating the command as a write.\n`);
     return true;
   }
@@ -183,11 +248,9 @@ function writesTranscript(command, transcriptPath, cwd) {
 
 function transcriptLike(word, ctx) {
   const t = spelling(word.text);
-  if (!word.dynamic && transcriptOnDisk(word.text, ctx.transcriptPath, ctx.dirs)) return true;
-  if (!ctx.mentions) return false;
   return word.dynamic || (t.includes('.claude/projects') && !inMemory(t)) ||
     Boolean(ctx.transcriptPath && word.text.includes(ctx.transcriptPath)) ||
-    (/\.jsonl$/.test(t) && !/^[/~]/.test(t));
+    (/\.jsonl$/.test(t) && !/^[/~]/.test(t)) || transcriptOnDisk(word.text, ctx);
 }
 
 const writingCode = (c) => WRITE_CODE.test(c) || (SPAWNS.test(c) && WRITE_INTENT.test(c));
@@ -276,9 +339,9 @@ function scriptSource(command, cmd, cmds, depth, hit) {
   } catch { return null; } finally { if (fd !== undefined) closeSync(fd); }
 }
 
-function writesIn(command, ctx, depth) {
+function writesIn(command, ctx, depth, parsed = null) {
   const hit = (w) => transcriptLike(w, ctx);
-  const cmds = simpleCommands(command);
+  const cmds = parsed ?? simpleCommands(command);
   for (const cmd of cmds) {
     if (cmd.outputs.some(hit)) return true;
     const words = unwrap(cmd.words);
@@ -287,7 +350,7 @@ function writesIn(command, ctx, depth) {
     const args = words.slice(1);
     const operands = args.filter((w) => !w.text.startsWith('-'));
     // Code run by a nested shell: read it too, up to MAX_DEPTH; deeper than that counts as a write.
-    const nested = (script) => (depth + 1 >= MAX_DEPTH ? ctx.mentions : writesIn(script, ctx, depth + 1));
+    const nested = (script) => depth + 1 >= MAX_DEPTH || writesIn(script, ctx, depth + 1);
     if (name === 'eval') {
       if (nested(args.map((w) => w.text).join(' '))) return true;
       continue;
@@ -300,7 +363,7 @@ function writesIn(command, ctx, depth) {
         if (nested(cmd.heredoc)) return true;
       } else if (operands.length) {
         if (args.some(hit)) return true; // a script file handed a transcript: unknown, so a write
-      } else if (ctx.mentions && WRITE_INTENT.test(command)) {
+      } else if (WRITE_INTENT.test(command)) {
         return true; // the script arrives on stdin (`... | bash`): judge the whole command broadly
       }
       continue;
@@ -315,13 +378,12 @@ function writesIn(command, ctx, depth) {
         operands.some(hit)) return true;
     if (name === 'find' && args.some((w) => ['-delete', '-exec', '-execdir', '-ok'].includes(w.text)) &&
         args.some(hit)) return true;
-    if (/^[gnm]?awk$/.test(name) && ctx.mentions && args.some((w) => AWK_WRITE.test(w.text))) return true;
+    if (/^[gnm]?awk$/.test(name) && args.some((w) => AWK_WRITE.test(w.text))) return true;
     if (INTERPRETERS.test(name)) {
       const code = [];
       args.forEach((w, i) => { if (/^-[a-z]*[cep]$|^--eval$/.test(w.text) && args[i + 1]) code.push(args[i + 1].text); });
       if (cmd.heredoc) code.push(cmd.heredoc);
-      // Inline code is not parsed for paths: it counts only when the command text names a transcript.
-      if (ctx.mentions && code.some(writingCode)) return true;
+      if (code.some(writingCode)) return true;
       if (!code.length && operands.length && args.some(hit)) {
         // A script file handed a transcript: judged by its code like inline code when that code can be
         // read now; otherwise unknown, so a write.
@@ -329,7 +391,7 @@ function writesIn(command, ctx, depth) {
         if (source === null || writingCode(source)) return true;
         continue;
       }
-      if (ctx.mentions && !code.length && !operands.length && (WRITE_CODE.test(command) || WRITE_INTENT.test(command))) {
+      if (!code.length && !operands.length && (WRITE_CODE.test(command) || WRITE_INTENT.test(command))) {
         return true; // code arrives on stdin (`echo ... | python3`): judge the whole command broadly
       }
       continue; // read-only inline code, or a script that is not handed a transcript
@@ -370,9 +432,10 @@ async function main() {
   if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(tool)) {
     const f = String(ti.file_path || ti.notebook_path || '');
     // Compared as spelled (any case, `//`, `/./`, `..` collapsed) and as the file it is on disk.
+    const base = input.cwd || process.cwd();
     const spelled = posix.normalize(f).toLowerCase();
     if ((transcript && f === transcript) || /\.claude\/projects\/.*\.jsonl$/.test(spelled) ||
-        (f && transcriptOnDisk(f, transcript, [input.cwd || process.cwd()]))) {
+        (f && transcriptOnDisk(f, { cwd: base, dirs: [base], disk: diskView(transcript) }))) {
       block('Session transcripts record what the human typed; they are the consent record and must not be edited.');
     }
     process.exit(0);
