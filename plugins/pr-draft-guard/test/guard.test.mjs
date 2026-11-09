@@ -70,6 +70,34 @@ test('gh pr create without --draft is caught inside compound commands and wrappe
   blocked('timeout 60 gh pr create --fill');
 });
 
+test('wrapper options that take no value, or a value, do not hide gh', () => {
+  blocked('sudo -n gh pr merge 1');
+  blocked('sudo -u root -n gh pr merge 1');
+  blocked('xargs -P 4 gh pr merge');
+  blocked('xargs -0 -n 1 gh pr merge');
+  blocked('nice -n 10 gh pr merge 1');
+  blocked('exec -a name gh pr ready 3');
+  blocked('caffeinate -t 60 gh pr merge 1');
+  allowed('sudo -n ls');
+  allowed('nice -n 10 gh pr view 1');
+});
+
+test('command substitutions inside double quotes are read as commands', () => {
+  blocked('echo "$(gh pr merge 1 --squash)"');
+  blocked('x="`gh pr ready 3`"');
+  blocked('echo "a $(echo "$(gh pr merge 2)") b"');
+  blocked('echo "$(cd x && gh pr create --fill)"');
+  allowed('echo "$(gh pr view 1)"');
+  allowed('echo "\\$(gh pr merge 1) is text"');
+  allowed("echo '$(gh pr merge 1)'");
+});
+
+test('substitutions nested past the depth limit block instead of passing', () => {
+  const deep = 'echo ' + '"$('.repeat(20) + 'ls' + ')"'.repeat(20);
+  const r = blocked(deep);
+  assert.match(r.stderr, /could not parse the command/);
+});
+
 test('any gh pr merge is blocked, including auto-merge', () => {
   blocked('gh pr merge 280 --squash');
   blocked('gh pr merge --auto --merge 12');

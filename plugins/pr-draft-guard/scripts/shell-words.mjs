@@ -7,15 +7,58 @@
  */
 
 const SEPARATORS = new Set([';', '&', '|', '(', ')', '`']);
-const WRAPPERS = new Set(['command', 'builtin', 'exec', 'nohup', 'time', 'nice', 'caffeinate']);
+// Wrappers that run the program after their options, and which of their options take a separate
+// value (`sudo -n` takes none, `xargs -n` takes one, so one shared table lets `gh` be eaten as a value).
+const WRAPPER_VALUE_OPTS = {
+  sudo: new Set(['-u', '-g', '-C', '-D', '-h', '-p', '-r', '-t', '-U', '-T']),
+  xargs: new Set(['-I', '-n', '-L', '-P', '-d', '-E', '-s', '-a']),
+  nice: new Set(['-n']),
+  exec: new Set(['-a']),
+  command: new Set(),
+  builtin: new Set(),
+  nohup: new Set(),
+  time: new Set(),
+  caffeinate: new Set(['-t', '-w']),
+};
+const MAX_SUBSTITUTION_DEPTH = 16;
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
 
-/** Split raw text into simple commands (argv arrays), skipping heredoc bodies. */
-export function readCommands(src) {
+/** Index just past the `)` that closes the `(` at `open`, skipping quoted text and escapes. */
+function endOfParen(src, open) {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (c === '\\') { i++; continue; }
+    if (c === "'") { const e = src.indexOf("'", i + 1); i = e === -1 ? src.length : e; continue; }
+    if (c === '"') {
+      i++;
+      while (i < src.length && src[i] !== '"') i += src[i] === '\\' ? 2 : 1;
+      continue;
+    }
+    if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return i + 1;
+  }
+  return src.length;
+}
+
+/** Index just past the backtick that closes the one at `open`. */
+function endOfBacktick(src, open) {
+  for (let i = open + 1; i < src.length; i++) {
+    if (src[i] === '\\') i++;
+    else if (src[i] === '`') return i + 1;
+  }
+  return src.length;
+}
+
+/** Split raw text into simple commands (argv arrays), skipping heredoc bodies. Command
+ * substitutions inside double quotes are code too: their commands are appended to the list. */
+export function readCommands(src, depth = 0) {
+  if (depth > MAX_SUBSTITUTION_DEPTH) throw new Error('command substitutions nested too deep');
   const cmds = [];
   let words = [];
   let cur = null;
   let heredocs = [];
+  const nested = [];
   let i = 0;
   const endWord = () => {
     if (cur !== null) words.push(cur);
@@ -64,7 +107,23 @@ export function readCommands(src) {
       let j = i + 1;
       let s = '';
       while (j < src.length && src[j] !== '"') {
-        if (src[j] === '\\' && j + 1 < src.length) { s += src[j + 1]; j += 2; } else { s += src[j]; j++; }
+        if (src[j] === '\\' && j + 1 < src.length) { s += src[j + 1]; j += 2; continue; }
+        if (src[j] === '$' && src[j + 1] === '(') {
+          const end = endOfParen(src, j + 1);
+          nested.push(src.slice(j + 2, end - 1));
+          s += src.slice(j, end);
+          j = end;
+          continue;
+        }
+        if (src[j] === '`') {
+          const end = endOfBacktick(src, j);
+          nested.push(src.slice(j + 1, end - 1).replace(/\\([`$\\"])/g, '$1'));
+          s += src.slice(j, end);
+          j = end;
+          continue;
+        }
+        s += src[j];
+        j++;
       }
       cur = (cur ?? '') + s;
       i = j + 1;
@@ -102,6 +161,7 @@ export function readCommands(src) {
     i++;
   }
   endCmd();
+  for (const code of nested) cmds.push(...readCommands(code, depth + 1));
   return cmds;
 }
 
@@ -130,14 +190,6 @@ export function normalise(argv) {
       }
       continue;
     }
-    if (prog === 'sudo' || prog === 'xargs') {
-      a.shift();
-      while (a.length && a[0].startsWith('-')) {
-        const opt = a.shift();
-        if (/^-[ugCDhnIL]$/.test(opt)) a.shift();
-      }
-      continue;
-    }
     if (prog === 'timeout' || prog === 'gtimeout') {
       a.shift();
       while (a.length && a[0].startsWith('-')) {
@@ -147,9 +199,14 @@ export function normalise(argv) {
       a.shift();
       continue;
     }
-    if (WRAPPERS.has(prog)) {
+    const valueOpts = WRAPPER_VALUE_OPTS[prog];
+    if (valueOpts) {
       a.shift();
-      while (a.length && a[0].startsWith('-')) a.shift();
+      while (a.length && a[0].startsWith('-')) {
+        const opt = a.shift();
+        if (opt === '--') break;
+        if (valueOpts.has(opt)) a.shift();
+      }
       continue;
     }
     if (SHELLS.has(prog)) {
