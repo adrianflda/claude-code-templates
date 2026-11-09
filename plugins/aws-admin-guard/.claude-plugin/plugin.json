@@ -1,0 +1,9 @@
+{
+  "name": "aws-admin-guard",
+  "version": "1.0.0",
+  "description": "Rule + hooks: Claude may use the AWS admin profile only after the human authorizes it and confirms a second time, in two separate typed messages; the grant is read from the session transcript and expires.",
+  "author": { "name": "Adrian" },
+  "keywords": ["rules", "guard", "hooks", "aws", "iam", "admin", "least-privilege", "consent"],
+  "license": "MIT",
+  "homepage": "https://github.com/adrianflda/claude-code-templates/tree/main/plugins/aws-admin-guard"
+}

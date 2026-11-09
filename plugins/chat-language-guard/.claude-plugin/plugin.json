@@ -1,0 +1,9 @@
+{
+  "name": "chat-language-guard",
+  "version": "1.0.0",
+  "description": "Rule + hooks: Claude talks to the user in Spanish (code, commits, PRs and files stay English). A reminder on every prompt and a Stop check that sends English replies back for a Spanish rewrite.",
+  "author": { "name": "Adrian" },
+  "keywords": ["rules", "guard", "hooks", "language", "spanish", "i18n", "chat"],
+  "license": "MIT",
+  "homepage": "https://github.com/adrianflda/claude-code-templates/tree/main/plugins/chat-language-guard"
+}
