@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-11-09T03:10:59.453095+00:00",
-  "totalJobs": 104,
+  "lastUpdated": "2026-11-10T03:09:47.972741+00:00",
+  "totalJobs": 106,
   "sources": [
     "Anthropic",
     "HackerNews",
@@ -647,6 +647,50 @@
         "TypeScript",
         "Python",
         "Rust",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "wwr-airbnb-operations-engineer-biztech",
+      "company": "Airbnb",
+      "position": "Operations Engineer, BizTech",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Headquarters: Remote- USA Airbnb was born in 2007 when two hosts welcomed three guests to their San Francisco home, and has since grown to over 5 million hosts who have welcomed over 2 billion guest arrivals in almost every country across the globe. Every day, hosts offer unique stays and...",
+      "applyUrl": "https://weworkremotely.com/remote-jobs/airbnb-operations-engineer-biztech",
+      "source": "WeWorkRemotely",
+      "sourceUrl": "https://weworkremotely.com/remote-jobs/airbnb-operations-engineer-biztech",
+      "postedAt": "2026-10-18T07:31:05+00:00",
+      "tags": [
+        "TypeScript",
+        "JavaScript",
+        "Python",
+        "Rust",
+        "AWS",
+        "GCP",
+        "Copilot"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "anth-5454800008",
+      "company": "Anthropic",
+      "position": "AI Outcomes Manager, Enterprise Tech",
+      "location": "San Francisco, CA | New York City, NY",
+      "remote": false,
+      "salary": "",
+      "description": "Join Anthropic's Customer Success team in a high-visibility & high-impact role driving AI adoption across a small number of enterprise accounts in our Enterprise Tech segment. As our dedicated Customer Success Manager for Enterprise Tech Customers you’ll be their partner and trusted advisor helping...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5454800008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5454800008",
+      "postedAt": "2026-10-16T21:12:59-04:00",
+      "tags": [
+        "Rust",
+        "Go",
         "AWS",
         "Claude Code",
         "Anthropic"
