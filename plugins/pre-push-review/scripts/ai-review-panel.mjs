@@ -42,6 +42,11 @@
  *   AI_REVIEW_VERIFIER_MODEL  model for the verifier (default: AI_REVIEW_MODEL)
  *   AI_REVIEW_MAX_FILE_BYTES  a file's diff larger than this is sent as its header only (default: 100000)
  *   AI_REVIEW_MAX_LINE_CHARS  a file with a longer line is sent as its header only (default: 2000)
+ *   AI_REVIEW_SETTING_SOURCES  'user' = the agents load the USER settings of the active Claude
+ *                         profile (default: none). Needed when that profile authenticates with an
+ *                         API key kept in its settings (apiKeyHelper or env), which the agents
+ *                         otherwise never see and fail with "Not logged in". Only 'user' is
+ *                         accepted: project and local settings come from the reviewed repository.
  *
  * Every run that ends on its own appends one line to ~/.cache/git-ai-review/runs.jsonl (see
  * ./run-log.mjs): which reviewers ran, were skipped or failed, their findings by severity, the
@@ -104,6 +109,9 @@ const ROLE_FILTER = [...new Set((process.env.AI_REVIEW_ROLES || '').split(',').m
 const QUICK_LINES = Math.max(0, Number(process.env.AI_REVIEW_QUICK_LINES ?? 60) || 0);
 const VERIFY = process.env.AI_REVIEW_VERIFY !== '0';
 const VERIFIER_MODEL = process.env.AI_REVIEW_VERIFIER_MODEL || MODEL;
+// Exactly 'user' or nothing. Project and local settings live in the repository under review, so a
+// pushed diff could add hooks or permission rules to them; they are never loaded here.
+const SETTING_SOURCES = process.env.AI_REVIEW_SETTING_SOURCES === 'user' ? 'user' : '';
 const startedAt = Date.now();
 
 // Everything the run log needs that is known before the panel runs; the rest is added at the end.
@@ -307,6 +315,11 @@ function runAgent(bin, role, userPrompt, { tools = '', model = MODEL, cwd, setti
     // passes. OAuth/keychain auth is NOT a setting source, so it still works (unlike --bare,
     // which drops OAuth and demands ANTHROPIC_API_KEY).
     //
+    // A profile that authenticates with an API key kept in its settings (apiKeyHelper or env) IS
+    // affected: with no settings the agent answers "Not logged in". AI_REVIEW_SETTING_SOURCES=user
+    // opts in to the user settings only (SETTING_SOURCES above). The tool lockdown below does not
+    // depend on settings, so it holds either way; the user's own hooks may then run in the agent.
+    //
     // Reviewers only read the diff on stdin, and that diff is untrusted: it can carry text
     // written to steer a model. So they get no tools at all and cannot run, write or fetch
     // anything from inside the pre-push hook. Without this the child gets the full default set
@@ -325,7 +338,7 @@ function runAgent(bin, role, userPrompt, { tools = '', model = MODEL, cwd, setti
       bin,
       [
         '-p',
-        '--setting-sources', '',
+        '--setting-sources', SETTING_SOURCES,
         ...(settings ? ['--settings', settings] : []),
         '--tools', tools,
         '--permission-mode', 'dontAsk',

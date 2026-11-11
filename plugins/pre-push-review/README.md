@@ -398,6 +398,7 @@ read-only home never fails a review.
 | `AI_REVIEW_QUICK_LINES` | `60` | a push with at most this many changed lines gets the quick panel (`security`, `correctness`, `reliability`, `ticket`); `0` = always the whole panel |
 | `AI_REVIEW_VERIFY` | `1` | `0` = no verifier: every finding counts as reported |
 | `AI_REVIEW_VERIFIER_MODEL` | `AI_REVIEW_MODEL` | model for the verifier |
+| `AI_REVIEW_SETTING_SOURCES` | none | `user` = the agents load the user settings of the active Claude profile. Set it when that profile authenticates with an API key kept in its settings (`apiKeyHelper` or `env`); without it every agent fails with "Not logged in". Only `user` is accepted: project and local settings come from the reviewed repository |
 
 `PREPUSH_REVIEW_SKIP` and `AI_REVIEW_SKIP` no longer skip a push: the gate removes them, and the
 guard blocks Claude commands that set them. They only affect the panel when it is run directly.

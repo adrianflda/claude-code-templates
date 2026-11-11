@@ -96,6 +96,44 @@ test('reviewers run with no tools, so a diff cannot steer them into running comm
   }
 });
 
+test('AI_REVIEW_SETTING_SOURCES=user lets reviewers load user settings, for profiles whose API key lives there', () => {
+  const repo = repoWithDeletion();
+  const claude = fakeClaude();
+  const result = runNode(PANEL, {
+    args: ['--branch', '--base', 'main'],
+    cwd: repo,
+    env: { CLAUDE_BIN: claude.bin, AI_REVIEW_SETTING_SOURCES: 'user' },
+  });
+
+  assert.equal(result.code, 0, result.stderr);
+  const argvs = claude.argvs();
+  assert.ok(argvs.length >= 1, 'at least one reviewer ran');
+  for (const argv of argvs) {
+    assert.equal(flagValue(argv, '--setting-sources'), 'user', 'user settings only');
+    assert.equal(flagValue(argv, '--tools'), '', 'the tool lockdown is unchanged');
+    assert.equal(flagValue(argv, '--permission-mode'), 'dontAsk', 'the permission mode is unchanged');
+  }
+});
+
+test('AI_REVIEW_SETTING_SOURCES never loads project or local settings, which come from the reviewed repo', () => {
+  const repo = repoWithDeletion();
+  for (const value of ['project', 'local', 'user,project', 'user,project,local', 'USER', ' user ']) {
+    const claude = fakeClaude();
+    const result = runNode(PANEL, {
+      args: ['--branch', '--base', 'main'],
+      cwd: repo,
+      env: { CLAUDE_BIN: claude.bin, AI_REVIEW_SETTING_SOURCES: value },
+    });
+
+    assert.equal(result.code, 0, result.stderr);
+    const argvs = claude.argvs();
+    assert.ok(argvs.length >= 1, `at least one reviewer ran for "${value}"`);
+    for (const argv of argvs) {
+      assert.equal(flagValue(argv, '--setting-sources'), '', `"${value}" falls back to no settings`);
+    }
+  }
+});
+
 test('reviewers are told to report real defects only, keeping the output and severity rules', () => {
   const repo = repoWithDeletion();
   const claude = fakeClaude();
