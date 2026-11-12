@@ -162,8 +162,28 @@ function requestInit(req, timeoutMs) {
   return { method: req.method, headers, body, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) };
 }
 
+// Step log: what the breaker actually sent and saw, kept so a verdict can be replayed. Redaction and
+// truncation apply to the log only; the wire request is built from the untouched spec.
+export const MAX_LOGGED_BODY = 4096;
+const SECRET_HEADER_RE = /secret|token|auth|key|cookie/i;
+
+const truncateBody = (text) =>
+  text === undefined || text.length <= MAX_LOGGED_BODY ? text : `${text.slice(0, MAX_LOGGED_BODY)}…[truncated, ${text.length - MAX_LOGGED_BODY} more chars]`;
+
+const redactHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, SECRET_HEADER_RE.test(k) ? "[redacted]" : v]));
+
+function stepRecord(method, url, init, status, text) {
+  return {
+    method,
+    url,
+    request: { headers: redactHeaders(init.headers), body: truncateBody(init.body) },
+    response: { status, body: truncateBody(text) },
+  };
+}
+
 export async function runHttpVector({ systemUrl, spec, timeoutMs = DEFAULT_TIMEOUT_MS, localPattern = DEFAULT_LOCAL_PATTERN, invariant = null }) {
-  const broken = (reason) => ({ invariant, result: "INSTRUMENT-BROKEN", reason });
+  const steps = [];
+  const broken = (reason) => ({ invariant, result: "INSTRUMENT-BROKEN", reason, steps });
   if (!isLocalTarget(systemUrl, localPattern)) {
     return broken(`target is not local: ${systemUrl} — the autonomous breaker only drives local test/staging systems`);
   }
@@ -173,8 +193,11 @@ export async function runHttpVector({ systemUrl, spec, timeoutMs = DEFAULT_TIMEO
   let last;
   for (const [i, req] of spec.requests.entries()) {
     try {
-      const res = await fetch(new URL(req.path, systemUrl), requestInit(req, timeoutMs));
+      const url = new URL(req.path, systemUrl);
+      const init = requestInit(req, timeoutMs);
+      const res = await fetch(url, init);
       last = { status: res.status, text: await res.text() };
+      steps.push(stepRecord(req.method, url.href, init, last.status, last.text));
     } catch (err) {
       const why = err && err.name === "TimeoutError" ? `timed out after ${timeoutMs} ms` : String(err && err.cause ? err.cause.message || err.cause : err);
       return broken(`requests[${i}] ${req.method} ${req.path} could not complete: ${why}`);
@@ -186,5 +209,6 @@ export async function runHttpVector({ systemUrl, spec, timeoutMs = DEFAULT_TIMEO
     ...verdict,
     expected: spec.expect ?? null,
     actual: { status: last.status, body: last.text.slice(0, 500) },
+    steps,
   };
 }
