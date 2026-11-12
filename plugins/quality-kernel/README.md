@@ -179,6 +179,11 @@ most leverage and the least prior mechanism: a **plan that produces a machine-ch
      redirects never followed, per-request timeout) or the gstack UI probe (steps `goto` same-origin and
      `click` only; asserts `text`/`is`/`attrs`) — then the contract's own probe, and computes the
      verdict in code. Whatever the author writes in prose is ignored.
+  Each HTTP vector in the output JSON also carries `steps`: the exact requests it ran, in order, as
+  `{method, url, request: {headers, body}, response: {status, body}}`, so a verdict can be replayed.
+  The log (never the wire) replaces the value of any header whose name matches
+  `/secret|token|auth|key|cookie/i` with `[redacted]` and cuts bodies over 4096 chars with a
+  `[truncated, N more chars]` marker. Steps are kept on INSTRUMENT-BROKEN too (those that completed).
   The blind input with any key beyond the four above is refused. **Residual:** the contract probe is
   a shell command from the human-approved contract and runs with the gate's privileges.
   `scripts/breaker-gate.mjs` = the composed gate + the enforced breaker: on the critical surface a green
