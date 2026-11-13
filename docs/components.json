@@ -50377,7 +50377,7 @@
       "id": "usage-guard",
       "type": "plugin",
       "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace. Hooks cap context per call (main and subagents) and subagent spawns per session. A prompt audit lists unused skills and agents with a skillOverrides block. claude-mem can be paused, resumed and moved to another provider.",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "keywords": [
         "usage",
         "tokens",
@@ -50477,7 +50477,7 @@
         "name": "usage-guard",
         "source": "./plugins/usage-guard",
         "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace. Hooks cap context per call (main and subagents) and subagent spawns per session. A prompt audit lists unused skills and agents with a skillOverrides block. claude-mem can be paused, resumed and moved to another provider.",
-        "version": "0.5.0",
+        "version": "0.5.1",
         "category": "productivity",
         "keywords": [
           "usage",
