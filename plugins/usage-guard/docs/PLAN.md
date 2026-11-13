@@ -108,6 +108,8 @@ from a base-branch `REVIEW.md` (precision, not cost).
   whole-session count. Lines written by 0.5.0 carry no time and count only then.
 - Past the budget the spawn is a permission prompt (`ask`), recorded like any
   other. `USAGE_GUARD_SPAWN_HARD=1` keeps the refusal for unattended runs.
+  This changes the default: a run that auto-approves prompts and relied on the
+  hard cap of 0.5.0 must set `USAGE_GUARD_SPAWN_HARD=1`.
 
 ## Replicating on another machine
 

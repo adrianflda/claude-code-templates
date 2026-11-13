@@ -131,16 +131,16 @@ class WatchdogTests(Base):
 
 class SpawnBudgetTests(Base):
     def test_budget_counts_and_asks(self):
-        p = self.payload(tool="Agent")
-        p["tool_input"] = {"subagent_type": "Explore"}
-        outs = [run_hook("spawn_budget.py", p, {"USAGE_GUARD_SPAWN_BUDGET": "3"}) for _ in range(4)]
+        outs = [run_hook("spawn_budget.py", self.agent(), {"USAGE_GUARD_SPAWN_BUDGET": "3"}) for _ in range(4)]
         self.assertIsNone(outs[0])
-        self.assertIn("1 subagent spawn(s) left", outs[1]["hookSpecificOutput"]["additionalContext"])
-        self.assertIn("0 subagent spawn(s) left", outs[2]["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(outs[1]["hookSpecificOutput"]["additionalContext"],
+                         "usage-guard: 1 subagent spawn(s) left in the last 120 min (budget 3).")
+        self.assertEqual(outs[2]["hookSpecificOutput"]["additionalContext"],
+                         "usage-guard: 0 subagent spawn(s) left in the last 120 min (budget 3).")
         over = outs[3]["hookSpecificOutput"]
         self.assertEqual(over["permissionDecision"], "ask")
         self.assertIn("3 subagents spawned in the last 120 min (budget 3)", over["permissionDecisionReason"])
-        # A spawn the user is asked about is recorded too, so the count stays honest.
+        # The ledger counts attempts: a spawn the user is asked about is recorded even if they decline it.
         self.assertEqual(self.ledger().count("Explore"), 4)
 
     def ledger(self):
@@ -187,6 +187,28 @@ class SpawnBudgetTests(Base):
     def test_lines_without_a_time_count_only_with_window_zero(self):
         self.seed([], legacy=5)
         self.assertIsNone(run_hook("spawn_budget.py", self.agent(), {"USAGE_GUARD_SPAWN_BUDGET": "3"}))
+
+    def test_reminder_names_the_session_with_window_zero(self):
+        self.seed([900])
+        env = {"USAGE_GUARD_SPAWN_BUDGET": "3", "USAGE_GUARD_SPAWN_WINDOW_MIN": "0"}
+        out = run_hook("spawn_budget.py", self.agent(), env)
+        self.assertEqual(out["hookSpecificOutput"]["additionalContext"],
+                         "usage-guard: 1 subagent spawn(s) left in this session (budget 3).")
+
+    def test_negative_window_counts_the_whole_session(self):
+        self.seed([900, 800, 700])
+        env = {"USAGE_GUARD_SPAWN_BUDGET": "3", "USAGE_GUARD_SPAWN_WINDOW_MIN": "-5"}
+        out = run_hook("spawn_budget.py", self.agent(), env)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "ask")
+        self.assertIn("in this session", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_line_with_an_unreadable_time_is_ignored_inside_a_window(self):
+        self.seed([3, 2, 1])
+        with open(os.path.join(self.scratch, "usage-guard", f"{self.session}.spawns"), "a") as f:
+            f.write("garbage\tExplore\n")
+        out = run_hook("spawn_budget.py", self.agent(), {"USAGE_GUARD_SPAWN_BUDGET": "4"})
+        self.assertEqual(out["hookSpecificOutput"]["additionalContext"],
+                         "usage-guard: 0 subagent spawn(s) left in the last 120 min (budget 4).")
 
     def test_hard_mode_denies_and_does_not_record(self):
         self.seed([3, 2, 1])
