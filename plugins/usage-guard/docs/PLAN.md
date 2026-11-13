@@ -25,12 +25,12 @@ Left alone on purpose: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` (user decision),
 | Hook | Event | Behaviour |
 |---|---|---|
 | `context_watchdog.py` | `PreToolUse` (all tools), `UserPromptSubmit` | Reads the last assistant usage from the tail of the right transcript. Main: warn once per 50k step from 250k, deny tools and block prompts from 400k. Subagent: warn from 150k, deny tools from 300k so it returns its report. Slash commands are never blocked |
-| `spawn_budget.py` | `PreToolUse` matcher `Agent` | Per-session ledger in the scratchpad dir; deny past `USAGE_GUARD_SPAWN_BUDGET` (default 8, 0 = unlimited); reminder on the last two |
+| `spawn_budget.py` | `PreToolUse` matcher `Agent` | Per-session ledger in the scratchpad dir, counted over a sliding window of `USAGE_GUARD_SPAWN_WINDOW_MIN` (default 120, 0 = whole session); past `USAGE_GUARD_SPAWN_BUDGET` (default 8, 0 = unlimited) the spawn becomes a permission prompt, or a refusal with `USAGE_GUARD_SPAWN_HARD=1`; reminder on the last two |
 | `subagent_note.py` | `SubagentStart` | Injects the budget and reading rules as `additionalContext` |
 
 Knobs (env): `USAGE_GUARD_CTX_WARN`, `USAGE_GUARD_CTX_BLOCK`,
 `USAGE_GUARD_SUBAGENT_CTX_WARN`, `USAGE_GUARD_SUBAGENT_CTX_BLOCK`,
-`USAGE_GUARD_SPAWN_BUDGET`, `USAGE_GUARD_PROMPT_BLOCK`, `USAGE_GUARD_DISABLE=1`.
+`USAGE_GUARD_SPAWN_BUDGET`, `USAGE_GUARD_SPAWN_WINDOW_MIN`, `USAGE_GUARD_SPAWN_HARD`, `USAGE_GUARD_PROMPT_BLOCK`, `USAGE_GUARD_DISABLE=1`.
 Hooks never exit non-zero and time out at 5 s; the watchdog costs about 70 ms on
 a 2.5 MB transcript because it reads only the tail.
 
@@ -97,6 +97,19 @@ from a base-branch `REVIEW.md` (precision, not cost).
 - `scripts/claude_config.py` holds the config-dir, JSON-with-backup, plugin and
   frontmatter helpers the four scripts used to copy; `CLAUDE_CONFIG_DIR` is
   read at call time, so tests and callers can redirect it without a reload.
+
+## 0.5.1: spawn budget over a sliding window (done)
+
+- The spawn budget counted every spawn of a session and never went down, so a
+  session of several days hit the wall although each spawn had been approved,
+  and the refusal left no way forward inside the session.
+- The ledger now stores the time of each spawn and only the last
+  `USAGE_GUARD_SPAWN_WINDOW_MIN` minutes (120) count; `0` keeps the old
+  whole-session count. Lines written by 0.5.0 carry no time and count only then.
+- Past the budget the spawn is a permission prompt (`ask`), recorded like any
+  other. `USAGE_GUARD_SPAWN_HARD=1` keeps the refusal for unattended runs.
+  This changes the default: a run that auto-approves prompts and relied on the
+  hard cap of 0.5.0 must set `USAGE_GUARD_SPAWN_HARD=1`.
 
 ## Replicating on another machine
 
