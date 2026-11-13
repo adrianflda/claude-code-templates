@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -129,16 +130,70 @@ class WatchdogTests(Base):
 
 
 class SpawnBudgetTests(Base):
-    def test_budget_counts_and_denies(self):
+    def test_budget_counts_and_asks(self):
         p = self.payload(tool="Agent")
         p["tool_input"] = {"subagent_type": "Explore"}
         outs = [run_hook("spawn_budget.py", p, {"USAGE_GUARD_SPAWN_BUDGET": "3"}) for _ in range(4)]
         self.assertIsNone(outs[0])
         self.assertIn("1 subagent spawn(s) left", outs[1]["hookSpecificOutput"]["additionalContext"])
         self.assertIn("0 subagent spawn(s) left", outs[2]["hookSpecificOutput"]["additionalContext"])
-        self.assertEqual(outs[3]["hookSpecificOutput"]["permissionDecision"], "deny")
+        over = outs[3]["hookSpecificOutput"]
+        self.assertEqual(over["permissionDecision"], "ask")
+        self.assertIn("3 subagents spawned in the last 120 min (budget 3)", over["permissionDecisionReason"])
+        # A spawn the user is asked about is recorded too, so the count stays honest.
+        self.assertEqual(self.ledger().count("Explore"), 4)
+
+    def ledger(self):
         with open(os.path.join(self.scratch, "usage-guard", f"{self.session}.spawns")) as f:
-            self.assertEqual(f.read().count("Explore"), 3)
+            return f.read()
+
+    def seed(self, ages_min, legacy=0):
+        d = os.path.join(self.scratch, "usage-guard")
+        os.makedirs(d, exist_ok=True)
+        now = time.time()
+        with open(os.path.join(d, f"{self.session}.spawns"), "w") as f:
+            f.write("Explore\n" * legacy)  # lines written before the ledger carried a time
+            for age in ages_min:
+                f.write(f"{int(now - age * 60)}\tExplore\n")
+
+    def agent(self):
+        p = self.payload(tool="Agent")
+        p["tool_input"] = {"subagent_type": "Explore"}
+        return p
+
+    def test_spawns_older_than_the_window_do_not_count(self):
+        self.seed([200, 190, 180, 170, 121])
+        self.assertIsNone(run_hook("spawn_budget.py", self.agent(), {"USAGE_GUARD_SPAWN_BUDGET": "3"}))
+
+    def test_spawns_inside_the_window_count(self):
+        self.seed([200, 119, 60, 1])
+        out = run_hook("spawn_budget.py", self.agent(), {"USAGE_GUARD_SPAWN_BUDGET": "3"})
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "ask")
+        self.assertIn("3 subagents spawned in the last 120 min", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_window_length_is_a_knob(self):
+        self.seed([50, 40, 31])
+        env = {"USAGE_GUARD_SPAWN_BUDGET": "3", "USAGE_GUARD_SPAWN_WINDOW_MIN": "30"}
+        self.assertIsNone(run_hook("spawn_budget.py", self.agent(), env))
+
+    def test_window_zero_counts_the_whole_session(self):
+        self.seed([900, 800], legacy=1)
+        env = {"USAGE_GUARD_SPAWN_BUDGET": "3", "USAGE_GUARD_SPAWN_WINDOW_MIN": "0"}
+        out = run_hook("spawn_budget.py", self.agent(), env)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "ask")
+        self.assertIn("3 subagents spawned in this session (budget 3)",
+                      out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_lines_without_a_time_count_only_with_window_zero(self):
+        self.seed([], legacy=5)
+        self.assertIsNone(run_hook("spawn_budget.py", self.agent(), {"USAGE_GUARD_SPAWN_BUDGET": "3"}))
+
+    def test_hard_mode_denies_and_does_not_record(self):
+        self.seed([3, 2, 1])
+        env = {"USAGE_GUARD_SPAWN_BUDGET": "3", "USAGE_GUARD_SPAWN_HARD": "1"}
+        out = run_hook("spawn_budget.py", self.agent(), env)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(self.ledger().count("Explore"), 3)
 
     def test_unlimited_and_other_tools(self):
         p = self.payload(tool="Agent")
