@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-11-14T03:09:17.828416+00:00",
-  "totalJobs": 105,
+  "lastUpdated": "2026-11-15T03:09:48.113758+00:00",
+  "totalJobs": 106,
   "sources": [
     "Anthropic",
     "HackerNews",
@@ -8,6 +8,28 @@
     "WeWorkRemotely"
   ],
   "jobs": [
+    {
+      "id": "anth-5469291008",
+      "company": "Anthropic",
+      "position": "Engineering Manager, Billing Platform",
+      "location": "San Francisco, CA | New York City, NY | Seattle, WA",
+      "remote": false,
+      "salary": "",
+      "description": "Anthropic exists to ensure the world safely navigates the transition through transformative AI. That work is funded by commercial revenue — and every dollar of it runs through Billing Platform. We build and operate the infrastructure that turns product usage into revenue across everything Anthropic...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5469291008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5469291008",
+      "postedAt": "2026-11-14T15:19:44-05:00",
+      "tags": [
+        "Python",
+        "Rust",
+        "AWS",
+        "Claude Code",
+        "Java",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
     {
       "id": "rok-remote-senior-agentic-ai-engineer-nda-gt-1137710",
       "company": "GT",
@@ -606,6 +628,23 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
+      "id": "wwr-vertex-marketing-group-distribution-engineer",
+      "company": "Vertex Marketing Group",
+      "position": "Distribution Engineer",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Headquarters: Bulgaria URL: https://vertexmg.com Scale our distribution by code: a fleet of real devices, iPhones first and Android too, plus platform APIs and AI agents, posting across many accounts and surfaces. You work directly with the founder. Most content gets made and then dies at a few...",
+      "applyUrl": "https://weworkremotely.com/remote-jobs/vertex-marketing-group-distribution-engineer",
+      "source": "WeWorkRemotely",
+      "sourceUrl": "https://weworkremotely.com/remote-jobs/vertex-marketing-group-distribution-engineer",
+      "postedAt": "2026-10-20T11:32:37+00:00",
+      "tags": [
+        "Claude Code"
+      ],
+      "companyIcon": ""
+    },
+    {
       "id": "anth-5455961008",
       "company": "Anthropic",
       "position": "Applied AI Demo Engineer",
@@ -817,26 +856,6 @@
         "Swift",
         "Kotlin",
         "Tailwind"
-      ],
-      "companyIcon": ""
-    },
-    {
-      "id": "wwr-upgrade-ai-experience-engineer-conversational-ai",
-      "company": "Upgrade",
-      "position": "AI Experience Engineer (Conversational AI)",
-      "location": "Remote",
-      "remote": true,
-      "salary": "$140K-$180K",
-      "description": "Headquarters: Canada (Remote) About the Role: An AI Experience Engineer owns the full lifecycle of the journeys our customers have with Upgrade's AI agent on chat, voice and email: creation, optimization, edge case handling and containment growth. They build journeys in Sierra's no-code tooling,...",
-      "applyUrl": "https://weworkremotely.com/remote-jobs/upgrade-ai-experience-engineer-conversational-ai",
-      "source": "WeWorkRemotely",
-      "sourceUrl": "https://weworkremotely.com/remote-jobs/upgrade-ai-experience-engineer-conversational-ai",
-      "postedAt": "2026-10-15T07:31:14+00:00",
-      "tags": [
-        "TypeScript",
-        "JavaScript",
-        "Rails",
-        "GraphQL"
       ],
       "companyIcon": ""
     },
