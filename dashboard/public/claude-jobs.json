@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-11-16T03:11:02.099946+00:00",
-  "totalJobs": 105,
+  "lastUpdated": "2026-11-17T03:10:02.734978+00:00",
+  "totalJobs": 108,
   "sources": [
     "Anthropic",
     "HackerNews",
@@ -8,6 +8,48 @@
     "WeWorkRemotely"
   ],
   "jobs": [
+    {
+      "id": "anth-5484035008",
+      "company": "Anthropic",
+      "position": "Applied AI Architect, Beneficial Deployments (Non-Profits)",
+      "location": "San Francisco, CA | New York City, NY",
+      "remote": false,
+      "salary": "",
+      "description": "We're looking for an Applied AI Architect to join Beneficial Deployments, focused on helping nonprofits and foundations get real value from Claude. You'll be the technical lead for a portfolio of partners, working alongside our Account Executives from first conversation through deployment. You'll...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5484035008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5484035008",
+      "postedAt": "2026-11-16T18:14:39-05:00",
+      "tags": [
+        "Rust",
+        "Go",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5477416008",
+      "company": "Anthropic",
+      "position": "Research Engineer, AI Monitoring",
+      "location": "London, UK",
+      "remote": false,
+      "salary": "",
+      "description": "Our team builds, tests, deploys, and monitors the classifiers that block internal agents from taking dangerous actions. These classifiers run across RL, evals, and internal deployments, and are designed to catch things like sandbox escape attempts or exfiltration of sensitive data. When a...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5477416008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5477416008",
+      "postedAt": "2026-11-16T16:28:41-05:00",
+      "tags": [
+        "Rust",
+        "Go",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
     {
       "id": "anth-5469291008",
       "company": "Anthropic",
@@ -544,11 +586,11 @@
     {
       "id": "anth-5464493008",
       "company": "Anthropic",
-      "position": "Tech Lead Manager, Core Apps Data Scientist",
+      "position": "Tech Lead Manager, Claude Code Data Scientist",
       "location": "New York City, NY; San Francisco, CA | New York City, NY; Seattle, WA",
       "remote": false,
       "salary": "",
-      "description": "As part of our growing Data Science and Analytics team, you will play an instrumental role in our company’s mission of building safe and beneficial artificial intelligence by driving data-informed decision making across our organization. You bring experience from high-bar teams and are eager to...",
+      "description": "As part of our growing Data Science and Analytics team, you will play an instrumental role in our company's mission of building safe and beneficial artificial intelligence by driving data-informed decision making across our organization. You bring experience from high-bar teams and are eager to...",
       "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5464493008",
       "source": "Anthropic",
       "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5464493008",
@@ -626,6 +668,31 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "wwr-offerup-software-development-engineer-ii-remote-colombia",
+      "company": "OfferUp",
+      "position": "Software Development Engineer II (Remote @ Colombia)",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Headquarters: Remote @ Colombia About the role: The OfferUp Connect team builds the moments that turn a listing into a sale. Every chat between buyers and sellers, every offer notification, and every saved-search alert runs through services we own, from messaging and notifications to location,...",
+      "applyUrl": "https://weworkremotely.com/remote-jobs/offerup-software-development-engineer-ii-remote-colombia",
+      "source": "WeWorkRemotely",
+      "sourceUrl": "https://weworkremotely.com/remote-jobs/offerup-software-development-engineer-ii-remote-colombia",
+      "postedAt": "2026-10-22T07:31:08+00:00",
+      "tags": [
+        "TypeScript",
+        "Rust",
+        "Node.js",
+        "AWS",
+        "Kubernetes",
+        "Claude Code",
+        "Java",
+        "Vue.js",
+        "Redis"
+      ],
+      "companyIcon": ""
     },
     {
       "id": "wwr-vertex-marketing-group-distribution-engineer",
