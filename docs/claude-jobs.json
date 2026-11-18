@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-11-17T03:10:02.734978+00:00",
-  "totalJobs": 108,
+  "lastUpdated": "2026-11-18T03:10:27.616556+00:00",
+  "totalJobs": 104,
   "sources": [
     "Anthropic",
     "HackerNews",
@@ -138,27 +138,6 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
-      "id": "hn-50384008",
-      "company": "Sortrace",
-      "position": "Junior Frontend Engineer",
-      "location": "REMOTE (Europe), hybrid Norrköping or Stockholm",
-      "remote": true,
-      "salary": "",
-      "description": "Sortrace is a small cleantech AI company in Sweden. Cameras on waste collection trucks and trained vision models flag material in the wrong fraction when bins are emptied. Customers use our platform to review deviations, images, and insights. We're hiring for two roles on a small team with short...",
-      "applyUrl": "https://news.ycombinator.com/item?id=50384008",
-      "source": "HackerNews",
-      "sourceUrl": "https://news.ycombinator.com/item?id=50384008",
-      "postedAt": "2026-11-05T20:25:23+00:00",
-      "tags": [
-        "React",
-        "TypeScript",
-        "Python",
-        "Cursor",
-        "Tailwind"
-      ],
-      "companyIcon": ""
-    },
-    {
       "id": "rok-remote-feltsense-ai-engineer-silver-dev-1137691",
       "company": "Silver.dev",
       "position": "Feltsense AI Engineer",
@@ -221,27 +200,6 @@
         "Go",
         "Claude Code",
         "Django"
-      ],
-      "companyIcon": ""
-    },
-    {
-      "id": "hn-50357360",
-      "company": "Thankly",
-      "position": "Software Engineer",
-      "location": "REMOTE (US)",
-      "remote": true,
-      "salary": "",
-      "description": "Thankly builds branded shopping apps that run inside AI assistants, including ChatGPT, Claude and Gemini. Shoppers ask for what they need in conversation, the app recommends products from the brand's own catalog, and they can check out without leaving the chat. Founding Engineer: Build our platform...",
-      "applyUrl": "https://news.ycombinator.com/item?id=50357360",
-      "source": "HackerNews",
-      "sourceUrl": "https://news.ycombinator.com/item?id=50357360",
-      "postedAt": "2026-11-03T20:01:15+00:00",
-      "tags": [
-        "React",
-        "TypeScript",
-        "PostgreSQL",
-        "Supabase",
-        "Claude Code"
       ],
       "companyIcon": ""
     },
@@ -329,26 +287,6 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
-      "id": "rok-remote-tech-lead-ringbook-limited-1137673",
-      "company": "Ringbook Limited",
-      "position": "Tech lead",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "What You’ll Do ãDesign the architecture of the application and make key technical decisions. ãBuild and maintain scalable features across the Ringbook web application. ãIntegrate AI capabilities throughout the platform to create innovative features. ãDevelop clean, responsive, and intuitive...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-tech-lead-ringbook-limited-1137673",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-tech-lead-ringbook-limited-1137673",
-      "postedAt": "2026-11-03T14:53:55+00:00",
-      "tags": [
-        "React",
-        "TypeScript",
-        "PostgreSQL",
-        "AWS"
-      ],
-      "companyIcon": ""
     },
     {
       "id": "hn-50349129",
@@ -670,6 +608,24 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
+      "id": "wwr-toptal-ai-engineer-agentic-systems",
+      "company": "Toptal",
+      "position": "AI Engineer - Agentic Systems",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Headquarters: Summary We are seeking a highly hands-on AI Engineer with a proven track record of shipping agentic AI systems into production for enterprise environments. In this role, you will design, build, and deploy production-grade AI agents capable of multi-agent orchestration, complex tool...",
+      "applyUrl": "https://weworkremotely.com/remote-jobs/toptal-ai-engineer-agentic-systems",
+      "source": "WeWorkRemotely",
+      "sourceUrl": "https://weworkremotely.com/remote-jobs/toptal-ai-engineer-agentic-systems",
+      "postedAt": "2026-10-22T18:54:42+00:00",
+      "tags": [
+        "GCP",
+        "Rails"
+      ],
+      "companyIcon": ""
+    },
+    {
       "id": "wwr-offerup-software-development-engineer-ii-remote-colombia",
       "company": "OfferUp",
       "position": "Software Development Engineer II (Remote @ Colombia)",
@@ -710,28 +666,6 @@
         "Claude Code"
       ],
       "companyIcon": ""
-    },
-    {
-      "id": "anth-5455961008",
-      "company": "Anthropic",
-      "position": "Applied AI Demo Engineer",
-      "location": "San Francisco, CA | New York City, NY",
-      "remote": false,
-      "salary": "",
-      "description": "Anthropic's customer-facing teams are often the first place a customer sees what Claude can do. As a Demo Engineer, you'll build the demos, reference implementations, and reusable tooling that help those teams make new capabilities tangible, relevant, and trustworthy, ideally within days of a...",
-      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5455961008",
-      "source": "Anthropic",
-      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5455961008",
-      "postedAt": "2026-10-19T18:38:51-04:00",
-      "tags": [
-        "TypeScript",
-        "Python",
-        "Rust",
-        "AWS",
-        "Claude Code",
-        "Anthropic"
-      ],
-      "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
       "id": "wwr-growth-minded-senior-data-engineer",
@@ -794,29 +728,6 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
-      "id": "wwr-airbnb-operations-engineer-biztech",
-      "company": "Airbnb",
-      "position": "Operations Engineer, BizTech",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Headquarters: Remote- USA Airbnb was born in 2007 when two hosts welcomed three guests to their San Francisco home, and has since grown to over 5 million hosts who have welcomed over 2 billion guest arrivals in almost every country across the globe. Every day, hosts offer unique stays and...",
-      "applyUrl": "https://weworkremotely.com/remote-jobs/airbnb-operations-engineer-biztech",
-      "source": "WeWorkRemotely",
-      "sourceUrl": "https://weworkremotely.com/remote-jobs/airbnb-operations-engineer-biztech",
-      "postedAt": "2026-10-18T07:31:05+00:00",
-      "tags": [
-        "TypeScript",
-        "JavaScript",
-        "Python",
-        "Rust",
-        "AWS",
-        "GCP",
-        "Copilot"
-      ],
-      "companyIcon": ""
     },
     {
       "id": "anth-5454800008",
