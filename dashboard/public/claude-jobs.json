@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-11-21T03:09:51.873918+00:00",
-  "totalJobs": 108,
+  "lastUpdated": "2026-11-22T03:09:53.290406+00:00",
+  "totalJobs": 105,
   "sources": [
     "Anthropic",
     "HackerNews",
@@ -8,6 +8,47 @@
     "WeWorkRemotely"
   ],
   "jobs": [
+    {
+      "id": "rok-remote-senior-staff-machine-learning-engineer-ads-ranking-reddit-1137932",
+      "company": "Reddit",
+      "position": "Senior Staff Machine Learning Engineer, Ads Ranking",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Reddit is a community of communities. It’s built on shared interests, passion, and trust, and is home to the most open and authentic conversations on the internet. Every day, Reddit users submit, vote, and comment on the topics they care most about. With 100,000+ active communities and...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-staff-machine-learning-engineer-ads-ranking-reddit-1137932",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-staff-machine-learning-engineer-ads-ranking-reddit-1137932",
+      "postedAt": "2026-11-21T02:40:04+00:00",
+      "tags": [
+        "Python",
+        "Rust",
+        "Go",
+        "Cursor"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-advisory-solutions-architect-msp-new-product-intro-rubrik-job-board-1137896",
+      "company": "Rubrik Job Board",
+      "position": "Advisory Solutions Architect, MSP (New Product Intro)",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Help shape how Rubrik partners with leading service providers to deliver cyber resilience at scale. The New Product Introduction (NPI) & Service Creation Solution Architect is a new function in the MSP Solution Architecture Team. You will design, package and enable new managed service offerings...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-advisory-solutions-architect-msp-new-product-intro-rubrik-job-board-1137896",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-advisory-solutions-architect-msp-new-product-intro-rubrik-job-board-1137896",
+      "postedAt": "2026-11-20T07:20:36+00:00",
+      "tags": [
+        "Rust",
+        "AWS",
+        "GCP",
+        "Azure",
+        "Claude Code"
+      ],
+      "companyIcon": ""
+    },
     {
       "id": "rok-remote-international-people-ops-analyst-benefits-cribl-1137875",
       "company": "Cribl",
@@ -103,52 +144,6 @@
       "companyIcon": ""
     },
     {
-      "id": "rok-remote-front-end-engineer-ux-ui-beyondtrust-1137833",
-      "company": "BeyondTrust",
-      "position": "Front-End Engineer, UX/UI",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "BeyondTrust is a place where you can bring your purpose to life through the work that you do, creating a safer world through our cybersecurity SaaS portfolio. Our culture of flexibility, trust, and continual learning means you will be recognized for your growth, and for the impact you make on our...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-front-end-engineer-ux-ui-beyondtrust-1137833",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-front-end-engineer-ux-ui-beyondtrust-1137833",
-      "postedAt": "2026-11-19T15:30:02+00:00",
-      "tags": [
-        "React",
-        "Next.js",
-        "TypeScript",
-        "Rust",
-        "Go",
-        "Claude Code",
-        "GraphQL"
-      ],
-      "companyIcon": ""
-    },
-    {
-      "id": "rok-remote-seo-full-stack-engineer-treatwell-1137805",
-      "company": "Treatwell",
-      "position": "SEO Full Stack Engineer",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "We're looking for a full-stack engineer to join our Product Engineering team, reporting to one of the Engineering Managers of the Marketplace area, with a dotted line to the Marketing SEO Manager, focused on supporting the Growth and Marketing area. This role will have a 60% focus on Front End, and...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-seo-full-stack-engineer-treatwell-1137805",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-seo-full-stack-engineer-treatwell-1137805",
-      "postedAt": "2026-11-18T16:00:31+00:00",
-      "tags": [
-        "React",
-        "TypeScript",
-        "PostgreSQL",
-        "AWS",
-        "Kubernetes",
-        "Cursor",
-        "Java"
-      ],
-      "companyIcon": ""
-    },
-    {
       "id": "anth-5483945008",
       "company": "Anthropic",
       "position": "Applied AI Engineer, Commercial",
@@ -236,29 +231,6 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
-      "id": "rok-remote-senior-agentic-ai-engineer-nda-gt-1137710",
-      "company": "GT",
-      "position": "Senior Agentic AI Engineer NDA",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "GT was founded in 2019 by a former Apple, Nest, and Google executive. GT’s mission is to connect the world’s best talent with product careers offered by high-growth companies in the UK, USA, Canada, Germany, and the Netherlands. On behalf of the client, GT is looking for a Senior Agentic AI...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-agentic-ai-engineer-nda-gt-1137710",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-agentic-ai-engineer-nda-gt-1137710",
-      "postedAt": "2026-11-09T16:00:13+00:00",
-      "tags": [
-        "React",
-        "Python",
-        "Azure",
-        "Docker",
-        "Claude Code",
-        "Cursor",
-        "Rails"
-      ],
-      "companyIcon": ""
-    },
-    {
       "id": "anth-5473198008",
       "company": "Anthropic",
       "position": "Applied AI Architect, Democratic Partnerships ",
@@ -299,30 +271,6 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
-      "id": "rok-remote-feltsense-ai-engineer-silver-dev-1137691",
-      "company": "Silver.dev",
-      "position": "Feltsense AI Engineer",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "About the company We raised $5.1M to build agents that operate as fully autonomous founders. Our backers include Matt Schlicht (founder of Moltbook), the founders of Crunchbase and Republic, and VCs including Draper, Precursor, and Liquid2. We're working at the frontier of autonomous systems,...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-feltsense-ai-engineer-silver-dev-1137691",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-feltsense-ai-engineer-silver-dev-1137691",
-      "postedAt": "2026-11-05T16:00:07+00:00",
-      "tags": [
-        "TypeScript",
-        "JavaScript",
-        "Node.js",
-        "PostgreSQL",
-        "Supabase",
-        "GCP",
-        "Claude Code",
-        "Cursor"
-      ],
-      "companyIcon": ""
     },
     {
       "id": "hn-50373706",
@@ -618,6 +566,29 @@
       "companyIcon": ""
     },
     {
+      "id": "wwr-welcomehome-software-senior-software-engineer",
+      "company": "WelcomeHome Software",
+      "position": "Senior Software Engineer",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Headquarters: Atlanta, Georgia URL: https://www.welcomehomesoftware.com/homecarecrm?utm_term=home%20care%20software&utm_campaign=Lead+Gen+-+Home+Care+-+Branded+%26+General&utm_source=adwords&utm_medium=ppc&hsa_acc=3279896849&hsa_cam=22158696391&hsa_grp=179100793812&hsa_ad=730236934988&hsa_s About...",
+      "applyUrl": "https://weworkremotely.com/remote-jobs/welcomehome-software-senior-software-engineer",
+      "source": "WeWorkRemotely",
+      "sourceUrl": "https://weworkremotely.com/remote-jobs/welcomehome-software-senior-software-engineer",
+      "postedAt": "2026-11-02T15:51:54+00:00",
+      "tags": [
+        "React",
+        "PostgreSQL",
+        "AWS",
+        "Claude Code",
+        "Ruby",
+        "Rails",
+        "Redis"
+      ],
+      "companyIcon": ""
+    },
+    {
       "id": "anth-5465639008",
       "company": "Anthropic",
       "position": "AI Outcomes Manager, Strategic Tech (Spanish-speaking)",
@@ -718,49 +689,6 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
-      "id": "wwr-toptal-ai-engineer-agentic-systems",
-      "company": "Toptal",
-      "position": "AI Engineer - Agentic Systems",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Headquarters: Summary We are seeking a highly hands-on AI Engineer with a proven track record of shipping agentic AI systems into production for enterprise environments. In this role, you will design, build, and deploy production-grade AI agents capable of multi-agent orchestration, complex tool...",
-      "applyUrl": "https://weworkremotely.com/remote-jobs/toptal-ai-engineer-agentic-systems",
-      "source": "WeWorkRemotely",
-      "sourceUrl": "https://weworkremotely.com/remote-jobs/toptal-ai-engineer-agentic-systems",
-      "postedAt": "2026-10-22T18:54:42+00:00",
-      "tags": [
-        "GCP",
-        "Rails"
-      ],
-      "companyIcon": ""
-    },
-    {
-      "id": "wwr-offerup-software-development-engineer-ii-remote-colombia",
-      "company": "OfferUp",
-      "position": "Software Development Engineer II (Remote @ Colombia)",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Headquarters: Remote @ Colombia About the role: The OfferUp Connect team builds the moments that turn a listing into a sale. Every chat between buyers and sellers, every offer notification, and every saved-search alert runs through services we own, from messaging and notifications to location,...",
-      "applyUrl": "https://weworkremotely.com/remote-jobs/offerup-software-development-engineer-ii-remote-colombia",
-      "source": "WeWorkRemotely",
-      "sourceUrl": "https://weworkremotely.com/remote-jobs/offerup-software-development-engineer-ii-remote-colombia",
-      "postedAt": "2026-10-22T07:31:08+00:00",
-      "tags": [
-        "TypeScript",
-        "Rust",
-        "Node.js",
-        "AWS",
-        "Kubernetes",
-        "Claude Code",
-        "Java",
-        "Vue.js",
-        "Redis"
-      ],
-      "companyIcon": ""
     },
     {
       "id": "anth-5456581008",
