@@ -70,6 +70,14 @@
       "version": "1.0.0",
       "category": "rule-guards",
       "keywords": ["rules", "guard", "hooks", "language", "spanish", "chat"]
+    },
+    {
+      "name": "agent-skills",
+      "source": "./plugins/agent-skills",
+      "description": "Addy Osmani's engineering skills (MIT), vendored at a pinned commit: skills only, no commands, agents or hooks. Six fill gaps and may be used by Claude on its own (debugging, API design, security at build time, migrations, performance, observability); the other twenty run only when typed as /agent-skills:<name>, so they never compete with quality-kernel.",
+      "version": "0.6.18",
+      "category": "engineering-skills",
+      "keywords": ["skills", "debugging", "api-design", "security", "migrations", "performance", "observability", "vendored"]
     }
   ]
 }

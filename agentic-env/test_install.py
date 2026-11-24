@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""install.py against a throwaway HOME (no `claude`/git steps: --no-plugins). Run: python3 -I agentic-env/test_install.py"""
+"""install.py against a throwaway HOME (no `claude`/git steps: --no-plugins; no uv: --no-tools). Run: python3 -I agentic-env/test_install.py"""
 import json
 import os
 import subprocess
@@ -15,7 +15,7 @@ FOREIGN = {'type': 'command', 'command': 'python3 /opt/elsewhere/mine.py'}
 
 def run(home, *args):
     env = {**os.environ, 'HOME': str(home)}
-    return subprocess.run([sys.executable, '-I', str(INSTALL), '--no-plugins', *args],
+    return subprocess.run([sys.executable, '-I', str(INSTALL), '--no-plugins', '--no-tools', *args],
                           capture_output=True, text=True, env=env, timeout=60)
 
 
@@ -68,6 +68,16 @@ class InstallTest(unittest.TestCase):
         self.assertIn('differs   ' + str(target), r.stdout)
         self.assertEqual(run(self.home).returncode, 0)
         self.assertEqual(run(self.home, '--check').returncode, 0)
+
+    def test_the_skills_of_this_folder_ship_with_their_scripts_still_executable(self):
+        run(self.home)
+        skills = self.home / '.claude' / 'skills'
+        self.assertTrue((skills / 'code-graph' / 'SKILL.md').is_file())
+        lookup = skills / 'library-docs' / 'scripts' / 'lookup.py'
+        self.assertTrue(os.access(lookup, os.X_OK))
+        usage = subprocess.run([sys.executable, '-I', str(lookup)], capture_output=True, text=True)
+        self.assertEqual(usage.returncode, 2)
+        self.assertIn('lookup.py search <library>', usage.stderr)
 
     def test_installed_hooks_run_from_their_new_home(self):
         run(self.home)

@@ -15,7 +15,9 @@ REPO = HERE.parent
 INSTALL = HERE / 'install.py'
 MKT = 'adrianflda-claude-code-templates'
 # The contract: every plugin the other machine must get from this repo's marketplace.
-REQUIRED = ['quality-kernel', 'pre-push-review', 'usage-guard', 'pr-draft-guard', 'aws-admin-guard']
+REQUIRED = ['quality-kernel', 'pre-push-review', 'usage-guard', 'pr-draft-guard', 'aws-admin-guard', 'agent-skills']
+GUARDS = ['pr-draft-guard', 'aws-admin-guard']
+OTHERS = [n for n in REQUIRED if n not in GUARDS]
 
 FAKE_CLAUDE = '''#!/usr/bin/env python3
 import json, os, sys
@@ -56,7 +58,7 @@ class PluginCheckTest(unittest.TestCase):
         self.log = self.bin.parent / 'claude-calls.log'
         env = {**os.environ, 'HOME': str(self.home), 'PATH': f'{self.bin}{os.pathsep}{os.environ["PATH"]}',
                'FAKE_REPO': str(REPO), 'FAKE_PLUGINS': json.dumps(plugins), 'FAKE_LOG': str(self.log)}
-        r = subprocess.run([sys.executable, '-I', str(INSTALL), *args],
+        r = subprocess.run([sys.executable, '-I', str(INSTALL), '--no-tools', *args],
                            capture_output=True, text=True, env=env, timeout=60)
         self.assertNotIn('ERROR', r.stderr)
         return r
@@ -82,7 +84,7 @@ class PluginCheckTest(unittest.TestCase):
         self.assertEqual(lines, [])
 
     def test_a_guard_only_from_another_marketplace_is_drift(self):
-        r, lines = self.check(ours(*REQUIRED[:3], 'aws-admin-guard') +
+        r, lines = self.check(ours(*OTHERS, 'aws-admin-guard') +
                               [{'id': 'pr-draft-guard@rule-guards-local', 'enabled': True}])
         self.assertEqual(r.returncode, 1)
         self.assertEqual(lines, [
@@ -98,21 +100,22 @@ class PluginCheckTest(unittest.TestCase):
                                  'claude plugin uninstall aws-admin-guard@rule-guards-local'])
 
     def test_our_copy_disabled_is_drift(self):
-        r, lines = self.check(ours(*REQUIRED[:4]) + [{'id': f'aws-admin-guard@{MKT}', 'enabled': False}])
+        r, lines = self.check(ours(*OTHERS, 'pr-draft-guard') + [{'id': f'aws-admin-guard@{MKT}', 'enabled': False}])
         self.assertEqual(r.returncode, 1)
         self.assertEqual(lines, [f'plugin    aws-admin-guard@{MKT} not installed/enabled'])
 
     def test_install_runs_install_update_and_enable_as_needed(self):
-        _, calls = self.install(ours(*REQUIRED[:3]) + [{'id': f'pr-draft-guard@{MKT}', 'enabled': False}])
+        _, calls = self.install(ours(*OTHERS) + [{'id': f'pr-draft-guard@{MKT}', 'enabled': False}])
         self.assertEqual(calls, [f'plugin update {n}@{MKT}' for n in REQUIRED[:3]] + [
             f'plugin enable pr-draft-guard@{MKT}',
             f'plugin update pr-draft-guard@{MKT}',
             f'plugin install aws-admin-guard@{MKT}',
+            f'plugin update agent-skills@{MKT}',
         ])
 
     def test_install_adds_ours_beside_a_foreign_copy_and_only_warns(self):
-        r, calls = self.install(ours(*REQUIRED[:4]) + [{'id': 'aws-admin-guard@rule-guards-local', 'enabled': True}])
-        self.assertEqual(calls[-1], f'plugin install aws-admin-guard@{MKT}')
+        r, calls = self.install(ours(*OTHERS, 'pr-draft-guard') + [{'id': 'aws-admin-guard@rule-guards-local', 'enabled': True}])
+        self.assertIn(f'plugin install aws-admin-guard@{MKT}', calls)
         self.assertFalse([c for c in calls if 'uninstall' in c], 'the installer never deletes')
         self.assertIn('warning   aws-admin-guard@rule-guards-local is also enabled (its hooks run twice): '
                       'claude plugin uninstall aws-admin-guard@rule-guards-local', r.stdout)
