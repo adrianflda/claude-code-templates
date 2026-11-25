@@ -19,6 +19,11 @@ non-goals, (4) stack specifics/versions if the description leaves them open, (5)
 only? seed data? which flows must demonstrably work end-to-end?). Keep it to what materially changes
 the build. If the description already answers a question, don't ask it.
 
+Before asking, write your reading of what is wanted in one sentence and what it leaves
+unsettled; ask only about that. Give every question your best guess as its first option,
+marked "(Recommended)", with the reason in one line, so the human confirms or corrects
+instead of composing an answer. Stop as soon as you could predict the remaining answers.
+
 ## Phase 1 — Research → Plan → Contract (no building yet)
 1. **Research** the shape of the solution (the built-in `Explore` / `Plan` agents for patterns;
    for a greenfield app, decide the module/subproject split: e.g. web (Next.js frontend), api (route

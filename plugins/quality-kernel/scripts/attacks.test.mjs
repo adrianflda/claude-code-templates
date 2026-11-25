@@ -625,3 +625,67 @@ test('HARNESS — an ESLint flat config (eslint.config.js) under productionGlobs
   try { const r = run(tmp, base, head); assert.strictEqual(r.status, 2); assert.match(json(r).reason, /ambiguous/); }
   finally { rmSync(tmp, { recursive: true, force: true }); }
 });
+
+// SUPPRESS — an inline marker that switches a check off (`@ts-ignore`, `eslint-disable`, `# noqa`...)
+// weakens the bar without touching a test or a config, so the referee's base harness still passes.
+// The defense is the same as for a test change: the diff is routed to human review (exit 3).
+const suppressGate = (baseFiles, change) => {
+  const { tmp, base, head } = mk(TOOLS, baseFiles, change);
+  try { const r = runGate(tmp, base, head); return { status: r.status, verdict: json(r) }; }
+  finally { rmSync(tmp, { recursive: true, force: true }); }
+};
+
+test('ATTACK SUPPRESS-1 — a production line that adds @ts-ignore is routed to human review (exit 3), never a silent pass', () => {
+  const { status, verdict } = suppressGate(BASE, { 'src/code.mjs': `// @ts-ignore\n${OK}` });
+  assert.strictEqual(status, 3);
+  assert.strictEqual(verdict.requiresHumanReview, true);
+  assert.deepStrictEqual(verdict.route.addedSuppressions, [{ path: 'src/code.mjs', marker: '@ts-ignore' }]);
+  assert.match(verdict.route.reason, /check suppression\(s\) added/);
+  assert.ok(verdict.notes.some((n) => /src\/code\.mjs \(@ts-ignore\)/.test(n)), 'the gate names the file and the marker');
+});
+
+test('ATTACK SUPPRESS-2 — markers of other tools and languages count (eslint, coverage, Python)', () => {
+  for (const [path, line, marker] of [
+    ['src/code.mjs', `${OK} // eslint-disable-line no-unused-vars`, 'eslint-disable'],
+    ['src/code.mjs', `/* istanbul ignore next */\n${OK}`, 'istanbul ignore'],
+    ['src/util.py', 'import os  # noqa: F401\n', '# noqa'],
+    ['src/util.py', 'x: int = "a"  # type: ignore\n', '# type: ignore'],
+  ]) {
+    const { status, verdict } = suppressGate(BASE, { [path]: line });
+    assert.strictEqual(status, 3, `${marker}: exit`);
+    assert.strictEqual(verdict.route.addedSuppressions[0].marker, marker);
+  }
+});
+
+test('ATTACK SUPPRESS-3 — a line shaped like a diff header cannot hide the marker', () => {
+  // Added content "++ b/x // @ts-ignore" prints in the diff as "+++ b/x // @ts-ignore".
+  const { status, verdict } = suppressGate(BASE, { 'src/notes.txt': '++ b/src/other.mjs // @ts-ignore\n' });
+  assert.strictEqual(status, 3);
+  assert.deepStrictEqual(verdict.route.addedSuppressions.map((s) => s.path), ['src/notes.txt']);
+});
+
+test('CONTROL SUPPRESS — a marker that was already there, or one the change removes, does not ask for review (exit 0)', () => {
+  const marked = { ...BASE, 'src/code.mjs': `// eslint-disable-next-line no-console\n${OK}` };
+  const kept = suppressGate(marked, { 'src/code.mjs': `// eslint-disable-next-line no-console\n${OK}\nexport const g = () => 2;` });
+  assert.strictEqual(kept.status, 0);
+  assert.deepStrictEqual(kept.verdict.route.addedSuppressions, []);
+  assert.strictEqual(kept.verdict.requiresHumanReview, false);
+  const removed = suppressGate(marked, { 'src/code.mjs': OK });
+  assert.strictEqual(removed.status, 0);
+  assert.deepStrictEqual(removed.verdict.route.addedSuppressions, []);
+  assert.strictEqual(removed.verdict.requiresHumanReview, false);
+});
+
+test('ATTACK SUPPRESS-4 (.gitattributes -diff) — marking the file binary in the same change cannot hide the marker', () => {
+  // With `-diff` git prints "Binary files differ" and no hunks unless the diff is forced to text.
+  const { status, verdict } = suppressGate(BASE, { '.gitattributes': 'src/** -diff\n', 'src/code.mjs': `// @ts-ignore\n${OK}` });
+  assert.notStrictEqual(status, 0);
+  assert.deepStrictEqual(verdict.route.addedSuppressions, [{ path: 'src/code.mjs', marker: '@ts-ignore' }]);
+  assert.strictEqual(verdict.requiresHumanReview, true);
+});
+
+test('CONTROL SUPPRESS (ledger) — a marker inside the tool\'s own audit ledger is not a suppression', () => {
+  const { verdict } = suppressGate(BASE, { '.quality-kernel/run-ledger.jsonl': '{"note":"eslint-disable"}\n', 'src/code.mjs': `${OK}\nexport const g = () => 2;` });
+  assert.deepStrictEqual(verdict.route.addedSuppressions, []);
+  assert.strictEqual(verdict.requiresHumanReview, false);
+});

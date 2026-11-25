@@ -6,7 +6,7 @@ declared residual: a seven-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.12.0.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.13.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
 > It now anchors verification to committed history and an inverted trusted tree. The agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -87,6 +87,11 @@ mechanism alone, defend against the change's own code **executing and being trus
 - **Test changes are human-reviewed, not mechanically certified** (Option B): a neutered test is
   routed to review (exit 3), where the diff is visible; the gate does not decide whether a test edit
   is legitimate — the human does.
+- **Added check suppressions are human-reviewed too, by text search.** A line the change adds with
+  `@ts-ignore`, `eslint-disable`, `# noqa` and the like is routed to review (exit 3). The search
+  does not parse code: a marker inside a string also asks for review, a suppression spelled in a
+  way the list does not know is missed, and one set in a config file is covered only where that
+  config is harness or critical surface.
 - **A client-side hook is not enforcement.** Locally, exit 3 blocks the push, but a determined
   developer can `git push --no-verify`; the "human review" is a workflow, not a mechanical lock. Real
   enforcement is server-side (a protected branch / required check), which is out of this local-first
@@ -305,7 +310,7 @@ Automatic, always on (no invocation needed):
   `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
   model as context. Recording only; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.12.0)
+## Gate status — teeth vs. prose (v0.13.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.

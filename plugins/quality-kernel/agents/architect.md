@@ -50,6 +50,19 @@ verification command.
    - **Idempotency** — every operation with an external effect (DB write, queue,
      outbound call, payment) ends in the same state when run twice or re-run after a
      crash halfway through. Flag any that is not; the hardener needs a test for it.
+     Where the operation takes an idempotency or retry key, also check that:
+     - the key comes from the intent (sent by the client, or derived from an immutable
+       id), never generated per attempt or from a timestamp;
+     - the claim is one atomic write decided by a unique constraint, not a read followed
+       by a write;
+     - the same key with a different payload is rejected, not answered with the first
+       response;
+     - a duplicate arriving while the first is still running has a stated outcome
+       (reject, wait with a bound, or return pending), and is never let through;
+     - the intent is recorded before the outbound call, so a timeout or crash leaves
+       something to resolve instead of a blind retry;
+     - keys are kept longer than the longest path that can deliver the same intent again
+       (a dead-letter queue replayed days later included).
    - **Shared mutable state** — actors that need not share a mutable thing each get
      their own; where sharing is required, exactly one writer, enforced by the
      structure (ownership, a single module that owns the write), not by convention.

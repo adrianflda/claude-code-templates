@@ -20,7 +20,7 @@ grown to 800k tokens. This plugin does the measuring first and the stopping next
 | `scripts/claude_mem.py` | claude-mem observer: `status` (provider, model, auth, pause state, worker), `pause` / `resume` (the hooks skip every project, in running sessions too; reversible), `provider claude\|gemini\|openrouter [--model]` (refuses while the provider's key is empty; never handles keys; restarts the worker) |
 | `scripts/claude_config.py` | Shared helpers, not a command: config dir resolved at call time, JSON written with a backup, enabled plugin dirs, agent frontmatter and costly pins |
 | `hooks/context_watchdog.py` | `PreToolUse` + `UserPromptSubmit`: warns from 250k context, denies tools and blocks prompts from 400k (subagents: 150k / 300k, so they return their report instead of looping) |
-| `hooks/spawn_budget.py` | `PreToolUse` on `Agent`: per-session spawn budget, default 8 |
+| `hooks/spawn_budget.py` | `PreToolUse` on `Agent`: spawn budget per session, default 8 inside a sliding 120-minute window; past it the spawn becomes a permission prompt |
 | `hooks/subagent_note.py` | `SubagentStart`: budget note injected into every subagent |
 | `/usage-guard` | `report [days]`, `doctor`, `audit [days]`, `setup`, `statusline`, `hooks`, `mem [status\|pause\|resume\|provider …]` |
 | `skills/usage-guard` | Runbook another agent follows to replicate the setup on a new machine |
@@ -92,6 +92,9 @@ All optional, set in the `env` block of `settings.json` or the shell:
 `USAGE_GUARD_CTX_WARN` (250000), `USAGE_GUARD_CTX_BLOCK` (400000),
 `USAGE_GUARD_SUBAGENT_CTX_WARN` (150000), `USAGE_GUARD_SUBAGENT_CTX_BLOCK`
 (300000), `USAGE_GUARD_SPAWN_BUDGET` (8, `0` = unlimited),
+`USAGE_GUARD_SPAWN_WINDOW_MIN` (120; only spawns this recent count, `0` = the
+whole session), `USAGE_GUARD_SPAWN_HARD` (`0`: past the budget the user is asked;
+`1`: the spawn is refused, for runs nobody is watching),
 `USAGE_GUARD_PROMPT_BLOCK` (`1`; `0` only warns), `USAGE_GUARD_DISABLE=1` (all
 hooks become no-ops). Slash commands such as `/compact` are never blocked.
 Hooks exit 0 on any error and time out at 5 s, so they cannot stall a session.
@@ -146,7 +149,8 @@ quick panel off (the one WARN of that check).
 
 Phases 0 to 4 are done; 0.5.0 added the doctor checks for pre-push-review and
 session env drift, accepted agent pins (`apply.py --keep-agent-pins`),
-`prompt_audit.py --keep` and the sidecar-first claude-mem pause. Next candidate,
+`prompt_audit.py --keep` and the sidecar-first claude-mem pause; 0.5.1 counts
+the spawn budget over a sliding window and asks instead of refusing. Next candidate,
 measured first: a weekly digest of `report.py`.
 
 ## Tests

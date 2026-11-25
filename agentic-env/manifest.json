@@ -1,7 +1,7 @@
 {
   "comment": "What install.py puts on a machine. Paths are relative to the repo root; nothing here is machine-specific.",
   "marketplace": "adrianflda-claude-code-templates",
-  "plugins": ["quality-kernel", "pre-push-review", "usage-guard", "pr-draft-guard", "aws-admin-guard"],
+  "plugins": ["quality-kernel", "pre-push-review", "usage-guard", "pr-draft-guard", "aws-admin-guard", "agent-skills"],
   "agents": [
     "cli-tool/components/agents/epistemic-discipline/adversarial-critic.md",
     "cli-tool/components/agents/epistemic-discipline/pipeline-breaker.md",
@@ -11,7 +11,6 @@
     "agentic-env/agents/code-reviewer.md",
     "agentic-env/agents/devops-engineer.md",
     "agentic-env/agents/documentation-expert.md",
-    "agentic-env/agents/react-specialist.md",
     "agentic-env/agents/research-analyst.md",
     "agentic-env/agents/se-security-reviewer.md",
     "agentic-env/agents/security-engineer.md"
@@ -19,7 +18,12 @@
   "skills": [
     "cli-tool/components/skills/epistemic-discipline",
     "cli-tool/components/skills/qa-paradigms",
-    "cli-tool/components/skills/skill-audit-3r"
+    "cli-tool/components/skills/skill-audit-3r",
+    "agentic-env/skills/library-docs",
+    "agentic-env/skills/code-graph"
+  ],
+  "tools": [
+    { "package": "graphifyy", "version": "0.9.119", "python": "3.12" }
   ],
   "commands": [
     "cli-tool/components/commands/epistemic-discipline/diagnose.md",

@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-11-12T03:09:55.100614+00:00",
-  "totalJobs": 104,
+  "lastUpdated": "2026-11-25T03:10:06.172294+00:00",
+  "totalJobs": 110,
   "sources": [
     "Anthropic",
     "HackerNews",
@@ -9,27 +9,267 @@
   ],
   "jobs": [
     {
-      "id": "rok-remote-senior-agentic-ai-engineer-nda-gt-1137710",
-      "company": "GT",
-      "position": "Senior Agentic AI Engineer NDA",
+      "id": "rok-remote-real-estate-executive-assistant-21370-wing-assistant-1138078",
+      "company": "Wing Assistant",
+      "position": "Real Estate Executive Assistant 21370",
       "location": "Remote",
       "remote": true,
       "salary": "",
-      "description": "GT was founded in 2019 by a former Apple, Nest, and Google executive. GT’s mission is to connect the world’s best talent with product careers offered by high-growth companies in the UK, USA, Canada, Germany, and the Netherlands. On behalf of the client, GT is looking for a Senior Agentic AI...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-agentic-ai-engineer-nda-gt-1137710",
+      "description": "Please whitelist the domains \"lever.co\" and \"hire.lever.co\" with your email provider to make sure you get our emails. Disclaimer: This is a generic job description for the position stated below. Actual tasks and tools will be discussed further when you reach the final interview stage. Please ensure...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-real-estate-executive-assistant-21370-wing-assistant-1138078",
       "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-agentic-ai-engineer-nda-gt-1137710",
-      "postedAt": "2026-11-09T16:00:13+00:00",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-real-estate-executive-assistant-21370-wing-assistant-1138078",
+      "postedAt": "2026-11-24T00:00:20+00:00",
+      "tags": [],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-senior-cx-platform-engineer-gitlab-1138075",
+      "company": "GitLab",
+      "position": "Senior CX Platform Engineer",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "GitLab is the intelligent orchestration platform for DevSecOps. GitLab enables organizations to increase developer productivity, improve operational efficiency, reduce security and compliance risk, and accelerate digital transformation. More than 50 million registered users and more than 50% of the...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-cx-platform-engineer-gitlab-1138075",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-cx-platform-engineer-gitlab-1138075",
+      "postedAt": "2026-11-24T00:00:07+00:00",
       "tags": [
         "React",
+        "TypeScript",
         "Python",
-        "Azure",
+        "Rust",
+        "AWS",
         "Docker",
         "Claude Code",
         "Cursor",
-        "Rails"
+        "Flask",
+        "Vue.js"
       ],
       "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-enterprise-performance-lead-clover-health-1137944",
+      "company": "Clover Health",
+      "position": "Enterprise Performance Lead",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Clover is reinventing health insurance by working to keep people healthier. The Actuarial Strategic Operations team serves as the operational and financial nerve center for Clover's Medicare Advantage business. Embedded within the Actuarial and Finance organization, the team combines deep business...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-enterprise-performance-lead-clover-health-1137944",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-enterprise-performance-lead-clover-health-1137944",
+      "postedAt": "2026-11-21T04:40:04+00:00",
+      "tags": [
+        "Python",
+        "Rust"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-senior-staff-machine-learning-engineer-ads-ranking-reddit-1137932",
+      "company": "Reddit",
+      "position": "Senior Staff Machine Learning Engineer, Ads Ranking",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Reddit is a community of communities. It’s built on shared interests, passion, and trust, and is home to the most open and authentic conversations on the internet. Every day, Reddit users submit, vote, and comment on the topics they care most about. With 100,000+ active communities and...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-staff-machine-learning-engineer-ads-ranking-reddit-1137932",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-staff-machine-learning-engineer-ads-ranking-reddit-1137932",
+      "postedAt": "2026-11-21T02:40:04+00:00",
+      "tags": [
+        "Python",
+        "Rust",
+        "Go",
+        "Cursor"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-advisory-solutions-architect-msp-new-product-intro-rubrik-job-board-1137896",
+      "company": "Rubrik Job Board",
+      "position": "Advisory Solutions Architect, MSP (New Product Intro)",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Help shape how Rubrik partners with leading service providers to deliver cyber resilience at scale. The New Product Introduction (NPI) & Service Creation Solution Architect is a new function in the MSP Solution Architecture Team. You will design, package and enable new managed service offerings...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-advisory-solutions-architect-msp-new-product-intro-rubrik-job-board-1137896",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-advisory-solutions-architect-msp-new-product-intro-rubrik-job-board-1137896",
+      "postedAt": "2026-11-20T07:20:36+00:00",
+      "tags": [
+        "Rust",
+        "AWS",
+        "GCP",
+        "Azure",
+        "Claude Code"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-international-people-ops-analyst-benefits-cribl-1137875",
+      "company": "Cribl",
+      "position": "International People Ops Analyst, Benefits",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Join the company that’s building the telemetry infrastructure for the AI era. At Cribl, we partner with IT and Security teams at many of the world’s biggest enterprises, including half of the Fortune 100, to bridge the gap between AI ambition and infrastructure reality. As the AI Platform for...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-international-people-ops-analyst-benefits-cribl-1137875",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-international-people-ops-analyst-benefits-cribl-1137875",
+      "postedAt": "2026-11-20T02:30:14+00:00",
+      "tags": [],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-product-designer-tebra-1137873",
+      "company": "Tebra",
+      "position": "Product Designer",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Tebra only initiates contact with candidates via email from an official Tebra email address (@ tebra.com , @ patientpop.com , or @ kareo.com ) or through our applicant tracking system, Greenhouse. We will only ask you to provide sensitive personal information through our official application portal...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-product-designer-tebra-1137873",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-product-designer-tebra-1137873",
+      "postedAt": "2026-11-20T02:00:13+00:00",
+      "tags": [
+        "Rust",
+        "AWS",
+        "Redis"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "anth-5486780008",
+      "company": "Anthropic",
+      "position": "Applied AI Architect, Beneficial Deployment",
+      "location": "Sydney, Australia",
+      "remote": false,
+      "salary": "",
+      "description": "We're looking for an Applied AI Architect to join Beneficial Deployments, focused on helping nonprofits and research institutes in APAC get real value from Claude. You'll be the technical lead for a portfolio of partners, working alongside our Account Executives from first conversation through...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5486780008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5486780008",
+      "postedAt": "2026-11-19T21:35:45-05:00",
+      "tags": [
+        "Rust",
+        "Go",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5486776008",
+      "company": "Anthropic",
+      "position": "Applied AI Architect, Beneficial Deployment",
+      "location": "Bangalore, India",
+      "remote": false,
+      "salary": "",
+      "description": "We're looking for an Applied AI Architect to join Beneficial Deployments, focused on helping nonprofits and research institutes in APAC get real value from Claude. You'll be the technical lead for a portfolio of partners, working alongside our Account Executives from first conversation through...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5486776008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5486776008",
+      "postedAt": "2026-11-19T21:32:30-05:00",
+      "tags": [
+        "Rust",
+        "Go",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5483945008",
+      "company": "Anthropic",
+      "position": "Applied AI Engineer, Commercial",
+      "location": "San Francisco, CA",
+      "remote": false,
+      "salary": "",
+      "description": "As an Applied AI Engineer on the Commercial team at Anthropic, you will be a trusted technical advisor to the companies that run the real economy, across software, financial services, healthcare, retail, manufacturing, and professional services, as they go from using Claude to building on it....",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5483945008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5483945008",
+      "postedAt": "2026-11-18T11:26:55-05:00",
+      "tags": [
+        "TypeScript",
+        "Python",
+        "Rust",
+        "Go",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5484035008",
+      "company": "Anthropic",
+      "position": "Applied AI Architect, Beneficial Deployments (Non-Profits)",
+      "location": "San Francisco, CA | New York City, NY",
+      "remote": false,
+      "salary": "",
+      "description": "We're looking for an Applied AI Architect to join Beneficial Deployments, focused on helping nonprofits and foundations get real value from Claude. You'll be the technical lead for a portfolio of partners, working alongside our Account Executives from first conversation through deployment. You'll...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5484035008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5484035008",
+      "postedAt": "2026-11-16T18:14:39-05:00",
+      "tags": [
+        "Rust",
+        "Go",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5477416008",
+      "company": "Anthropic",
+      "position": "Research Engineer, AI Monitoring",
+      "location": "London, UK",
+      "remote": false,
+      "salary": "",
+      "description": "Our team builds, tests, deploys, and monitors the classifiers that block internal agents from taking dangerous actions. These classifiers run across RL, evals, and internal deployments, and are designed to catch things like sandbox escape attempts or exfiltration of sensitive data. When a...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5477416008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5477416008",
+      "postedAt": "2026-11-16T16:28:41-05:00",
+      "tags": [
+        "Rust",
+        "Go",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5469291008",
+      "company": "Anthropic",
+      "position": "Engineering Manager, Billing Platform",
+      "location": "San Francisco, CA | New York City, NY | Seattle, WA",
+      "remote": false,
+      "salary": "",
+      "description": "Anthropic exists to ensure the world safely navigates the transition through transformative AI. That work is funded by commercial revenue — and every dollar of it runs through Billing Platform. We build and operate the infrastructure that turns product usage into revenue across everything Anthropic...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5469291008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5469291008",
+      "postedAt": "2026-11-14T15:19:44-05:00",
+      "tags": [
+        "Python",
+        "Rust",
+        "AWS",
+        "Claude Code",
+        "Java",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
       "id": "anth-5473198008",
@@ -74,47 +314,42 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
-      "id": "hn-50384008",
-      "company": "Sortrace",
-      "position": "Junior Frontend Engineer",
-      "location": "REMOTE (Europe), hybrid Norrköping or Stockholm",
+      "id": "wwr-drfirst-com-inc-senior-software-engineer",
+      "company": "DRFIRST COM INC",
+      "position": "Senior Software Engineer",
+      "location": "Remote",
       "remote": true,
       "salary": "",
-      "description": "Sortrace is a small cleantech AI company in Sweden. Cameras on waste collection trucks and trained vision models flag material in the wrong fraction when bins are emptied. Customers use our platform to review deviations, images, and insights. We're hiring for two roles on a small team with short...",
-      "applyUrl": "https://news.ycombinator.com/item?id=50384008",
-      "source": "HackerNews",
-      "sourceUrl": "https://news.ycombinator.com/item?id=50384008",
-      "postedAt": "2026-11-05T20:25:23+00:00",
+      "description": "Headquarters: United States URL: https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=fc2a6c7e-ef54-4ed9-8c04-d5aca23f99e3 Senior Software Engineer, eRx Enterprise and Gadget About DrFirst For 25 years, DrFirst has empowered providers and patients to achieve better...",
+      "applyUrl": "https://weworkremotely.com/remote-jobs/drfirst-com-inc-senior-software-engineer",
+      "source": "WeWorkRemotely",
+      "sourceUrl": "https://weworkremotely.com/remote-jobs/drfirst-com-inc-senior-software-engineer",
+      "postedAt": "2026-11-05T13:22:33+00:00",
       "tags": [
-        "React",
-        "TypeScript",
-        "Python",
-        "Cursor",
-        "Tailwind"
+        "JavaScript",
+        "AWS",
+        "Copilot",
+        "Java"
       ],
       "companyIcon": ""
     },
     {
-      "id": "rok-remote-feltsense-ai-engineer-silver-dev-1137691",
-      "company": "Silver.dev",
-      "position": "Feltsense AI Engineer",
+      "id": "wwr-secure-privacy-senior-full-stack-web-developer-net-c-mongodb-angular-redux-ai-first-with-gdpr-experience",
+      "company": "Secure Privacy",
+      "position": "Senior Full-Stack Web Developer (.NET/C#/MongoDB/Angular/Redux) – AI-First, with GDPR Experience",
       "location": "Remote",
       "remote": true,
       "salary": "",
-      "description": "About the company We raised $5.1M to build agents that operate as fully autonomous founders. Our backers include Matt Schlicht (founder of Moltbook), the founders of Crunchbase and Republic, and VCs including Draper, Precursor, and Liquid2. We're working at the frontier of autonomous systems,...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-feltsense-ai-engineer-silver-dev-1137691",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-feltsense-ai-engineer-silver-dev-1137691",
-      "postedAt": "2026-11-05T16:00:07+00:00",
+      "description": "Headquarters: Europe (DK) URL: https://secureprivacy.ai Secure Privacy is expanding, and we’re looking for an experienced Senior Full-Stack Developer with expertise in .NET, C#, and MongoDB, along with GDPR experience, to join our team! You’ll work remotely with a diverse group of developers,...",
+      "applyUrl": "https://weworkremotely.com/remote-jobs/secure-privacy-senior-full-stack-web-developer-net-c-mongodb-angular-redux-ai-first-with-gdpr-experience",
+      "source": "WeWorkRemotely",
+      "sourceUrl": "https://weworkremotely.com/remote-jobs/secure-privacy-senior-full-stack-web-developer-net-c-mongodb-angular-redux-ai-first-with-gdpr-experience",
+      "postedAt": "2026-11-05T12:39:27+00:00",
       "tags": [
-        "TypeScript",
-        "JavaScript",
-        "Node.js",
-        "PostgreSQL",
-        "Supabase",
-        "GCP",
         "Claude Code",
-        "Cursor"
+        "Cursor",
+        "Angular",
+        "MongoDB"
       ],
       "companyIcon": ""
     },
@@ -161,27 +396,6 @@
       "companyIcon": ""
     },
     {
-      "id": "hn-50357360",
-      "company": "Thankly",
-      "position": "Software Engineer",
-      "location": "REMOTE (US)",
-      "remote": true,
-      "salary": "",
-      "description": "Thankly builds branded shopping apps that run inside AI assistants, including ChatGPT, Claude and Gemini. Shoppers ask for what they need in conversation, the app recommends products from the brand's own catalog, and they can check out without leaving the chat. Founding Engineer: Build our platform...",
-      "applyUrl": "https://news.ycombinator.com/item?id=50357360",
-      "source": "HackerNews",
-      "sourceUrl": "https://news.ycombinator.com/item?id=50357360",
-      "postedAt": "2026-11-03T20:01:15+00:00",
-      "tags": [
-        "React",
-        "TypeScript",
-        "PostgreSQL",
-        "Supabase",
-        "Claude Code"
-      ],
-      "companyIcon": ""
-    },
-    {
       "id": "anth-5424312008",
       "company": "Anthropic",
       "position": "Head of ASEAN, Applied AI",
@@ -200,29 +414,6 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
-      "id": "hn-50353980",
-      "company": "Location: Andalucía, Spain",
-      "position": "Software Engineer",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Full-stack engineer, 6+ years on 100% remote teams, focused on shipping LLM features to production. Last role: tech lead for AI call analysis at a US marketing agency. Took the MVP from design to validated delivery in 2 months: a Claude-based pipeline that turns a month of customer calls into...",
-      "applyUrl": "https://news.ycombinator.com/item?id=50353980",
-      "source": "HackerNews",
-      "sourceUrl": "https://news.ycombinator.com/item?id=50353980",
-      "postedAt": "2026-11-03T16:21:48+00:00",
-      "tags": [
-        "React",
-        "Next.js",
-        "TypeScript",
-        "Node.js",
-        "PostgreSQL",
-        "Supabase",
-        "React Native"
-      ],
-      "companyIcon": ""
     },
     {
       "id": "anth-5471361008",
@@ -249,7 +440,7 @@
       "id": "anth-5455618008",
       "company": "Anthropic",
       "position": "Applied AI Architect, Public Sector (State & Local Government)",
-      "location": "San Francisco, CA",
+      "location": "New York City, NY; San Francisco, CA; Washington, DC",
       "remote": false,
       "salary": "",
       "description": "As an Applied AI team member at Anthropic, you will be a Pre-Sales architect focused on becoming a trusted technical advisor helping state and local government agencies understand the value of Claude and paint the vision on how they can successfully integrate and deploy Claude into their technology...",
@@ -265,26 +456,6 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
-      "id": "rok-remote-tech-lead-ringbook-limited-1137673",
-      "company": "Ringbook Limited",
-      "position": "Tech lead",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "What You’ll Do ãDesign the architecture of the application and make key technical decisions. ãBuild and maintain scalable features across the Ringbook web application. ãIntegrate AI capabilities throughout the platform to create innovative features. ãDevelop clean, responsive, and intuitive...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-tech-lead-ringbook-limited-1137673",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-tech-lead-ringbook-limited-1137673",
-      "postedAt": "2026-11-03T14:53:55+00:00",
-      "tags": [
-        "React",
-        "TypeScript",
-        "PostgreSQL",
-        "AWS"
-      ],
-      "companyIcon": ""
     },
     {
       "id": "hn-50349129",
@@ -461,6 +632,44 @@
       "companyIcon": ""
     },
     {
+      "id": "hn-50338809",
+      "company": "UPDATE",
+      "position": "Software Engineer",
+      "location": "Remote",
+      "remote": true,
+      "salary": "$60K–$100K",
+      "description": "Bridge AI Consulting | AI Consultant, Junior AI Consultant | REMOTE (US) | Full-time | $60K–$100K base + upside for new business, equity possible | Visa sponsorship possible We're a small, bootstrapped, profitable AI consulting firm. We embed with small and mid-size businesses (wealth management,...",
+      "applyUrl": "https://news.ycombinator.com/item?id=50338809",
+      "source": "HackerNews",
+      "sourceUrl": "https://news.ycombinator.com/item?id=50338809",
+      "postedAt": "2026-11-02T16:05:23+00:00",
+      "tags": [],
+      "companyIcon": ""
+    },
+    {
+      "id": "wwr-welcomehome-software-senior-software-engineer",
+      "company": "WelcomeHome Software",
+      "position": "Senior Software Engineer",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Headquarters: Atlanta, Georgia URL: https://www.welcomehomesoftware.com/homecarecrm?utm_term=home%20care%20software&utm_campaign=Lead+Gen+-+Home+Care+-+Branded+%26+General&utm_source=adwords&utm_medium=ppc&hsa_acc=3279896849&hsa_cam=22158696391&hsa_grp=179100793812&hsa_ad=730236934988&hsa_s About...",
+      "applyUrl": "https://weworkremotely.com/remote-jobs/welcomehome-software-senior-software-engineer",
+      "source": "WeWorkRemotely",
+      "sourceUrl": "https://weworkremotely.com/remote-jobs/welcomehome-software-senior-software-engineer",
+      "postedAt": "2026-11-02T15:51:54+00:00",
+      "tags": [
+        "React",
+        "PostgreSQL",
+        "AWS",
+        "Claude Code",
+        "Ruby",
+        "Rails",
+        "Redis"
+      ],
+      "companyIcon": ""
+    },
+    {
       "id": "anth-5465639008",
       "company": "Anthropic",
       "position": "AI Outcomes Manager, Strategic Tech (Spanish-speaking)",
@@ -482,36 +691,31 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
-      "id": "rok-remote-cloud-engineer-automation-smile-digital-health-1137600",
-      "company": "Smile Digital Health",
-      "position": "Cloud Engineer Automation",
+      "id": "wwr-zoominfo-technologies-llc-principal-product-management-growth",
+      "company": "ZoomInfo Technologies LLC",
+      "position": "Principal Product Management, Growth",
       "location": "Remote",
       "remote": true,
       "salary": "",
-      "description": "Working for a company like Smile Digital Health means supporting our mandate for #BetterGlobalHealth . We strive towards this goal every day, and the results can be seen in the impact of our innovative health data platform and data management solutions, which are used in over 20 countries. We were...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-cloud-engineer-automation-smile-digital-health-1137600",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-cloud-engineer-automation-smile-digital-health-1137600",
-      "postedAt": "2026-10-29T16:00:03+00:00",
+      "description": "Headquarters: Remote ZoomInfo is where careers accelerate. We move fast, think boldly, and empower you to do the best work of your life. You’ll be surrounded by teammates who care deeply, challenge each other, and celebrate wins. With tools that amplify your impact and a culture that backs your...",
+      "applyUrl": "https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-principal-product-management-growth",
+      "source": "WeWorkRemotely",
+      "sourceUrl": "https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-principal-product-management-growth",
+      "postedAt": "2026-11-01T07:30:53+00:00",
       "tags": [
-        "Python",
-        "Go",
-        "PostgreSQL",
-        "Azure",
-        "Kubernetes",
-        "Claude Code",
-        "Rails"
+        "Rust",
+        "Cursor"
       ],
       "companyIcon": ""
     },
     {
       "id": "anth-5464493008",
       "company": "Anthropic",
-      "position": "Tech Lead Manager, Core Apps Data Scientist",
+      "position": "Tech Lead Manager, Claude Code Data Scientist",
       "location": "New York City, NY; San Francisco, CA | New York City, NY; Seattle, WA",
       "remote": false,
       "salary": "",
-      "description": "As part of our growing Data Science and Analytics team, you will play an instrumental role in our company’s mission of building safe and beneficial artificial intelligence by driving data-informed decision making across our organization. You bring experience from high-bar teams and are eager to...",
+      "description": "As part of our growing Data Science and Analytics team, you will play an instrumental role in our company's mission of building safe and beneficial artificial intelligence by driving data-informed decision making across our organization. You bring experience from high-bar teams and are eager to...",
       "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5464493008",
       "source": "Anthropic",
       "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5464493008",
@@ -526,36 +730,13 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
-      "id": "rok-remote-senior-software-engineer-latam-wagmo-1137572",
-      "company": "Wagmo",
-      "position": "Senior Software Engineer LATAM",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Senior Software Engineer Remote role based in Latin America. Must work at least 6 hours of overlap with US Eastern Time. What We Do Wagmo is a modern pet healthcare company built around how pet parents actually care for their pets. We partner with employers to provide a complete approach to pet and...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-software-engineer-latam-wagmo-1137572",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-software-engineer-latam-wagmo-1137572",
-      "postedAt": "2026-10-26T08:00:06+00:00",
-      "tags": [
-        "React",
-        "TypeScript",
-        "Python",
-        "Rust",
-        "Go",
-        "Claude Code",
-        "Django"
-      ],
-      "companyIcon": ""
-    },
-    {
       "id": "anth-5455627008",
       "company": "Anthropic",
       "position": "Applied AI Architect, Public Sector (Federal Civilan)",
-      "location": "San Francisco, CA | New York City, NY",
+      "location": "Washington, DC",
       "remote": false,
       "salary": "",
-      "description": "As an Applied AI team member at Anthropic, you will be a Pre-Sales architect focused on becoming a trusted technical advisor helping state and local government agencies understand the value of Claude and paint the vision on how they can successfully integrate and deploy Claude into their technology...",
+      "description": "As an Applied AI team member at Anthropic, you will be a Pre-Sales architect focused on becoming a trusted technical advisor helping federal civilian government agencies understand the value of Claude and paint the vision on how they can successfully integrate and deploy Claude into their...",
       "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5455627008",
       "source": "Anthropic",
       "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5455627008",
@@ -582,28 +763,6 @@
       "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5460211008",
       "postedAt": "2026-10-22T21:53:09-04:00",
       "tags": [
-        "Python",
-        "Rust",
-        "AWS",
-        "Claude Code",
-        "Anthropic"
-      ],
-      "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
-      "id": "anth-5455961008",
-      "company": "Anthropic",
-      "position": "Applied AI Demo Engineer",
-      "location": "San Francisco, CA | New York City, NY",
-      "remote": false,
-      "salary": "",
-      "description": "Anthropic's customer-facing teams are often the first place a customer sees what Claude can do. As a Demo Engineer, you'll build the demos, reference implementations, and reusable tooling that help those teams make new capabilities tangible, relevant, and trustworthy, ideally within days of a...",
-      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5455961008",
-      "source": "Anthropic",
-      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5455961008",
-      "postedAt": "2026-10-19T18:38:51-04:00",
-      "tags": [
-        "TypeScript",
         "Python",
         "Rust",
         "AWS",
@@ -654,29 +813,6 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
-      "id": "wwr-airbnb-operations-engineer-biztech",
-      "company": "Airbnb",
-      "position": "Operations Engineer, BizTech",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Headquarters: Remote- USA Airbnb was born in 2007 when two hosts welcomed three guests to their San Francisco home, and has since grown to over 5 million hosts who have welcomed over 2 billion guest arrivals in almost every country across the globe. Every day, hosts offer unique stays and...",
-      "applyUrl": "https://weworkremotely.com/remote-jobs/airbnb-operations-engineer-biztech",
-      "source": "WeWorkRemotely",
-      "sourceUrl": "https://weworkremotely.com/remote-jobs/airbnb-operations-engineer-biztech",
-      "postedAt": "2026-10-18T07:31:05+00:00",
-      "tags": [
-        "TypeScript",
-        "JavaScript",
-        "Python",
-        "Rust",
-        "AWS",
-        "GCP",
-        "Copilot"
-      ],
-      "companyIcon": ""
     },
     {
       "id": "anth-5454800008",
@@ -740,29 +876,6 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
-      "id": "rok-remote-senior-software-engineer-ii-applied-ai-wrapbook-1137527",
-      "company": "Wrapbook",
-      "position": "Senior Software Engineer II Applied AI",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "About Us: Wrapbook is the AI platform for production finance. We’re building a system of action that puts finance teams in control of their whole production, from payroll, to spend, to accounting. Built for feature films, TV, and commercials, Wrapbook is trusted by teams at Netflix, Paramount,...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-software-engineer-ii-applied-ai-wrapbook-1137527",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-software-engineer-ii-applied-ai-wrapbook-1137527",
-      "postedAt": "2026-10-15T16:00:03+00:00",
-      "tags": [
-        "TypeScript",
-        "JavaScript",
-        "Python",
-        "Rust",
-        "Node.js",
-        "AWS",
-        "Java"
-      ],
-      "companyIcon": ""
-    },
-    {
       "id": "hn-50104234",
       "company": "Treat Health",
       "position": "Software Engineer",
@@ -787,26 +900,6 @@
       "companyIcon": ""
     },
     {
-      "id": "wwr-upgrade-ai-experience-engineer-conversational-ai",
-      "company": "Upgrade",
-      "position": "AI Experience Engineer (Conversational AI)",
-      "location": "Remote",
-      "remote": true,
-      "salary": "$140K-$180K",
-      "description": "Headquarters: Canada (Remote) About the Role: An AI Experience Engineer owns the full lifecycle of the journeys our customers have with Upgrade's AI agent on chat, voice and email: creation, optimization, edge case handling and containment growth. They build journeys in Sierra's no-code tooling,...",
-      "applyUrl": "https://weworkremotely.com/remote-jobs/upgrade-ai-experience-engineer-conversational-ai",
-      "source": "WeWorkRemotely",
-      "sourceUrl": "https://weworkremotely.com/remote-jobs/upgrade-ai-experience-engineer-conversational-ai",
-      "postedAt": "2026-10-15T07:31:14+00:00",
-      "tags": [
-        "TypeScript",
-        "JavaScript",
-        "Rails",
-        "GraphQL"
-      ],
-      "companyIcon": ""
-    },
-    {
       "id": "anth-5443331008",
       "company": "Anthropic",
       "position": "Manager, Applied AI Architect",
@@ -825,25 +918,6 @@
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
-      "id": "rok-remote-technical-customer-support-quickmail-1137506",
-      "company": "QuickMail",
-      "position": "Technical Customer Support",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "QuickMail is a cold email and LinkedIn outreach platform for markets you can't afford to burn. Our customers can't easily replace leads that land in spam, which is why deliverability matters more to us than anything else. We have been running since 2014, and we pioneered deliverability technology...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-technical-customer-support-quickmail-1137506",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-technical-customer-support-quickmail-1137506",
-      "postedAt": "2026-10-12T16:20:10+00:00",
-      "tags": [
-        "Rust",
-        "Go",
-        "GraphQL"
-      ],
-      "companyIcon": ""
     },
     {
       "id": "hn-50025234",
@@ -1223,26 +1297,6 @@
       "companyIcon": "https://www.anthropic.com/favicon.ico"
     },
     {
-      "id": "anth-5428790008",
-      "company": "Anthropic",
-      "position": "Sales Enablement Trainer, Claude Products",
-      "location": "San Francisco, CA | New York City, NY",
-      "remote": false,
-      "salary": "",
-      "description": "As a Sales Enablement Trainer, Claude Products, you'll teach Anthropic's global sales team how to use our products, both to do their own work better and to position Claude credibly with customers. Anthropic ships quickly, and the surface area of what we build is growing faster than any individual...",
-      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5428790008",
-      "source": "Anthropic",
-      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5428790008",
-      "postedAt": "2026-09-22T19:16:56-04:00",
-      "tags": [
-        "Rust",
-        "AWS",
-        "Claude Code",
-        "Anthropic"
-      ],
-      "companyIcon": "https://www.anthropic.com/favicon.ico"
-    },
-    {
       "id": "anth-5428124008",
       "company": "Anthropic",
       "position": "Product Designer, Design Systems",
@@ -1274,6 +1328,26 @@
       "source": "Anthropic",
       "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5427479008",
       "postedAt": "2026-09-18T18:50:40-04:00",
+      "tags": [
+        "Rust",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5369102008",
+      "company": "Anthropic",
+      "position": "Engineering Manager, Labs",
+      "location": "San Francisco, CA | New York City, NY",
+      "remote": false,
+      "salary": "",
+      "description": "At Anthropic, we're building AI systems that are safe, beneficial, and transformative. Our mission is to develop AI that benefits humanity, and we believe the most powerful capabilities emerge when we thoughtfully bridge the gap between research breakthroughs and real-world applications. Anthropic...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5369102008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5369102008",
+      "postedAt": "2026-09-17T20:13:04-04:00",
       "tags": [
         "Rust",
         "AWS",
@@ -1995,6 +2069,26 @@
         "AWS",
         "Claude Code",
         "Rails",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5068570008",
+      "company": "Anthropic",
+      "position": "AI Outcomes Manager, Industries",
+      "location": "New York City, NY",
+      "remote": false,
+      "salary": "",
+      "description": "Join Anthropic's Customer Success team in a high-impact role driving AI adoption across our Industry segment. As an AI Outcomes Manager for Industries, you'll be the strategic partner and a trusted advisor to our most complex customers with a portfolio spanning Entertainment, Insurance,...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5068570008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5068570008",
+      "postedAt": "2026-04-03T12:12:57-04:00",
+      "tags": [
+        "Rust",
+        "AWS",
+        "Claude Code",
         "Anthropic"
       ],
       "companyIcon": "https://www.anthropic.com/favicon.ico"

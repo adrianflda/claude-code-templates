@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-25
+
 ### Added
 - **`productionExclude` in `tools.json`** (optional, read at base like the rest of the contract):
   include + exclude semantics for production code, exclude wins — the same model as tsconfig
@@ -18,6 +20,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or indeterminate) — excluding never skips. A malformed value (not an array of non-empty strings)
   or a degenerate entry (`**`) is indeterminate, never ignored. Without the key, behavior is
   unchanged. Regression tests: the `EXCLUDE` block in `scripts/attacks.test.mjs`.
+
+### Added
+- **Added check suppressions need human review.** A line the change adds that carries an inline
+  marker switching a check off (`@ts-ignore`, `@ts-expect-error`, `eslint-disable`, `biome-ignore`,
+  `istanbul` / `c8` / `v8 ignore`, `Stryker disable`, `nosemgrep`, `# noqa`, `# type: ignore`,
+  `pragma: no cover`, `pylint: disable`, `# nosec`) is routed critical and sets
+  `requiresHumanReview` (exit 3), like a modified test: it weakens the bar without touching a test
+  or a config, so the base harness still passes. `route.mjs` reports them in `addedSuppressions`;
+  a passing breaker does not close this cause. Markers already in the base, and markers the change
+  removes, do not count. The diff is forced to text, so a `-diff` or `binary` attribute committed
+  with the change cannot hide a marker. It is a text search: a marker inside a string or a document also asks
+  for review. Regression tests: the `SUPPRESS` block in `scripts/attacks.test.mjs`.
+
+### Changed
+- **Agent prompts absorb four practices from the vendored `agent-skills` plugin**, so the
+  pipeline applies them without a second tool firing for the same task:
+  - `cleaner`: code the change did not itself make dead needs evidence before deletion (no
+    consumer, and the reason it was written from `git log -S` / `git blame`), and code the
+    coder's commit did not touch is reported, not cleaned.
+  - `architect`: six concrete checks for operations that take an idempotency key (key from
+    the intent, atomic claim, payload guard, in-flight duplicate, unknown outcome, retention).
+  - `specifier`: a scope check with a capability map for bundled requests, an "Out of scope
+    (deferred)" section, and a delta contract for changes to a shipped contract.
+  - `develop` Phase 0: each question carries a recommended guess and its reason; still at
+    most five.
 
 ### Fixed
 - **ESLint flat config is harness.** `**/eslint.config.*` (the default config format since

@@ -24,6 +24,9 @@ Steps:
      `productionGlobs`, a committed symlink, or the command could not run. Show `referee.reason`.
    - exit **3** → 🟠 green, but the change is **critical** and the live breaker (M2) is not yet
      enforced → do not merge without a human/breaker review. Show `route.criticalFiles`.
+     When `requiresHumanReview` is true (a test file changed, or the change added a check
+     suppression such as `@ts-ignore` or `eslint-disable`), only a human can clear it: show
+     `route.changedTests` and `route.addedSuppressions`.
 5. If the repo has no committed `.quality-kernel/tools.json`, tell the user to create and COMMIT it once
    (copy `${CLAUDE_PLUGIN_ROOT}/config/tools.example.json`):
    `{ "verify": "<test cmd, e.g. npm test / pytest -q / node --test>", "productionGlobs": ["src/**"], "acceptance": null }`
