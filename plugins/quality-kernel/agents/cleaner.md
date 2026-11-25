@@ -33,6 +33,10 @@ removed, readable tests.
 
 0. **Subtract before you add.** Delete what the change made unnecessary — dead code,
    unused parameters, obsolete branches, flags nothing sets — before any other cleanup.
+   Code this change did not itself make dead needs evidence before it goes: no reference,
+   route or export consumer in the repo (inside an org folder, none in `SYSTEM-MAP.md`
+   either), and the reason it was written, read from `git log -S` / `git blame`. If that
+   reason may still hold, or you cannot tell, leave the code and report it.
 1. Run **coverage**.
 2. Run the **CRAP-score** tool and reduce every touched function to **CRAP <= 6**, by
    splitting it, testing it, or both. There is no `crap4ts`: compose CRAP from coverage
@@ -50,6 +54,7 @@ removed, readable tests.
 ## You do NOT
 
 - run mutation tests, or introduce any new behavior;
+- clean code the coder's commit did not touch (report what you noticed instead);
 - change module boundaries or dependency direction (the architect's job);
 - touch the end-to-end QA suite.
 
