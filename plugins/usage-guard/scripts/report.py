@@ -4,7 +4,9 @@
 Reads every ``~/.claude/projects/**/*.jsonl`` assistant message in the window,
 dedupes streamed chunks by (message id, request id) and attributes a
 price-weighted cost to day, model, kind (main / subagent / claude-mem
-observer), project, session and subagent name.
+observer), project, session and subagent name. For subagents it also prints,
+per agent type, the context of the first call of each run: the fixed part
+(system prompt and tool definitions) that every later call of that run sends again.
 
 Weights are the relative API list prices for the Opus/Sonnet families:
 input 1.0, cache write 1.25, cache read 0.10, output 5.0. They are not your
@@ -21,6 +23,16 @@ import sys
 
 WEIGHTS = {"inp": 1.0, "cc": 1.25, "cr": 0.10, "out": 5.0}
 AGENT_RE = re.compile(r"-[0-9a-f]{16}\.jsonl$")
+NO_TYPE = "(type not recorded)"
+
+
+def agent_type(transcript):
+    """The agentType Claude Code writes next to a subagent transcript, in <name>.meta.json."""
+    try:
+        with open(transcript[:-len(".jsonl")] + ".meta.json", encoding="utf-8") as f:
+            return str(json.load(f).get("agentType") or NO_TYPE)
+    except (OSError, ValueError, AttributeError):
+        return NO_TYPE
 
 
 def load(root, days):
@@ -35,6 +47,7 @@ def load(root, days):
                 else "main")
         agent = AGENT_RE.sub("", os.path.basename(path)) if kind == "subagent" else "-"
         sess = parts[1].replace(".jsonl", "") if len(parts) > 1 else "?"
+        atype = agent_type(path) if kind == "subagent" else "-"
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 for line in f:
@@ -56,7 +69,7 @@ def load(root, days):
                     if t < since:
                         continue
                     seen[(m.get("id"), d.get("requestId"))] = {
-                        "t": t.astimezone(), "proj": proj, "kind": kind, "agent": agent, "sess": sess,
+                        "t": t.astimezone(), "proj": proj, "kind": kind, "agent": agent, "sess": sess, "atype": atype, "run": rel,
                         "model": m.get("model", "?"),
                         "inp": u.get("input_tokens", 0) or 0,
                         "cc": u.get("cache_creation_input_tokens", 0) or 0,
@@ -103,6 +116,25 @@ def percentile(values, p):
     return values[min(len(values) - 1, int(len(values) * p))]
 
 
+def by_agent_type(rows):
+    """Per agent type: runs, calls, share of the subagent cost, and the median context of the first
+    call of a run. A run whose first call is older than the window starts at its first call inside it."""
+    sub = [r for r in rows if r["kind"] == "subagent"]
+    total = sum(cost(r) for r in sub)
+    first = {}
+    for r in sub:
+        if r["run"] not in first or r["t"] < first[r["run"]]["t"]:
+            first[r["run"]] = r
+    out = {}
+    for atype in {r["atype"] for r in sub}:
+        mine = [r for r in sub if r["atype"] == atype]
+        starts = [ctx(r) for r in first.values() if r["atype"] == atype]
+        out[atype] = {"runs": len(starts), "calls": len(mine),
+                      "share_of_subagents_pct": round(100 * sum(cost(r) for r in mine) / total, 1) if total else 0,
+                      "start_ctx_p50": percentile(starts, 0.5)}
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]["share_of_subagents_pct"]))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--days", type=int, default=7)
@@ -135,6 +167,7 @@ def main(argv=None):
         "main_cost_over_200k_pct": round(100 * sum(cost(r) for r in big_main) / main_cost) if main_cost else 0,
         "subagent_ctx_p50": percentile(sub_ctx, 0.5), "subagent_ctx_p90": percentile(sub_ctx, 0.9),
         "output_tokens": {k: a["out"] for k, a in by_kind},
+        "subagent_types": by_agent_type(rows),
     }
     if args.json:
         print(json.dumps(summary, indent=2))
@@ -147,6 +180,13 @@ def main(argv=None):
     print_table(f"top {args.top} sessions", by_sess, total)
     if by_agent:
         print_table(f"top {args.top} subagents", by_agent, total)
+    if summary["subagent_types"]:
+        print("\n== subagents by agent type ==")
+        print(f"{'agent type':40} {'runs':>5} {'calls':>6} {'share':>6} {'start_ctx':>10}")
+        for name, a in list(summary["subagent_types"].items())[:args.top]:
+            print(f"{name[:40]:40} {a['runs']:5d} {a['calls']:6d} {a['share_of_subagents_pct']:5.1f}% {a['start_ctx_p50']:10,}")
+        print("share = of the subagent cost. start_ctx = median context of a run's first call: what the type")
+        print("sends again on every call before it has read anything. An agent with its own tools: list starts lower.")
     print("\n== context per call ==")
     print(f"main:     p50={summary['main_ctx_p50']:,} p90={summary['main_ctx_p90']:,}; "
           f"{summary['main_calls_over_200k_pct']}% of calls over 200k = {summary['main_cost_over_200k_pct']}% of main cost")

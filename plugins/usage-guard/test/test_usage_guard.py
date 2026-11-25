@@ -120,6 +120,43 @@ class ReportTests(unittest.TestCase):
             report.main(["--root", tempfile.mkdtemp(), "--days", "7"])
         self.assertIn("no assistant messages", buf.getvalue())
 
+    def subagent(self, name, agent_type, rows):
+        path = os.path.join(self.tmp, "-proj-a", "s1", "subagents", name + ".jsonl")
+        write_transcript(path, rows)
+        if agent_type:
+            with open(path[:-len(".jsonl")] + ".meta.json", "w") as f:
+                json.dump({"agentType": agent_type}, f)
+
+    def test_the_start_context_of_each_agent_type_is_its_first_call(self):
+        # two runs of a heavy type, one of a light one; later calls grow and must not count
+        self.subagent("agent-a1111111111111111", "general-purpose",
+                      [("claude-sonnet-5-5", 100, 54900, 0, 50), ("claude-sonnet-5-5", 100, 900, 90000, 50)])
+        self.subagent("agent-a2222222222222222", "general-purpose", [("claude-sonnet-5-5", 0, 1000, 56000, 50)])
+        self.subagent("agent-a3333333333333333", "researcher", [("claude-sonnet-5-5", 0, 12000, 0, 50)])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            report.main(["--root", self.tmp, "--days", "7", "--json"])
+        types = json.loads(buf.getvalue())["subagent_types"]
+        self.assertEqual(types["general-purpose"]["runs"], 2)
+        self.assertEqual(types["general-purpose"]["calls"], 3)
+        self.assertEqual(types["general-purpose"]["start_ctx_p50"], 57000)
+        self.assertEqual(types["researcher"], {**types["researcher"], "runs": 1, "calls": 1, "start_ctx_p50": 12000})
+        # the run from setUp has no meta file: it is counted, under a name that says so
+        self.assertEqual(types["(type not recorded)"]["runs"], 1)
+        self.assertAlmostEqual(sum(t["share_of_subagents_pct"] for t in types.values()), 100, delta=0.3)
+
+    def test_the_table_of_agent_types_is_printed_and_a_broken_meta_file_is_survived(self):
+        self.subagent("agent-a4444444444444444", "researcher", [("claude-sonnet-5-5", 0, 12000, 0, 50)])
+        with open(os.path.join(self.tmp, "-proj-a", "s1", "subagents", "agent-acoder-0123456789abcdef.meta.json"), "w") as f:
+            f.write("{not json")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            report.main(["--root", self.tmp, "--days", "7"])
+        text = buf.getvalue()
+        self.assertIn("subagents by agent type", text)
+        self.assertRegex(text, r"researcher\s+1\s+1\s+[\d.]+%\s+12,000")
+        self.assertIn("(type not recorded)", text)
+
 
 class ApplyTests(unittest.TestCase):
     def test_dry_run_then_apply_then_idempotent(self):

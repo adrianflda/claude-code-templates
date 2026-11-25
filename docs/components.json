@@ -4436,7 +4436,7 @@
       "path": "epistemic-discipline/pipeline-breaker.md",
       "category": "epistemic-discipline",
       "type": "agent",
-      "description": "Blind breaker for the pre-push review pipeline (Agent 4.5 of /sdd-review, spawned in parallel with the other reviewers) — and the generic blind verifier for any completed work. Receives ONLY the contract (acceptance criteria / declared invariants) plus a live system URL and probe command — NEVER the diff, the author's reasoning, or prior reviewers' output. It derives falsifying vectors from the contract, EXECUTES each against the live system, and returns a typed verdict with evidence. The review gate is only unlocked on BREAKER_PASS. A step that only reads code does not count as completed.",
+      "description": "Blind breaker for the pre-push review pipeline (runs after quality-kernel:qa) — and the generic blind verifier for any completed work. Receives ONLY the contract (acceptance criteria / declared invariants) plus a live system URL and probe command — NEVER the diff, the author's reasoning, or prior reviewers' output. It derives falsifying vectors from the contract, EXECUTES each against the live system, and returns a typed verdict with evidence. The review gate is only unlocked on BREAKER_PASS. A step that only reads code does not count as completed.",
       "author": "",
       "repo": "",
       "version": "",
@@ -50324,7 +50324,7 @@
       "id": "pre-push-review",
       "type": "plugin",
       "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings; small pushes get a quick panel of the blocking reviewers. Portable, versioned — no per-machine hand-wiring.",
-      "version": "1.8.1",
+      "version": "1.9.0",
       "keywords": [
         "code-review",
         "pre-push",
@@ -50349,7 +50349,7 @@
       "id": "quality-kernel",
       "type": "plugin",
       "description": "A quality-assurance kernel for agentic development: a seven-agent SwarmForge-style engine (specifier -> designer -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-      "version": "0.12.0",
+      "version": "0.13.0",
       "keywords": [
         "quality-gate",
         "multi-agent",
@@ -50403,7 +50403,7 @@
       "id": "usage-guard",
       "type": "plugin",
       "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace. Hooks cap context per call (main and subagents) and subagent spawns per session. A prompt audit lists unused skills and agents with a skillOverrides block. claude-mem can be paused, resumed and moved to another provider.",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "keywords": [
         "usage",
         "tokens",
@@ -50437,7 +50437,7 @@
         "name": "pre-push-review",
         "source": "./plugins/pre-push-review",
         "description": "Fires an expert panel of code reviewers before every git push and blocks the push on critical findings; small pushes get a quick panel of the blocking reviewers. Portable, versioned — no per-machine hand-wiring.",
-        "version": "1.8.1",
+        "version": "1.9.0",
         "category": "quality-gates",
         "keywords": [
           "code-review",
@@ -50453,7 +50453,7 @@
         "name": "quality-kernel",
         "source": "./plugins/quality-kernel",
         "description": "A quality-assurance kernel for agentic development: a seven-agent SwarmForge-style engine (specifier -> designer -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-        "version": "0.12.0",
+        "version": "0.13.0",
         "category": "quality-gates",
         "keywords": [
           "quality-gate",
@@ -50503,7 +50503,7 @@
         "name": "usage-guard",
         "source": "./plugins/usage-guard",
         "description": "Keeps a Claude Code subscription inside its weekly limit: a price-weighted usage report from the local transcripts (by kind, model, session, subagent), a read-only configuration doctor that flags plan-draining settings, and a status line with four styles showing the 5-hour and 7-day limits and the burn pace. Hooks cap context per call (main and subagents) and subagent spawns per session. A prompt audit lists unused skills and agents with a skillOverrides block. claude-mem can be paused, resumed and moved to another provider.",
-        "version": "0.5.1",
+        "version": "0.5.2",
         "category": "productivity",
         "keywords": [
           "usage",
