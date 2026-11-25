@@ -31,7 +31,7 @@ exports.handler = async (event, context) => {
   try {
     // Parse input based on event source
     const body = typeof event.body === 'string'
-      ? JSON.parse(event.body)
+      ? parseJson(event.body)
       : event.body;
 
     // Business logic
@@ -64,6 +64,15 @@ exports.handler = async (event, context) => {
     };
   }
 };
+
+// Malformed input is the client's error: answer 400, not 500
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw Object.assign(new Error('Request body is not valid JSON'), { statusCode: 400 });
+  }
+}
 
 async function processRequest(data) {
   // Your business logic here
