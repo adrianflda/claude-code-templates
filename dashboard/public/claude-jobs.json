@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-11-24T03:09:58.438934+00:00",
-  "totalJobs": 106,
+  "lastUpdated": "2026-11-25T03:10:06.172294+00:00",
+  "totalJobs": 110,
   "sources": [
     "Anthropic",
     "HackerNews",
@@ -8,6 +8,47 @@
     "WeWorkRemotely"
   ],
   "jobs": [
+    {
+      "id": "rok-remote-real-estate-executive-assistant-21370-wing-assistant-1138078",
+      "company": "Wing Assistant",
+      "position": "Real Estate Executive Assistant 21370",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Please whitelist the domains \"lever.co\" and \"hire.lever.co\" with your email provider to make sure you get our emails. Disclaimer: This is a generic job description for the position stated below. Actual tasks and tools will be discussed further when you reach the final interview stage. Please ensure...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-real-estate-executive-assistant-21370-wing-assistant-1138078",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-real-estate-executive-assistant-21370-wing-assistant-1138078",
+      "postedAt": "2026-11-24T00:00:20+00:00",
+      "tags": [],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-senior-cx-platform-engineer-gitlab-1138075",
+      "company": "GitLab",
+      "position": "Senior CX Platform Engineer",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "GitLab is the intelligent orchestration platform for DevSecOps. GitLab enables organizations to increase developer productivity, improve operational efficiency, reduce security and compliance risk, and accelerate digital transformation. More than 50 million registered users and more than 50% of the...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-cx-platform-engineer-gitlab-1138075",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-cx-platform-engineer-gitlab-1138075",
+      "postedAt": "2026-11-24T00:00:07+00:00",
+      "tags": [
+        "React",
+        "TypeScript",
+        "Python",
+        "Rust",
+        "AWS",
+        "Docker",
+        "Claude Code",
+        "Cursor",
+        "Flask",
+        "Vue.js"
+      ],
+      "companyIcon": ""
+    },
     {
       "id": "rok-remote-enterprise-performance-lead-clover-health-1137944",
       "company": "Clover Health",
@@ -113,6 +154,27 @@
       "source": "Anthropic",
       "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5486780008",
       "postedAt": "2026-11-19T21:35:45-05:00",
+      "tags": [
+        "Rust",
+        "Go",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5486776008",
+      "company": "Anthropic",
+      "position": "Applied AI Architect, Beneficial Deployment",
+      "location": "Bangalore, India",
+      "remote": false,
+      "salary": "",
+      "description": "We're looking for an Applied AI Architect to join Beneficial Deployments, focused on helping nonprofits and research institutes in APAC get real value from Claude. You'll be the technical lead for a portfolio of partners, working alongside our Account Executives from first conversation through...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5486776008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5486776008",
+      "postedAt": "2026-11-19T21:32:30-05:00",
       "tags": [
         "Rust",
         "Go",
@@ -1266,6 +1328,26 @@
       "source": "Anthropic",
       "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5427479008",
       "postedAt": "2026-09-18T18:50:40-04:00",
+      "tags": [
+        "Rust",
+        "AWS",
+        "Claude Code",
+        "Anthropic"
+      ],
+      "companyIcon": "https://www.anthropic.com/favicon.ico"
+    },
+    {
+      "id": "anth-5369102008",
+      "company": "Anthropic",
+      "position": "Engineering Manager, Labs",
+      "location": "San Francisco, CA | New York City, NY",
+      "remote": false,
+      "salary": "",
+      "description": "At Anthropic, we're building AI systems that are safe, beneficial, and transformative. Our mission is to develop AI that benefits humanity, and we believe the most powerful capabilities emerge when we thoughtfully bridge the gap between research breakthroughs and real-world applications. Anthropic...",
+      "applyUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5369102008",
+      "source": "Anthropic",
+      "sourceUrl": "https://job-boards.greenhouse.io/anthropic/jobs/5369102008",
+      "postedAt": "2026-09-17T20:13:04-04:00",
       "tags": [
         "Rust",
         "AWS",

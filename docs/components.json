@@ -50197,6 +50197,32 @@
   ],
   "plugins": [
     {
+      "name": "agent-skills",
+      "id": "agent-skills",
+      "type": "plugin",
+      "description": "Addy Osmani's engineering skills (MIT), vendored at a pinned commit: skills only, no commands, agents or hooks. Six fill gaps and may be used by Claude on its own (debugging, API design, security at build time, migrations, performance, observability); the other twenty run only when typed as /agent-skills:<name>, so they never compete with quality-kernel.",
+      "version": "0.6.18",
+      "keywords": [
+        "skills",
+        "debugging",
+        "api-design",
+        "security",
+        "migrations",
+        "performance",
+        "observability",
+        "vendored"
+      ],
+      "author": "",
+      "commands": 0,
+      "agents": 0,
+      "mcpServers": 0,
+      "commandsList": [],
+      "agentsList": [],
+      "mcpServersList": [],
+      "installCommand": "/plugin install agent-skills@claude-code-templates",
+      "downloads": 0
+    },
+    {
       "name": "aws-admin-guard",
       "id": "aws-admin-guard",
       "type": "plugin",
@@ -50534,6 +50560,23 @@
           "language",
           "spanish",
           "chat"
+        ]
+      },
+      {
+        "name": "agent-skills",
+        "source": "./plugins/agent-skills",
+        "description": "Addy Osmani's engineering skills (MIT), vendored at a pinned commit: skills only, no commands, agents or hooks. Six fill gaps and may be used by Claude on its own (debugging, API design, security at build time, migrations, performance, observability); the other twenty run only when typed as /agent-skills:<name>, so they never compete with quality-kernel.",
+        "version": "0.6.18",
+        "category": "engineering-skills",
+        "keywords": [
+          "skills",
+          "debugging",
+          "api-design",
+          "security",
+          "migrations",
+          "performance",
+          "observability",
+          "vendored"
         ]
       }
     ]
