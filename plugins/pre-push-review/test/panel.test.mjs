@@ -327,6 +327,8 @@ test('the Maintainability & Readability reviewer runs on every full review, capp
   assert.match(reviewer.role, /poor API\/module boundaries, duplication, dead code/);
   assert.match(reviewer.role, /jargon, invented terms/);
   assert.match(reviewer.role, /always name the simpler alternative/);
+  assert.match(reviewer.role, /moves complexity elsewhere instead of removing it/);
+  assert.match(reviewer.role, /feature-specific logic added to a shared module/);
   assert.match(reviewer.role, /Severity is at most "medium", unless the unclear code hides a correctness risk/);
   assert.match(result.stdout, /Maintainability & Readability/);
   assert.equal(claude.calls().length, 6, 'one call per role; the ticket reviewer has no ticket');

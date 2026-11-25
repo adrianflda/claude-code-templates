@@ -59,7 +59,10 @@ export const ROLES = [
       'make obvious through names and structure, and comments much longer than the code they ' +
       'describe; (3) jargon, invented terms, internal codes or unexplained abbreviations in ' +
       'names and comments; (4) designs more complex than the stated goal needs, such as extra ' +
-      'layers, flags, modes or generality nothing in the diff uses. For (4) always name the ' +
+      'layers, flags, modes or generality nothing in the diff uses; (5) a refactor that moves ' +
+      'complexity elsewhere instead of removing it, feature-specific logic added to a shared ' +
+      'module, and a change that grows a file whose hunk headers show it is already past ' +
+      'about 1000 lines without splitting it. For (4) always name the ' +
       'simpler alternative in "suggestion". In this focus area these ARE real defects: they ' +
       'make the change hard to review and maintain. Report consequential issues, not nitpicks. ' +
       'Severity is at most "medium", unless the unclear code hides a correctness risk (then say ' +
