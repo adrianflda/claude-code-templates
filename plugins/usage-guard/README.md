@@ -12,7 +12,7 @@ grown to 800k tokens. This plugin does the measuring first and the stopping next
 
 | Tool | What it does |
 |---|---|
-| `scripts/report.py` | Price-weighted attribution from `~/.claude/projects/**/*.jsonl`: by kind (main / subagent / claude-mem observer), model, day, session and subagent name, plus context-per-call percentiles |
+| `scripts/report.py` | Price-weighted attribution from `~/.claude/projects/**/*.jsonl`: by kind (main / subagent / claude-mem observer), model, day, session and subagent name, plus context-per-call percentiles and, per agent type, the context a run starts with |
 | `scripts/doctor.py` | Read-only lint of `settings.json`, enabled plugins, agents, skills, CLAUDE.md, claude-mem, the pre-push-review git hook and (inside a session) the live environment against `settings.env`. One PASS / WARN / INFO line per check with the fix |
 | `scripts/statusline.py` | Status line with context %, 5-hour and 7-day limits, reset countdown and burn pace. Four styles |
 | `scripts/apply.py` | Phase 0 baseline applier: dry run by default, `--apply` writes with backups, idempotent. `--keep-agent-pins` leaves pinned agents on their model (no FORCE) and records them in `USAGE_GUARD_ACCEPTED_PINS` |
@@ -31,6 +31,16 @@ grown to 800k tokens. This plugin does the measuring first and the stopping next
 `report.py` ranks consumers by the relative API list price of each token class
 (input 1.0, cache write 1.25, cache read 0.10, output 5.0). It is not a bill. It
 is the order in which things drain the plan.
+
+### What a subagent starts with
+
+The `subagents by agent type` table reads the `agentType` that Claude Code stores next to each
+subagent transcript and prints, per type, the runs, the calls, the share of the subagent cost and
+`start_ctx`: the median context of the first call of a run. That is the system prompt plus the
+definition of every tool the type may use, and each later call of the run sends it again. A type
+with no `tools:` list carries every tool, including those of the MCP servers; one with its own
+list starts with a fraction. Read the share before acting on it: a high `start_ctx` on a type
+that is 2% of the cost is not where the plan goes.
 
 ### Status line
 
@@ -154,7 +164,7 @@ Phases 0 to 4 are done; 0.5.0 added the doctor checks for pre-push-review and
 session env drift, accepted agent pins (`apply.py --keep-agent-pins`),
 `prompt_audit.py --keep` and the sidecar-first claude-mem pause; 0.5.1 counts
 the spawn budget over a sliding window and asks instead of refusing; 0.5.2 stops
-the audit from writing `skillOverrides` entries for plugin skills, which do nothing. Next candidate,
+the audit from writing `skillOverrides` entries for plugin skills, which do nothing; 0.6.0 adds the per agent type table to the report. Next candidate,
 measured first: a weekly digest of `report.py`.
 
 ## Tests
