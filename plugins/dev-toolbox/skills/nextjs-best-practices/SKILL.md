@@ -1,6 +1,6 @@
 ---
 name: nextjs-best-practices
-description: Next.js App Router principles. Server Components, data fetching, routing patterns.
+description: Next.js App Router decisions (Server vs Client Components, data fetching and caching, route handlers, metadata). Use when writing or reviewing code in a Next.js app directory. Not for plain React components (react-best-practices).
 allowed-tools: Read, Write, Edit, Glob, Grep
 ---
 
@@ -94,7 +94,7 @@ Does it need...?
 - Validate input with Zod
 - Return proper status codes
 - Handle errors gracefully
-- Use the default Node.js runtime (the Edge runtime is deprecated)
+- Use the default Node.js runtime. The Edge runtime has no Node.js APIs and no ISR; check the current Next.js docs before choosing it
 
 ---
 

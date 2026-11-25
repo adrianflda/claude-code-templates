@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep
 
 # Node.js Best Practices
 
-> Principles and decision-making for Node.js development in 2025.
+> Principles and decision-making for Node.js development.
 > **Learn to THINK, not memorize code patterns.**
 
 ---
@@ -21,7 +21,7 @@ This skill teaches **decision-making principles**, not fixed code to copy.
 
 ---
 
-## 1. Framework Selection (2025)
+## 1. Framework Selection
 
 ### Decision Tree
 

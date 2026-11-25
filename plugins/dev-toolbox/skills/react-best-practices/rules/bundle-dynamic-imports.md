@@ -22,8 +22,6 @@ function CodePanel({ code }: { code: string }) {
 **Correct (Monaco loads on demand):**
 
 ```tsx
-'use client' // ssr: false only works in Client Components
-
 import dynamic from 'next/dynamic'
 
 const MonacoEditor = dynamic(

@@ -28,23 +28,13 @@ export default function RootLayout({ children }) {
 
 **Correct (loads after hydration):**
 
-`ssr: false` is only allowed in Client Components, so wrap the dynamic import in a `'use client'` module and render it from the (server) root layout:
-
 ```tsx
-// app/analytics.tsx
-'use client'
-
 import dynamic from 'next/dynamic'
 
-export const Analytics = dynamic(
+const Analytics = dynamic(
   () => import('@vercel/analytics/react').then(m => m.Analytics),
   { ssr: false }
 )
-```
-
-```tsx
-// app/layout.tsx (Server Component)
-import { Analytics } from './analytics'
 
 export default function RootLayout({ children }) {
   return (

@@ -1,6 +1,6 @@
 ---
 name: server-management
-description: Server management principles and decision-making. Process management, monitoring strategy, and scaling decisions. Teaches thinking, not commands.
+description: Decisions for running a service on a server you manage (process manager, restarts, logs, monitoring, when to scale). Use when deploying to a VM or bare host. Not for containers (docker-expert) or serverless (aws-serverless).
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 ---
 

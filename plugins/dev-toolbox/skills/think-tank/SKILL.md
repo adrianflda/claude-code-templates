@@ -1,6 +1,6 @@
 ---
 name: think-tank
-description: Run a Virtual Think Tank — a structured multi-persona debate — before planning or making architectural/design/strategic decisions. Use this skill whenever the user is about to plan a system, make a technology choice, evaluate trade-offs, decide on an approach, or faces any decision where multiple perspectives would sharpen the outcome. Also trigger when the user says "think tank", "debate this", "perspectives on", "trade-offs", "should I use X or Y", "help me decide", "before we plan", or asks for pros/cons of competing approaches. This skill should run BEFORE any implementation planning begins — it produces a structured analysis that feeds into better plans.
+description: Structured multi-persona debate that ends in a trade-off analysis for the user to decide on. Use when the user asks for it ("think tank", "debate this", "help me decide") or faces a costly, hard-to-reverse choice between real alternatives. Not for a choice with an obvious or cheaply reversible answer.
 ---
 
 # Virtual Think Tank
@@ -8,6 +8,10 @@ description: Run a Virtual Think Tank — a structured multi-persona debate — 
 Simulate a moderated expert debate to surface trade-offs and blind spots before committing to a plan. The deliverable is a **structured analysis** the human uses to decide — no answer is handed down, but the panel still converges: it names a strongest option under an explicit condition, or an explicit either/or for the user to arbitrate (Phase 4). The human makes the call.
 
 The personas debate **within one context**, not as separate agents: each sees the others' arguments, concedes points, builds on ideas, and can change position. That shared awareness is what makes the synthesis coherent.
+
+## Before starting: is a debate worth it?
+
+Skip the debate and answer directly when any of these holds: the choice is cheap to reverse, one option is clearly right for the stated constraints, or the question is a fact to look up. Say in one line that you skipped it and why. A debate costs several thousand tokens; it pays when the decision is expensive to undo and the options are close.
 
 ## The run — steps in order
 

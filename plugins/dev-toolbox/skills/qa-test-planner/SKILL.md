@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 A comprehensive skill for QA engineers to create test plans, generate manual test cases, build regression test suites, validate designs against Figma, and document bugs effectively.
 
-> **Activation:** Manual only (`disable-model-invocation: true`) — run `/qa-test-planner`.
+> **Activation:** Manual only (`disable-model-invocation: true`) — run `/dev-toolbox:qa-test-planner`.
 
 ---
 

@@ -86,12 +86,12 @@ COPY . .
 RUN npm run build && npm prune --production
 
 FROM node:24-alpine AS runtime
-RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+RUN addgroup -g 1001 -S nodejs && adduser -S app -u 1001
 WORKDIR /app
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=build --chown=nextjs:nodejs /app/dist ./dist
-COPY --from=build --chown=nextjs:nodejs /app/package*.json ./
-USER nextjs
+COPY --from=deps --chown=app:nodejs /app/node_modules ./node_modules
+COPY --from=build --chown=app:nodejs /app/dist ./dist
+COPY --from=build --chown=app:nodejs /app/package*.json ./
+USER app
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
@@ -206,7 +206,8 @@ secrets:
 **Optimization techniques:**
 ```dockerfile
 # Minimal production image
-FROM gcr.io/distroless/nodejs18-debian11
+# The nonroot tag runs as an unprivileged user; pin by digest in production
+FROM gcr.io/distroless/nodejs24-debian13:nonroot
 COPY --from=build /app/dist /app
 COPY --from=build /app/node_modules /app/node_modules
 WORKDIR /app

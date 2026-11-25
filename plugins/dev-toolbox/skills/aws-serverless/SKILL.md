@@ -42,7 +42,8 @@ exports.handler = async (event, context) => {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        // One known origin, from configuration. '*' lets any site read the response.
+        'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN
       },
       body: JSON.stringify(result)
     };
@@ -57,7 +58,8 @@ exports.handler = async (event, context) => {
       statusCode: error.statusCode || 500,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        error: error.message || 'Internal server error'
+        // The detail stays in the log above. A 5xx message can carry table names, ARNs or SQL.
+        error: error.statusCode && error.statusCode < 500 ? error.message : 'Internal server error'
       })
     };
   }
@@ -87,6 +89,7 @@ Transform: AWS::Serverless-2016-10-31
 Globals:
   Function:
     Runtime: nodejs24.x
+    Architectures: [arm64]  # Graviton: lower price per ms; use x86_64 only for a native dependency without an arm64 build
     Timeout: 30
     MemorySize: 256
     Environment:
@@ -101,13 +104,14 @@ Resources:
       StageName: prod
       CorsConfiguration:
         AllowOrigins:
-          - "*"
+          - "https://app.example.com"  # the origins that call this API, never "*" with credentials
         AllowMethods:
           - GET
           - POST
           - DELETE
         AllowHeaders:
-          - "*"
+          - content-type
+          - authorization
 
   # Lambda Functions
   GetItemFunction:

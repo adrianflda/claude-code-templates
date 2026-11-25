@@ -28,6 +28,17 @@ knowing when an agent should ask for help vs proceed independently.
 - Understanding of function calling
 - Basic prompt engineering
 
+## Choose the simplest shape that works
+
+| Situation | Shape |
+|---|---|
+| The steps are known in advance | A fixed workflow (prompt chain, router), no agent loop |
+| The steps depend on what each tool returns | One agent in a loop with tools, an iteration limit and a budget |
+| Independent subtasks that would flood one context, or need different permissions | An orchestrator that hands out subtasks and reads back short reports |
+| The output can be scored against a clear criterion | A generator with an evaluator that sends it back |
+
+Start at the top row and move down only when a measured failure requires it. Each step down multiplies tokens and makes failures harder to trace.
+
 ## Patterns
 
 ### ReAct Loop
@@ -60,11 +71,9 @@ Dynamic tool discovery and management
 
 ## Anti-Patterns
 
-### ❌ Unlimited Autonomy
-
-### ❌ Tool Overload
-
-### ❌ Memory Hoarding
+- Unlimited autonomy: no iteration limit, no budget, no point where a human confirms an irreversible action.
+- Tool overload: every tool exposed for every task, so the model picks the wrong one.
+- Memory hoarding: everything kept in context or in a store, so later steps read stale or irrelevant facts.
 
 ## ⚠️ Sharp Edges
 

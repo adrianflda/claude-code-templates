@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep
 
 # Python Patterns
 
-> Python development principles and decision-making for 2025.
+> Python development principles and decision-making.
 > **Learn to THINK, not memorize patterns.**
 
 ---
@@ -21,7 +21,7 @@ This skill teaches **decision-making principles**, not fixed code to copy.
 
 ---
 
-## 1. Framework Selection (2025)
+## 1. Framework Selection
 
 ### Decision Tree
 
@@ -128,9 +128,8 @@ Can skip:
 ```python
 # These are patterns, understand them:
 
-# Optional → might be None
-from typing import Optional
-def find_user(id: int) -> Optional[User]: ...
+# Might be None
+def find_user(id: int) -> User | None: ...
 
 # Union → one of multiple types
 def process(data: str | dict) -> None: ...
@@ -218,7 +217,7 @@ By feature:
 
 ---
 
-## 5. Django Principles (2025)
+## 5. Django Principles
 
 ### Django Async (Django 5.0+)
 
