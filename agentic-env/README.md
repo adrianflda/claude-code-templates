@@ -26,7 +26,7 @@ Everything comes from [`manifest.json`](manifest.json):
 
 | Piece | Where it goes |
 |---|---|
-| agents `adversarial-critic`, `pipeline-breaker` (from `cli-tool/components`) and the eight in `agentic-env/agents/` (one-paragraph descriptions, because every description is loaded into each session; bodies that read the repository instead of asking a "context manager" that does not exist) | `~/.claude/agents/` |
+| agents `adversarial-critic`, `pipeline-breaker` (from `cli-tool/components`) and the nine in `agentic-env/agents/` (one-paragraph descriptions, because every description is loaded into each session; bodies that read the repository instead of asking a "context manager" that does not exist) | `~/.claude/agents/` |
 | skills `epistemic-discipline`, `qa-paradigms`, and the two in `agentic-env/skills/`: `library-docs` (current third-party docs from Context7) and `code-graph` (a local structural graph of a codebase) | `~/.claude/skills/<name>/` |
 | command `/diagnose` | `~/.claude/commands/` |
 | the hooks the manifest names in [`hooks/`](hooks), plus the modules they import (`hookSupport`) | `~/.claude/hooks/`; each one is wired into `~/.claude/settings.json`. A hook already wired with `$HOME` or `~` in its path counts as wired. Tests stay in the repo |
@@ -72,11 +72,24 @@ The pieces are meant not to overlap. The same rule goes in the machine's `~/.cla
   an audit the user asked for) or for parallel work that would flood the main context.
 - A whole feature from a description: quality-kernel (/forge, /develop). No other orchestrator.
 - On push: pre-push-review runs by itself. Do not run a second review pass before it.
+- A subagent that only reads: `researcher`, or another agent with its own tool list. Not
+  general-purpose. In the brief: name the model, say "you do not spawn agents", and ask for a
+  short report in a fixed format.
 ```
 
 An agent whose description says "use proactively" for a task a skill already covers gets spawned
 in place of the skill, at the cost of a whole separate context. `react-specialist` left the
 manifest for that reason: sixty days of transcripts on the author's machine showed two uses.
+
+The last line of the rule is about what a subagent costs before it reads anything. Every call a
+subagent makes re-sends its system prompt and the definition of every tool it may use. Measured on
+the author's machine (first request of each subagent, briefs of about 1,000 tokens): about 55,000
+tokens for `general-purpose`, which carries every tool including those of the MCP servers, and
+about 12,000 for an agent that declares its own `tools:`. `researcher` exists for that: five
+read-only tools and a fixed report format, because what a subagent returns lands in the main
+context. `usage-guard report` prints the same figure per agent type for your own machine, next
+to the share of the cost: on that machine, over thirty days, the types that start above 30,000
+tokens were a fifth of the subagent cost, so this trims a part of the spend, not most of it.
 
 ## Third-party pieces and what they may send
 

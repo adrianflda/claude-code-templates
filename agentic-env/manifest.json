@@ -12,7 +12,8 @@
     "agentic-env/agents/documentation-expert.md",
     "agentic-env/agents/security-engineer.md",
     "agentic-env/agents/backend-architect.md",
-    "agentic-env/agents/security-auditor.md"
+    "agentic-env/agents/security-auditor.md",
+    "agentic-env/agents/researcher.md"
   ],
   "skills": [
     "cli-tool/components/skills/epistemic-discipline",
