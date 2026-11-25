@@ -103,8 +103,11 @@ Hooks exit 0 on any error and time out at 5 s, so they cannot stall a session.
 
 `skillOverrides` values, verified in the Claude Code 2.1.316 binary: `on`, `off`
 and `user-invocable-only` (hidden from the model, so its description leaves the
-prompt, but `/name` still works). Keys are the skill name, prefixed with
-`plugin:` for plugin skills. The audit suggests `user-invocable-only` by default
+prompt, but `/name` still works). Keys are the name of a skill in `~/.claude` or the project; an entry
+for a plugin's skill (`plugin:name`) changes nothing, so the audit lists unused
+plugin skills and existing entries of that kind apart, with what does work:
+disabling the plugin, or `disable-model-invocation: true` in the frontmatter of a
+plugin you own. The audit suggests `user-invocable-only` by default
 because it is reversible and cannot break a workflow; pass `--mode off` to
 remove skills entirely. Skills whose file is younger than `--grace` days
 (default 7) are never suggested, and agent files are only listed, never moved.
@@ -150,7 +153,8 @@ quick panel off (the one WARN of that check).
 Phases 0 to 4 are done; 0.5.0 added the doctor checks for pre-push-review and
 session env drift, accepted agent pins (`apply.py --keep-agent-pins`),
 `prompt_audit.py --keep` and the sidecar-first claude-mem pause; 0.5.1 counts
-the spawn budget over a sliding window and asks instead of refusing. Next candidate,
+the spawn budget over a sliding window and asks instead of refusing; 0.5.2 stops
+the audit from writing `skillOverrides` entries for plugin skills, which do nothing. Next candidate,
 measured first: a weekly digest of `report.py`.
 
 ## Tests

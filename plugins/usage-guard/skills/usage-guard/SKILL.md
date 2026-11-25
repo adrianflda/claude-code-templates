@@ -88,6 +88,9 @@ choose:
 - `--keep NAME` (repeatable) never suggests that skill. Use it for every skill
   the user's CLAUDE.md declares mandatory (they are read, not invoked, so their
   count is 0); plugin skills by `plugin:name` or the bare name.
+- `skillOverrides` does not reach plugin skills. The audit lists the unused
+  ones and any existing entry that names one; the fix is disabling the plugin
+  or, in a plugin the user owns, `disable-model-invocation: true` in the skill.
 - Agent files are only listed. Moving them out of `agents/` is the user's call.
 
 The hooks (phase 2) need nothing from this step: they are active as soon as the

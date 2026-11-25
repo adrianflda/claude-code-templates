@@ -80,7 +80,9 @@ class PromptAuditTest(unittest.TestCase):
     def test_suggestions_default_mode(self):
         res = self.run_audit()
         sug = res["suggested_skill_overrides"]
-        self.assertEqual(set(sug), {"idle-skill", "idle-cmd", "qk:idle-plugin-skill"})
+        self.assertEqual(set(sug), {"idle-skill", "idle-cmd"})
+        self.assertEqual(res["unused_plugin_skills"], ["qk:idle-plugin-skill"], "listed, not suggested: overrides do not reach plugin skills")
+        self.assertEqual(res["inert_overrides"], [])
         self.assertTrue(all(v == "user-invocable-only" for v in sug.values()))
         by = {it["name"]: it for it in res["items"]}
         self.assertEqual(by["qk:forge"]["uses"], 1)
@@ -105,7 +107,8 @@ class PromptAuditTest(unittest.TestCase):
         path = os.path.join(self.cfg, "settings.json")
         res = self.run_audit()
         n = self.pa.apply_overrides(path, self.settings, res["suggested_skill_overrides"])
-        self.assertEqual(n, 3)
+        self.assertEqual(n, 2)
+        self.assertNotIn("qk:idle-plugin-skill", self.settings["skillOverrides"])
         with open(path, encoding="utf-8") as f:
             saved = json.load(f)
         self.assertEqual(saved["skillOverrides"]["already"], "off")
@@ -125,6 +128,16 @@ class PromptAuditTest(unittest.TestCase):
         # the read-only report still runs: a broken settings file only hides enabledPlugins
         with redirect_stdout(io.StringIO()):
             self.assertEqual(self.pa.main(["--json", "--cwd", self.tmp, "--root", self.root]), 0)
+
+    def test_an_override_that_names_a_plugin_skill_is_reported_as_inert(self):
+        self.settings["skillOverrides"] = {"qk:idle-plugin-skill": "user-invocable-only", "idle-skill": "user-invocable-only"}
+        res = self.run_audit()
+        self.assertEqual(res["inert_overrides"], ["qk:idle-plugin-skill"])
+        by = {it["name"]: it for it in res["items"]}
+        self.assertFalse(by["qk:idle-plugin-skill"]["off"], "the entry does not turn a plugin skill off")
+        self.assertTrue(by["idle-skill"]["off"])
+        self.assertEqual(res["unused_plugin_skills"], ["qk:idle-plugin-skill"])
+        self.assertEqual(set(res["suggested_skill_overrides"]), {"idle-cmd"})
 
     def test_keep_excludes_names_from_suggestions(self):
         res = self.run_audit(keep=["idle-skill", "idle-plugin-skill"])
