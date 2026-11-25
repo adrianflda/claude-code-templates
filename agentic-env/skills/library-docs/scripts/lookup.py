@@ -16,6 +16,7 @@ The answer is printed inside an <untrusted-documentation> frame: it is third-par
 
 Exit: 0 answer printed · 1 request failed · 2 bad arguments or refused question · 3 no-egress folder.
 """
+import http.client
 import json
 import os
 import re
@@ -26,10 +27,14 @@ import urllib.request
 from pathlib import Path
 
 BASE_URL = os.environ.get('CONTEXT7_BASE_URL', 'https://context7.com').rstrip('/')
+USAGE = ('usage: lookup.py search <library> "<question>"\n'
+         '       lookup.py docs <libraryId> "<question>"')
 MAX_QUESTION = 200
+MAX_LIBRARY_NAME = 80
 MAX_DIGITS = 8
 MAX_OUTPUT = 12000
 MAX_RESULTS = 5
+MAX_VERSIONS = 8
 TIMEOUT_S = 20
 LIBRARY_NAME = re.compile(r'^@?[A-Za-z0-9][A-Za-z0-9._ -]*(/[A-Za-z0-9._-]+)?$')
 LIBRARY_ID = re.compile(r'^/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(/[A-Za-z0-9._@-]+)?$')
@@ -39,6 +44,11 @@ ANY_CLOSING_TAG = re.compile(r'<\s*/\s*untrusted-documentation\s*>', re.IGNORECA
 
 class Refused(Exception):
     """The arguments must not be sent as they are."""
+
+
+def too_many_digits(text):
+    """-> whether text carries more digits than a version or a year needs (an id, an account number)."""
+    return sum(ch.isdigit() for ch in text) > MAX_DIGITS
 
 
 def question_problem(question):
@@ -51,7 +61,7 @@ def question_problem(question):
         return 'the question has more than one line or a control character'
     if '`' in question or '\\' in question:
         return 'the question contains a backtick or a backslash (pasted code?)'
-    if sum(ch.isdigit() for ch in question) > MAX_DIGITS:
+    if too_many_digits(question):
         return f'the question contains more than {MAX_DIGITS} digits (an id or a number?)'
     for token in question.split():
         if token.startswith(('/', '~/', './', '../')) or token.count('/') >= 2:
@@ -80,14 +90,14 @@ def fetch(path, params):
 
 
 def search(library, question):
-    if not LIBRARY_NAME.match(library) or len(library) > 80 or sum(ch.isdigit() for ch in library) > MAX_DIGITS:
+    if not LIBRARY_NAME.match(library) or len(library) > MAX_LIBRARY_NAME or too_many_digits(library):
         raise Refused(f'not a library name: {library!r}')
     results = json.loads(fetch('/api/v2/libs/search', {'libraryName': library, 'query': question})).get('results') or []
     if not results:
         return f'No library matched {library!r}.'
     lines = []
     for r in results[:MAX_RESULTS]:
-        versions = ', '.join((r.get('versions') or [])[:8])
+        versions = ', '.join((r.get('versions') or [])[:MAX_VERSIONS])
         lines += [f"{r.get('id')}  {r.get('title', '')}",
                   f"  {(r.get('description') or '').strip()[:200]}",
                   f"  snippets: {r.get('totalSnippets')} · trust: {r.get('trustScore')} · versions: {versions or 'default only'}"]
@@ -111,7 +121,7 @@ def framed(body):
 def main(argv):
     commands = {'search': search, 'docs': docs}
     if len(argv) != 3 or argv[0] not in commands:
-        print(__doc__.strip().split('\n\n')[1], file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         return 2
     command, target, question = argv
     try:
@@ -132,8 +142,11 @@ def main(argv):
     except Refused as e:
         print(f'refused: {e}; nothing was sent.', file=sys.stderr)
         return 2
-    except (urllib.error.URLError, OSError, ValueError) as e:
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as e:
         print(f'request failed: {e}', file=sys.stderr)
+        return 1
+    except (AttributeError, TypeError) as e:  # valid JSON, but not the object the API documents
+        print(f'request failed: unexpected answer shape ({e})', file=sys.stderr)
         return 1
     return 0
 
