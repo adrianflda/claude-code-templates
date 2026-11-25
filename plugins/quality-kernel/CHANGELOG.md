@@ -27,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `requiresHumanReview` (exit 3), like a modified test: it weakens the bar without touching a test
   or a config, so the base harness still passes. `route.mjs` reports them in `addedSuppressions`;
   a passing breaker does not close this cause. Markers already in the base, and markers the change
-  removes, do not count. It is a text search: a marker inside a string or a document also asks
+  removes, do not count. The diff is forced to text, so a `-diff` or `binary` attribute committed
+  with the change cannot hide a marker. It is a text search: a marker inside a string or a document also asks
   for review. Regression tests: the `SUPPRESS` block in `scripts/attacks.test.mjs`.
 
 ### Changed

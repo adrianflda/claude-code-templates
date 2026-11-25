@@ -19,6 +19,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { orgPin } from './org.mjs';
+import { formatSuppressions } from './route.mjs';
 import { createForwarder } from './process-safety/proc-forward.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -86,13 +87,12 @@ const refPass = ref.code === 0;
 // where route would not recognize a repo's own test root (panel V4).
 const overlaidTests = (verdict.evidence && Array.isArray(verdict.evidence.overlaidTests)) ? verdict.evidence.overlaidTests : [];
 const requiresBreaker = (route.json ? !!route.json.requiresBreaker : true) || overlaidTests.length > 0; // fail-safe if route errored
-// A test change is a CONTRACT change: no breaker verdict can stand in for the human who owns the
-// contract. Exported so breaker-gate can tell the two exit-3 causes apart (a passing breaker closes
-// the critical-surface cause, never this one).
-// An inline check suppression the change adds weakens the bar the same way, without touching a
-// test: route finds them in the added lines, and they need the same human.
 const suppressions = (route.json && Array.isArray(route.json.addedSuppressions)) ? route.json.addedSuppressions : [];
-const requiresHumanReview = overlaidTests.length > 0 || suppressions.length > 0;
+// A test change, or a check suppression the change adds, is a CONTRACT change: no breaker verdict
+// can stand in for the human who owns the contract. Exported so breaker-gate can tell the two
+// exit-3 causes apart (a passing breaker closes the critical-surface cause, never this one).
+// Without a route verdict the added lines were not scanned, so the human is required too.
+const requiresHumanReview = overlaidTests.length > 0 || suppressions.length > 0 || !route.json;
 const notes = [];
 // Code the gate executed runs with the user's rights: if the org config changed during the run,
 // the pinned config may no longer be what the org says — the verdict cannot be trusted.
@@ -106,7 +106,7 @@ if (overlaidTests.length) {
 }
 
 if (suppressions.length) {
-  notes.push(`Check suppression(s) added: ${suppressions.map((s) => `${s.path} (${s.marker})`).join(', ')} — switching a check off is a contract change: human review required before merge. Exit 3.`);
+  notes.push(`Check suppression(s) added: ${formatSuppressions(suppressions)} — switching a check off is a contract change: human review required before merge. Exit 3.`);
 }
 
 // The EXIT CODE is the gate (Constitution P1: "if a rule matters, it's code" — a prose note is not).

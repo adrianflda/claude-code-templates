@@ -672,4 +672,20 @@ test('CONTROL SUPPRESS — a marker that was already there, or one the change re
   assert.strictEqual(kept.verdict.requiresHumanReview, false);
   const removed = suppressGate(marked, { 'src/code.mjs': OK });
   assert.strictEqual(removed.status, 0);
+  assert.deepStrictEqual(removed.verdict.route.addedSuppressions, []);
+  assert.strictEqual(removed.verdict.requiresHumanReview, false);
+});
+
+test('ATTACK SUPPRESS-4 (.gitattributes -diff) — marking the file binary in the same change cannot hide the marker', () => {
+  // With `-diff` git prints "Binary files differ" and no hunks unless the diff is forced to text.
+  const { status, verdict } = suppressGate(BASE, { '.gitattributes': 'src/** -diff\n', 'src/code.mjs': `// @ts-ignore\n${OK}` });
+  assert.notStrictEqual(status, 0);
+  assert.deepStrictEqual(verdict.route.addedSuppressions, [{ path: 'src/code.mjs', marker: '@ts-ignore' }]);
+  assert.strictEqual(verdict.requiresHumanReview, true);
+});
+
+test('CONTROL SUPPRESS (ledger) — a marker inside the tool\'s own audit ledger is not a suppression', () => {
+  const { verdict } = suppressGate(BASE, { '.quality-kernel/run-ledger.jsonl': '{"note":"eslint-disable"}\n', 'src/code.mjs': `${OK}\nexport const g = () => 2;` });
+  assert.deepStrictEqual(verdict.route.addedSuppressions, []);
+  assert.strictEqual(verdict.requiresHumanReview, false);
 });

@@ -212,3 +212,20 @@ test('classify: an added suppression is critical whatever the surface', () => {
   assert.match(v.reason, /check suppression\(s\) added \(human review\): README\.md \(eslint-disable\)/);
   assert.deepStrictEqual(classify(['README.md'], cfg, null).addedSuppressions, []);
 });
+
+test('every documented suppression marker is recognised, whatever its case', () => {
+  const lines = [
+    '// @ts-ignore', '// @ts-expect-error', '// @ts-nocheck', '/* eslint-disable */', '// biome-ignore lint: x',
+    '/* istanbul ignore next */', '/* c8 ignore next */', '/* v8 ignore next */', '// Stryker disable all',
+    '// nosemgrep', 'x = 1  # noqa', 'x = 1  # NOQA', 'x = 1  # type: ignore', 'x = 1  # pragma: no cover',
+    'x = 1  # pylint: disable=invalid-name', 'x = 1  # nosec',
+  ];
+  const diff = ['diff --git a/f b/f', '--- a/f', '+++ b/f', '@@ -0,0 +1 @@', ...lines.map((l) => `+${l}`)].join('\n');
+  assert.strictEqual(addedSuppressions(diff).length, lines.length);
+  assert.deepStrictEqual(addedSuppressions(diff.replace(/^\+(?!\+\+ )/gm, '-')), [], 'removed lines never count');
+});
+
+test('classify: the reason keeps every cause when a test changes and a suppression is added', () => {
+  const v = classify(['src/a.ts', 'tests/a.test.ts'], cfg, null, [], [{ path: 'src/a.ts', marker: '@ts-ignore' }]);
+  assert.match(v.reason, /^test file\(s\) modified .*; check suppression\(s\) added \(human review\): src\/a\.ts \(@ts-ignore\)$/);
+});

@@ -97,6 +97,8 @@ export function addedSuppressions(diffText) {
   return found;
 }
 
+export const formatSuppressions = (list) => list.map((s) => `${s.path} (${s.marker})`).join(', ');
+
 // A parseable config is not a valid one. `criticalGlobs`/`safeGlobs` must be arrays of strings:
 // spreading a plain string would explode it into single characters (so `auth/**` silently stops
 // matching and a critical change is classified below critical), and a non-array safeGlobs crashes
@@ -140,6 +142,8 @@ export function classify(changed, config, proposed, deleted = [], suppressions =
 
   const prop = proposed && proposed in TIERS ? TIERS[proposed] : 0;
   const tierName = NAME[Math.max(TIERS[floorName], prop)];
+  const suppressed = `check suppression(s) added (human review): ${formatSuppressions(suppressions)}`;
+  const withSuppressions = (reason) => (!suppressions.length || reason === suppressed ? reason : `${reason}; ${suppressed}`);
   return {
     tierFloor: floorName,
     tier: tierName,
@@ -148,15 +152,15 @@ export function classify(changed, config, proposed, deleted = [], suppressions =
     deletedTests,
     changedTests,
     addedSuppressions: suppressions,
-    reason:
+    reason: withSuppressions(
       deletedTests.length ? `test file(s) removed: ${deletedTests.join(', ')}`
         : invalidConfig ? `invalid critical-surface.json (${invalidConfig}) -> fail-safe critical`
           : floorName === 'critical' && !config ? 'no critical-surface config -> fail-safe critical'
-          : suppressions.length ? `check suppression(s) added (human review): ${suppressions.map((s) => `${s.path} (${s.marker})`).join(', ')}`
           : changedTests.length ? `test file(s) modified (contract change -> human review): ${changedTests.join(', ')}`
+            : suppressions.length && !criticalFiles.length && !deletedCritical.length ? suppressed
             : floorName === 'critical' ? `critical surface touched: ${[...criticalFiles, ...deletedCritical].join(', ')}`
               : floorName === 'trivial' ? 'all changed paths are on the safe surface'
-                : 'no critical paths, but not all safe',
+                : 'no critical paths, but not all safe'),
   };
 }
 
@@ -230,7 +234,8 @@ if (isMain(import.meta.url)) {
     if (d.status !== 0) opError(`git diff failed in ${repo}: ${(d.stderr || '').trim() || 'non-zero exit'}`);
     ({ changed, deleted } = parseDiffZ(d.stdout));
     // The added lines, to find check suppressions. Same two committed refs, zero context lines.
-    const lines = git(repo, ['diff', '-U0', '-M', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', `${base}..${head}`], { maxBuffer: 256 * 1024 * 1024 });
+    // --text: a `-diff` / `binary` attribute the change itself commits must not empty the diff.
+    const lines = git(repo, ['diff', '-U0', '-M', '--text', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', `${base}..${head}`], { maxBuffer: 256 * 1024 * 1024 });
     if (lines.status !== 0) opError(`git diff (added lines) failed in ${repo}: ${(lines.stderr || '').trim() || (lines.error && lines.error.message) || 'non-zero exit'}`);
     suppressions = addedSuppressions(lines.stdout).filter((s) => !isLedger(s.path));
   }
