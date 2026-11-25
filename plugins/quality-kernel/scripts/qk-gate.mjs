@@ -89,7 +89,10 @@ const requiresBreaker = (route.json ? !!route.json.requiresBreaker : true) || ov
 // A test change is a CONTRACT change: no breaker verdict can stand in for the human who owns the
 // contract. Exported so breaker-gate can tell the two exit-3 causes apart (a passing breaker closes
 // the critical-surface cause, never this one).
-const requiresHumanReview = overlaidTests.length > 0;
+// An inline check suppression the change adds weakens the bar the same way, without touching a
+// test: route finds them in the added lines, and they need the same human.
+const suppressions = (route.json && Array.isArray(route.json.addedSuppressions)) ? route.json.addedSuppressions : [];
+const requiresHumanReview = overlaidTests.length > 0 || suppressions.length > 0;
 const notes = [];
 // Code the gate executed runs with the user's rights: if the org config changed during the run,
 // the pinned config may no longer be what the org says — the verdict cannot be trusted.
@@ -100,6 +103,10 @@ if (route.json ? !!route.json.requiresBreaker : true) {
 }
 if (overlaidTests.length) {
   notes.push(`Test file(s) modified and overlaid from head (${overlaidTests.join(', ')}) — a test change is a contract change: human review required before merge (Option B). Exit 3.`);
+}
+
+if (suppressions.length) {
+  notes.push(`Check suppression(s) added: ${suppressions.map((s) => `${s.path} (${s.marker})`).join(', ')} — switching a check off is a contract change: human review required before merge. Exit 3.`);
 }
 
 // The EXIT CODE is the gate (Constitution P1: "if a rule matters, it's code" — a prose note is not).

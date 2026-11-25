@@ -14,6 +14,9 @@
 //  - `.quality-kernel/**` is ALWAYS critical; deleting a test is ALWAYS critical; EDITING a test
 //    is never trivial (floor >= standard) — you cannot call a coverage change "trivial".
 //  - Requires --base; a git failure or unverifiable ref is an operational error (fail-closed).
+//  - A line the change ADDS that carries an inline check suppression (`@ts-ignore`,
+//    `eslint-disable`, `# noqa`...) is ALWAYS critical and needs human review: it weakens the bar
+//    without touching a test or a config, so the base harness still passes.
 //
 // Usage: route.mjs --repo <dir> --base <ref> [--head <ref>] [--changed a,b] [--deleted c] [--proposed tier]
 //                  [--org <dir>] [--org-pin <hash>]
@@ -68,6 +71,32 @@ export const isLedger = (p) => {
   return !!m && TOOL_LEDGERS.has(m[2]);
 };
 
+// Inline markers that switch a check off for the code they sit on: type checker, linter, coverage,
+// mutation and security scanners (TS/JS and Python). Text search on purpose: a marker inside a
+// string or a document also asks for review, which costs a look, where a missed one costs the gate.
+export const SUPPRESSION = /@ts-(?:ignore|expect-error|nocheck)|eslint-disable|biome-ignore|(?:istanbul|c8|v8) ignore|Stryker disable|nosemgrep|#\s*noqa|#\s*type:\s*ignore|pragma:\s*no cover|pylint:\s*disable|#\s*nosec/i;
+
+// -> [{ path, marker }] for every line a unified diff ADDS that carries a suppression marker.
+// A file header is read only outside a hunk: inside one, an added line whose own text starts
+// with "++ " prints as "+++ ..." and must be scanned as content, not taken for a header.
+export function addedSuppressions(diffText) {
+  const found = [];
+  let path = null;
+  let inHunk = false;
+  for (const line of diffText.split('\n')) {
+    if (line.startsWith('diff --git ')) { inHunk = false; continue; }
+    if (line.startsWith('@@ ')) { inHunk = true; continue; }
+    if (!inHunk) {
+      if (line.startsWith('+++ ')) path = line.slice(4).replace(/^b\//, '');
+      continue;
+    }
+    if (!line.startsWith('+')) continue;
+    const m = SUPPRESSION.exec(line);
+    if (m) found.push({ path, marker: m[0] });
+  }
+  return found;
+}
+
 // A parseable config is not a valid one. `criticalGlobs`/`safeGlobs` must be arrays of strings:
 // spreading a plain string would explode it into single characters (so `auth/**` silently stops
 // matching and a critical change is classified below critical), and a non-array safeGlobs crashes
@@ -84,7 +113,7 @@ export function configError(config) {
   return null;
 }
 
-export function classify(changed, config, proposed, deleted = []) {
+export function classify(changed, config, proposed, deleted = [], suppressions = []) {
   // Fail-safe (P5): an invalid config is treated as NO config -> critical floor, never spread.
   const invalidConfig = configError(config);
   if (invalidConfig) config = null;
@@ -97,6 +126,7 @@ export function classify(changed, config, proposed, deleted = []) {
 
   const floorName = (() => {
     if (deletedTests.length) return 'critical';               // removing tests is never trivial
+    if (suppressions.length) return 'critical';               // switching a check off is never trivial
     if (!changed.length && !deleted.length) return 'trivial';  // truly nothing changed
     if (!config) return 'critical';                            // fail-safe (P5)
     if (criticalFiles.length || deletedCritical.length) return 'critical';
@@ -117,10 +147,12 @@ export function classify(changed, config, proposed, deleted = []) {
     criticalFiles: [...new Set([...criticalFiles, ...deletedCritical])],
     deletedTests,
     changedTests,
+    addedSuppressions: suppressions,
     reason:
       deletedTests.length ? `test file(s) removed: ${deletedTests.join(', ')}`
         : invalidConfig ? `invalid critical-surface.json (${invalidConfig}) -> fail-safe critical`
           : floorName === 'critical' && !config ? 'no critical-surface config -> fail-safe critical'
+          : suppressions.length ? `check suppression(s) added (human review): ${suppressions.map((s) => `${s.path} (${s.marker})`).join(', ')}`
           : changedTests.length ? `test file(s) modified (contract change -> human review): ${changedTests.join(', ')}`
             : floorName === 'critical' ? `critical surface touched: ${[...criticalFiles, ...deletedCritical].join(', ')}`
               : floorName === 'trivial' ? 'all changed paths are on the safe surface'
@@ -181,6 +213,7 @@ if (isMain(import.meta.url)) {
   const splitList = (s) => (s ? s.split(',').map((x) => x.trim()).filter(Boolean) : []);
   let changed = [];
   let deleted = [];
+  let suppressions = [];
   if (changedArg !== null || deletedArg !== null) {
     changed = splitList(changedArg);
     deleted = splitList(deletedArg);
@@ -196,6 +229,10 @@ if (isMain(import.meta.url)) {
     const d = git(repo, ['diff', '-z', '--name-status', '-M', `${base}..${head}`]);
     if (d.status !== 0) opError(`git diff failed in ${repo}: ${(d.stderr || '').trim() || 'non-zero exit'}`);
     ({ changed, deleted } = parseDiffZ(d.stdout));
+    // The added lines, to find check suppressions. Same two committed refs, zero context lines.
+    const lines = git(repo, ['diff', '-U0', '-M', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', `${base}..${head}`], { maxBuffer: 256 * 1024 * 1024 });
+    if (lines.status !== 0) opError(`git diff (added lines) failed in ${repo}: ${(lines.stderr || '').trim() || (lines.error && lines.error.message) || 'non-zero exit'}`);
+    suppressions = addedSuppressions(lines.stdout).filter((s) => !isLedger(s.path));
   }
 
   // ignore the tool's own audit ledgers (see isLedger)
@@ -231,6 +268,6 @@ if (isMain(import.meta.url)) {
     }
   }
 
-  emit({ ...classify(changed, config, proposed, deleted), configSource });
+  emit({ ...classify(changed, config, proposed, deleted, suppressions), configSource });
   process.exit(0);
 }

@@ -147,12 +147,13 @@ const contractLint = { ok: true, anchor, declared: lint.declared, checked: lint.
 syncNotExecutedRecord(repo, bj, contract);
 
 // A passing breaker closes the CRITICAL-SURFACE cause of exit 3 — never the human-review cause.
-// qk-gate also returns 3 when the referee saw test files overlaid from head: a test change is a
-// contract change, and no breaker verdict can stand in for the human who owns the contract.
+// qk-gate also returns 3 when the referee saw test files overlaid from head, or the change added
+// an inline check suppression: both change the contract, and no breaker verdict can stand in for
+// the human who owns it.
 if (b.status === 0 && gj && gj.requiresHumanReview) {
   emit({
     gate: 'blocked-needs-human-review', refereeGate: gj, breaker: bj, contractLint,
-    notes: ['breaker PASSed, but test file(s) were modified and overlaid from head — a test change is a contract change and still requires human review before merge.'],
+    notes: ['breaker PASSed, but the change modified test file(s) or added a check suppression — that is a contract change and still requires human review before merge (see refereeGate.notes).'],
   }, 3);
 }
 

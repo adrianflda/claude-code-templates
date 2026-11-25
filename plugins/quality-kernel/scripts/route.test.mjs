@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { globToRegExp, classify, parseDiffZ, isLedger, configError } from './route.mjs';
+import { globToRegExp, classify, parseDiffZ, isLedger, configError, addedSuppressions } from './route.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const routeCli = join(here, 'route.mjs');
@@ -189,4 +189,26 @@ test('classify (RED) — a string criticalGlobs is not spread into characters; s
   const r = classify(['auth/x.ts'], { criticalGlobs: 'auth/**' }, null, []);
   assert.strictEqual(r.tier, 'critical');
   assert.match(r.reason, /invalid critical-surface\.json/);
+});
+
+test('addedSuppressions reads only added lines, and a hunk line cannot pass for a file header', () => {
+  const diff = [
+    'diff --git a/src/a.ts b/src/a.ts', '--- a/src/a.ts', '+++ b/src/a.ts',
+    '@@ -3,0 +4,2 @@', '+// @ts-expect-error', '+const x = 1;',
+    '@@ -9 +10,0 @@', '-// eslint-disable-next-line',
+    'diff --git a/src/b.py b/src/b.py', '--- a/src/b.py', '+++ b/src/b.py',
+    '@@ -1,0 +2 @@', '+++ b/src/fake.py # nosec',
+  ].join('\n');
+  assert.deepStrictEqual(addedSuppressions(diff), [
+    { path: 'src/a.ts', marker: '@ts-expect-error' },
+    { path: 'src/b.py', marker: '# nosec' },
+  ]);
+});
+
+test('classify: an added suppression is critical whatever the surface', () => {
+  const v = classify(['README.md'], cfg, null, [], [{ path: 'README.md', marker: 'eslint-disable' }]);
+  assert.strictEqual(v.tier, 'critical');
+  assert.strictEqual(v.requiresBreaker, true);
+  assert.match(v.reason, /check suppression\(s\) added \(human review\): README\.md \(eslint-disable\)/);
+  assert.deepStrictEqual(classify(['README.md'], cfg, null).addedSuppressions, []);
 });
