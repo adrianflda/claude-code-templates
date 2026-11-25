@@ -316,10 +316,22 @@ const ISSUE_ARGS = ['--json', 'title,body,url'];
 // The panel asks for the pushed branch's PR before anything else: its body may name the ticket.
 const PR_LOOKUP = ['pr', 'view', 'feature', '--json', 'number,baseRefName,title,body', '-R', 'Acme/frontend'];
 
-test('the Maintainability & Readability reviewer runs on every full review, capped at medium', () => {
+test('the optional reviewers stay out of a default review', () => {
   const repo = repoWithDeletion();
   const claude = fakeClaude();
   const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(roleOf(claude.calls(), 'reads code the way the next teammate will').length, 0);
+  assert.equal(roleOf(claude.calls(), 'senior performance reviewer').length, 0);
+  assert.equal(claude.calls().length, 4, 'security, correctness, reliability and tests; no ticket');
+  assert.doesNotMatch(result.stdout, /Maintainability & Readability|Performance & Scale/);
+});
+
+test('AI_REVIEW_ROLES=all runs every reviewer; Maintainability & Readability is capped at medium', () => {
+  const repo = repoWithDeletion();
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin, AI_REVIEW_ROLES: 'all' } });
 
   assert.equal(result.code, 0, result.stderr);
   const [reviewer] = roleOf(claude.calls(), 'reads code the way the next teammate will');
@@ -381,7 +393,7 @@ test('a push over AI_REVIEW_QUICK_LINES, or with AI_REVIEW_ROLES set, is not qui
   });
   assert.equal(result.code, 0, result.stderr);
   assert.doesNotMatch(result.stdout, /Quick mode/);
-  assert.equal(over.calls().length, 6);
+  assert.equal(over.calls().length, 4);
 
   const filtered = fakeClaude();
   const explicit = runNode(PANEL, {
@@ -407,7 +419,7 @@ test('without ticket references the Fit to the ticket reviewer is skipped, and t
 
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /No ticket references found in the commit messages, the pull request or the branch name\. "Fit to the ticket" is skipped\./);
-  assert.match(result.stdout, /with 6 expert agents/);
+  assert.match(result.stdout, /with 4 expert agents/);
   assert.equal(roleOf(claude.calls(), 'checks a change against the ticket').length, 0);
   // Only the branch's PR is looked up (it may carry the ticket); no issue is fetched.
   assert.deepEqual(gh.calls(), [PR_LOOKUP], 'gh fetches no issue when nothing is referenced');
@@ -441,7 +453,7 @@ test('commit-message references are fetched with gh and only the ticket reviewer
     ['issue', 'view', '7', ...ISSUE_ARGS, '-R', 'acme/lib'],
   ], 'only origin\'s owner (any case) is fetched; text that is not a reference is ignored');
   assert.match(result.stdout, /Ticket context: issue\(s\) #12, Acme\/prodmgt#31, acme\/lib#7\. Not fetched \(other owner\): Other\/private#8\./);
-  assert.match(result.stdout, /with 7 expert agents/);
+  assert.match(result.stdout, /with 5 expert agents/);
 
   const calls = claude.calls();
   const [fit] = roleOf(calls, 'checks a change against the ticket');

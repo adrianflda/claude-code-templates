@@ -34,7 +34,8 @@
  *   AI_REVIEW_TRIGGER     'pre-push' when the git runner invokes the panel (recorded in the run log)
  *   AI_REVIEW_PUSH_REF    the ref being pushed (refs/heads/<branch>), set by the git runner; names
  *                         the branch whose PR carries the ticket
- *   AI_REVIEW_ROLES       comma-separated role keys to run (default: all); for replays and tests
+ *   AI_REVIEW_ROLES       comma-separated role keys to run, or `all` (default: every role that is
+ *                         not optional; performance and maintainability run only when named)
  *   AI_REVIEW_QUICK_LINES a push with at most this many changed lines gets the quick panel
  *                         (security, correctness, reliability, ticket) instead of all roles
  *                         (default: 60; 0 = always the whole panel)
@@ -862,7 +863,8 @@ if (ticket.text && ticketView !== pushView) {
 const changedLines = diff.split('\n').filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---) ([ab]\/|\/dev\/null)/.test(l)).length;
 const quick = !ROLE_FILTER.length && QUICK_LINES > 0 && !cut.partial && !cut.omitted.length && changedLines <= QUICK_LINES;
 const roles = ROLES.filter(
-  (r) => (!r.needsTicket || ticket.text) && (ROLE_FILTER.length ? ROLE_FILTER.includes(r.key) : !quick || QUICK_ROLES.includes(r.key)),
+  (r) => (!r.needsTicket || ticket.text)
+    && (ROLE_FILTER.length ? ROLE_FILTER.includes('all') || ROLE_FILTER.includes(r.key) : !r.optional && (!quick || QUICK_ROLES.includes(r.key))),
 );
 if (quick) {
   console.log(

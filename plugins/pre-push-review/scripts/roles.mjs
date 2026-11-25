@@ -1,6 +1,10 @@
 /**
  * pre-push-review — the expert panel: independent branches of review (project-agnostic). A role
  * with `needsTicket` runs only when ticket text was found. `key` names a role in the run log.
+ * A role marked `optional` runs only when AI_REVIEW_ROLES names it (or is `all`): 60 days of the
+ * run log (718 runs) showed Performance & Scale at 2 high findings and Maintainability &
+ * Readability, capped at medium by its own prompt, at none, so neither earns a model call on
+ * every push.
  */
 export const ROLES = [
   {
@@ -32,6 +36,7 @@ export const ROLES = [
   },
   {
     key: 'performance',
+    optional: true,
     title: 'Performance & Scale',
     system:
       'You are a senior performance reviewer. Review ONLY: N+1 queries/calls, unbounded ' +
@@ -51,6 +56,7 @@ export const ROLES = [
     // roles (Maintainability & Design, Readability & Simplicity) never reported above medium,
     // so a second model call bought nothing a single reviewer with both lists does not.
     key: 'maintainability',
+    optional: true,
     title: 'Maintainability & Readability',
     system:
       'You are a senior reviewer who reads code the way the next teammate will. Review ONLY: ' +

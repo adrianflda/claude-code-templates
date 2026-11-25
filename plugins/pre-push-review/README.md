@@ -127,17 +127,25 @@ Deleted files are part of the review. The reviewers get each one as a header wit
 and no content, so removed code does not use up the diff budget. A push that only deletes
 files is reviewed; it is not reported as "no changes".
 
-The panel is up to 7 independent specialist reviewers, each constrained to one branch of review:
+The panel has 7 independent specialist reviewers, each constrained to one branch of review. Up to 5
+run by default; the two marked *on request* run only when `AI_REVIEW_ROLES` names them:
 
 | Agent | Focus |
 |---|---|
 | Security & Privacy | authz/authn, tenant isolation, injection, secret/PII leakage |
 | Correctness & Logic | logic bugs, null hazards, bad state transitions, breaking changes |
 | Error Handling & Reliability | swallowed errors, races, idempotency, resource leaks |
-| Performance & Scale | N+1, unbounded loops/fetches, hot-path waste |
+| Performance & Scale (*on request*) | N+1, unbounded loops/fetches, hot-path waste |
 | Test Coverage & Quality | untested branches, weak assertions, flaky patterns |
-| Maintainability & Readability | boundaries, duplication, dead code, leaky abstractions; comments that explain what the code should make obvious, jargon or invented terms in names and comments, designs more complex than the goal needs (always with the simpler alternative); at most `medium` unless it hides a correctness risk |
+| Maintainability & Readability (*on request*) | boundaries, duplication, dead code, leaky abstractions; comments that explain what the code should make obvious, jargon or invented terms in names and comments, designs more complex than the goal needs (always with the simpler alternative); at most `medium` unless it hides a correctness risk |
 | Fit to the ticket | runs only when ticket text is found, over the **whole branch**: one row per acceptance criterion and business reason (`met` / `partial` / `missing` / `contradicted`, with the ticket line quoted) plus one `unrequested` row per rule or exemption the change adds that no ticket line asks for; a confirmed `contradicted` row **blocks** |
+
+Performance & Scale and Maintainability & Readability left the default panel in 1.9.0. Sixty days
+of the run log (718 runs) showed 2 `high` findings from the first and none from the second, which
+its own prompt caps at `medium`; no reviewer reported a `critical`. Each still cost a model call on
+every full review. `AI_REVIEW_ROLES=all` runs the seven, and
+`AI_REVIEW_ROLES=performance,maintainability` runs those two alone, for example before merging a
+change to a hot path or a large refactor.
 
 Until 1.7.0 design and readability were two reviewers. Thirty days of the run log (77 runs)
 showed neither ever reported above `medium`, so they are one reviewer with both lists now: one
@@ -225,9 +233,9 @@ those files exist so they do not report them as missing.
 A push of at most 60 changed lines (the `+` and `-` lines of the diff, file headers excluded)
 gets the three reviewers whose findings can block (Security & Privacy, Correctness & Logic,
 Error Handling & Reliability) plus Fit to the ticket when there is a ticket, instead of the whole
-panel. The verifier, the blocking rules and the run log are the same; the row says `quick: true`
-and `stats` counts them. The other reviewers only ever reported `medium` and `low` in the run
-log, and a one-line fix does not need a performance or test-coverage pass of its own.
+default panel, which adds Test Coverage & Quality. The verifier, the blocking rules and the run
+log are the same; the row says `quick: true` and `stats` counts them. A one-line fix does not
+need a test-coverage pass of its own.
 
 `AI_REVIEW_QUICK_LINES` moves the limit; `0` runs the whole panel on every push. A cut diff
 never qualifies, and an explicit `AI_REVIEW_ROLES` wins. The quick panel is a smaller review,
@@ -394,7 +402,7 @@ read-only home never fails a review.
 | `CLAUDE_BIN` | auto | explicit path to the `claude` binary |
 | `AI_REVIEW_TRIGGER` | set to `pre-push` by the gate | recorded in the run log as the run's trigger (`pre-push` or `cli`) |
 | `AI_REVIEW_PUSH_REF` | set by the gate per pushed ref | the ref being pushed (`refs/heads/<branch>`); names the branch whose PR carries the ticket |
-| `AI_REVIEW_ROLES` | all | comma-separated role keys to run (`security`, `correctness`, `reliability`, `performance`, `tests`, `maintainability`, `ticket`); for replays and tests |
+| `AI_REVIEW_ROLES` | every role except `performance` and `maintainability` | comma-separated role keys to run (`security`, `correctness`, `reliability`, `performance`, `tests`, `maintainability`, `ticket`), or `all` for the seven; naming a role is the only way to run the two optional ones, and it turns the quick panel off |
 | `AI_REVIEW_QUICK_LINES` | `60` | a push with at most this many changed lines gets the quick panel (`security`, `correctness`, `reliability`, `ticket`); `0` = always the whole panel |
 | `AI_REVIEW_VERIFY` | `1` | `0` = no verifier: every finding counts as reported |
 | `AI_REVIEW_VERIFIER_MODEL` | `AI_REVIEW_MODEL` | model for the verifier |
