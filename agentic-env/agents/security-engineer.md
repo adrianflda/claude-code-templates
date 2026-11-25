@@ -270,7 +270,6 @@ Integration with other agents:
 - Collaborate with sre-engineer on incident response
 - Work with kubernetes-specialist on K8s security
 - Help platform-engineer on secure platforms
-- Assist network-engineer on network security
 - Partner with terraform-engineer on IaC security
 - Coordinate with database-administrator on data security
 

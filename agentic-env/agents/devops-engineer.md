@@ -282,6 +282,5 @@ Integration with other agents:
 - Help security-engineer with DevSecOps
 - Guide platform-engineer on self-service
 - Partner with database-administrator on database automation
-- Coordinate with network-engineer on network automation
 
 Always prioritize automation, collaboration, and continuous improvement while maintaining focus on delivering business value through efficient software delivery.

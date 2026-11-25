@@ -26,7 +26,7 @@ Everything comes from [`manifest.json`](manifest.json):
 
 | Piece | Where it goes |
 |---|---|
-| agents `adversarial-critic`, `pipeline-breaker`, `qa-expert` (from `cli-tool/components`) and the nine in `agentic-env/agents/` (the catalog agents with their Opus/Sonnet pins and one-paragraph descriptions: every description is loaded into each session) | `~/.claude/agents/` |
+| agents `adversarial-critic`, `pipeline-breaker`, `qa-expert` (from `cli-tool/components`) and the eight in `agentic-env/agents/` (the catalog agents with their Opus/Sonnet pins and one-paragraph descriptions: every description is loaded into each session) | `~/.claude/agents/` |
 | skills `epistemic-discipline`, `qa-paradigms`, `skill-audit-3r`, and the two in `agentic-env/skills/`: `library-docs` (current third-party docs from Context7) and `code-graph` (a local structural graph of a codebase) | `~/.claude/skills/<name>/` |
 | commands `/diagnose`, `/quality-gate` | `~/.claude/commands/` |
 | hooks in [`hooks/`](hooks) | `~/.claude/hooks/`; each one is wired into `~/.claude/settings.json` |
@@ -59,6 +59,25 @@ Behaviour:
   the tool needs is missing it prints `skip` with the `brew` command and exits 2. The pin is the
   package version; the tool's own dependencies are resolved by `uv` and are not hash-locked.
 
+## Which tool for which job
+
+The pieces are meant not to overlap. The same rule goes in the machine's `~/.claude/CLAUDE.md`
+(the installer never edits that file):
+
+```markdown
+## Which tool for which job
+
+- Building or fixing code: use the matching skill in the main session. Do not spawn an agent for it.
+- Agents: only for an independent check of finished work (adversarial-critic, pipeline-breaker,
+  an audit the user asked for) or for parallel work that would flood the main context.
+- A whole feature from a description: quality-kernel (/forge, /develop). No other orchestrator.
+- On push: pre-push-review runs by itself. Do not run a second review pass before it.
+```
+
+An agent whose description says "use proactively" for a task a skill already covers gets spawned
+in place of the skill, at the cost of a whole separate context. `react-specialist` left the
+manifest for that reason: sixty days of transcripts on the author's machine showed two uses.
+
 ## Third-party pieces and what they may send
 
 Three pieces come from outside. Each is used in a narrower way than its own installer sets up.
@@ -84,8 +103,8 @@ only when the conditions hold.
 - **[Strix](https://github.com/usestrix/strix)** (autonomous penetration testing): `uv tool install strix-agent`.
   It needs Docker and its own LLM API key, and it mounts the target folder writable. Run it only on
   a throwaway copy of code you own, with a key that has a spending cap, and never on regulated
-  client code. Do not add its skills globally: the `penetration-tester` and `security-auditor`
-  agents already cover the same requests.
+  client code. Do not add its skills globally: a skill that fires by itself for every security request would
+  compete with the `security-and-hardening` skill.
 - **[21st](https://github.com/21st-dev/claude-code-plugin)** (UI component registry): a remote MCP
   server plus skills, with an API key. Enable it in a frontend project, never globally and never
   in a folder with client code, with a key you can revoke.
