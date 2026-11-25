@@ -26,10 +26,10 @@ Everything comes from [`manifest.json`](manifest.json):
 
 | Piece | Where it goes |
 |---|---|
-| agents `adversarial-critic`, `pipeline-breaker`, `qa-expert` (from `cli-tool/components`) and the eight in `agentic-env/agents/` (the catalog agents with their Opus/Sonnet pins and one-paragraph descriptions: every description is loaded into each session) | `~/.claude/agents/` |
-| skills `epistemic-discipline`, `qa-paradigms`, `skill-audit-3r`, and the two in `agentic-env/skills/`: `library-docs` (current third-party docs from Context7) and `code-graph` (a local structural graph of a codebase) | `~/.claude/skills/<name>/` |
-| commands `/diagnose`, `/quality-gate` | `~/.claude/commands/` |
-| hooks in [`hooks/`](hooks) | `~/.claude/hooks/`; each one is wired into `~/.claude/settings.json` |
+| agents `adversarial-critic`, `pipeline-breaker` (from `cli-tool/components`) and the eight in `agentic-env/agents/` (one-paragraph descriptions, because every description is loaded into each session; bodies that read the repository instead of asking a "context manager" that does not exist) | `~/.claude/agents/` |
+| skills `epistemic-discipline`, `qa-paradigms`, and the two in `agentic-env/skills/`: `library-docs` (current third-party docs from Context7) and `code-graph` (a local structural graph of a codebase) | `~/.claude/skills/<name>/` |
+| command `/diagnose` | `~/.claude/commands/` |
+| the hooks the manifest names in [`hooks/`](hooks), plus the modules they import (`hookSupport`) | `~/.claude/hooks/`; each one is wired into `~/.claude/settings.json`. A hook already wired with `$HOME` or `~` in its path counts as wired. Tests stay in the repo |
 | plugins `quality-kernel`, `pre-push-review`, `usage-guard`, `pr-draft-guard`, `aws-admin-guard`, `agent-skills` | installed from this repo's marketplace (`adrianflda-claude-code-templates`) |
 | external tools in the manifest's `tools` list (today `graphifyy`, which gives the `graphify` command) | `uv tool install`, at the exact version the manifest pins |
 | pre-push review gate | global git config, via `plugins/pre-push-review/scripts/install-git-hook.mjs` |
@@ -108,6 +108,23 @@ only when the conditions hold.
 - **[21st](https://github.com/21st-dev/claude-code-plugin)** (UI component registry): a remote MCP
   server plus skills, with an API key. Enable it in a frontend project, never globally and never
   in a folder with client code, with a key you can revoke.
+
+## In the repo, not installed
+
+- `hooks/epistemic-preamble-guard.py`: quality-kernel already ships the same check
+  (`hooks/epistemic-guard.py`, warning by default). Two guards on every agent spawn, one of them
+  blocking, is one too many.
+- `hooks/prompt-injection-detector.py`: it runs on every file read and its false-alarm rate has
+  not been measured. Wire it by hand to try it.
+- `extras/gh-wrapper/gh`: a wrapper that passes a personal GitHub account's token to `gh` inside
+  personal work (a folder, or a repository whose `origin` belongs to that account) and leaves the
+  active account alone elsewhere. To install: `mv ~/bin/gh ~/bin/gh-real`, copy the wrapper to
+  `~/bin/gh`, and set `GH_PERSONAL_USER` and `GH_PERSONAL_DIR` if the defaults in the file are
+  not yours.
+- The agents `qa-expert`, `research-analyst` and `se-security-reviewer`, the `/quality-gate`
+  command and the `skill-audit-3r` skill left the manifest: a second review pass before the push
+  and a second security reviewer duplicate `pre-push-review` and `security-auditor`. The first
+  and the last two are still in `cli-tool/components`.
 
 ## Deliberately not shipped
 

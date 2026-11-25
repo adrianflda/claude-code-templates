@@ -7,7 +7,8 @@
   --no-tools                                   skip the external command-line tools (`uv tool install`)
 
 What it installs is listed in agentic-env/manifest.json: agents, skills and commands from
-cli-tool/components, the hooks in agentic-env/hooks (wired into ~/.claude/settings.json), the
+cli-tool/components, the hooks the manifest names in agentic-env/hooks (wired into
+~/.claude/settings.json; their tests and the opt-in hooks stay in the repo), the
 plugins of this repo's marketplace, the pre-push review gate in the global git config, and the
 external command-line tools the skills call, each at one pinned version.
 It never deletes anything and never writes anything that is not in the manifest.
@@ -41,13 +42,20 @@ def files_to_copy():
         for f in sorted(p for p in src.rglob('*') if p.is_file()):
             pairs.append((f, CLAUDE / 'skills' / src.name / f.relative_to(src)))
     hooks = REPO / MANIFEST['hookFiles']
-    for f in sorted(p for p in hooks.iterdir() if p.is_file() and p.suffix == '.py'):
-        pairs.append((f, CLAUDE / 'hooks' / f.name))
+    for name in sorted({e['file'] for e in MANIFEST['hooks']} | set(MANIFEST.get('hookSupport', []))):
+        pairs.append((hooks / name, CLAUDE / 'hooks' / name))
     return pairs
 
 
 def hook_command(entry):
     return f"python3 {CLAUDE / 'hooks' / entry['file']}"
+
+
+def same_command(a, b):
+    """True when two hook commands differ only in how they spell the home folder ($HOME, ${HOME}, ~)."""
+    home = str(CLAUDE.parent)
+    plain = lambda c: re.sub(r'\$\{HOME\}|\$HOME\b|(?<![\w/])~(?=/)', lambda _: home, c or '')
+    return plain(a) == plain(b)
 
 
 def missing_hooks(settings):
@@ -56,7 +64,7 @@ def missing_hooks(settings):
     for e in MANIFEST['hooks']:
         groups = (settings.get('hooks') or {}).get(e['event']) or []
         wired = any(g.get('matcher') == e['matcher'] and
-                    any(h.get('command') == hook_command(e) for h in g.get('hooks') or [])
+                    any(same_command(h.get('command'), hook_command(e)) for h in g.get('hooks') or [])
                     for g in groups)
         if not wired:
             out.append(e)

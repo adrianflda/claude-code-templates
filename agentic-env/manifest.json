@@ -5,20 +5,18 @@
   "agents": [
     "cli-tool/components/agents/epistemic-discipline/adversarial-critic.md",
     "cli-tool/components/agents/epistemic-discipline/pipeline-breaker.md",
-    "cli-tool/components/agents/development-tools/qa-expert.md",
     "agentic-env/agents/architect-reviewer.md",
     "agentic-env/agents/backend-developer.md",
     "agentic-env/agents/code-reviewer.md",
     "agentic-env/agents/devops-engineer.md",
     "agentic-env/agents/documentation-expert.md",
-    "agentic-env/agents/research-analyst.md",
-    "agentic-env/agents/se-security-reviewer.md",
-    "agentic-env/agents/security-engineer.md"
+    "agentic-env/agents/security-engineer.md",
+    "agentic-env/agents/backend-architect.md",
+    "agentic-env/agents/security-auditor.md"
   ],
   "skills": [
     "cli-tool/components/skills/epistemic-discipline",
     "cli-tool/components/skills/qa-paradigms",
-    "cli-tool/components/skills/skill-audit-3r",
     "agentic-env/skills/library-docs",
     "agentic-env/skills/code-graph"
   ],
@@ -26,17 +24,16 @@
     { "package": "graphifyy", "version": "0.9.119", "python": "3.12" }
   ],
   "commands": [
-    "cli-tool/components/commands/epistemic-discipline/diagnose.md",
-    "cli-tool/components/commands/epistemic-discipline/quality-gate.md"
+    "cli-tool/components/commands/epistemic-discipline/diagnose.md"
   ],
   "hookFiles": "agentic-env/hooks",
   "hooks": [
     { "event": "PreToolUse", "matcher": "Bash", "file": "dangerous-command-blocker.py" },
     { "event": "PreToolUse", "matcher": "Bash", "file": "secret-scanner.py" },
+    { "event": "PreToolUse", "matcher": "Bash", "file": "conventional-commits.py" },
     { "event": "PreToolUse", "matcher": "Bash", "file": "spanish-gate.py" },
     { "event": "PreToolUse", "matcher": "Bash", "file": "resource-guard.py" },
-    { "event": "PreToolUse", "matcher": "Read|WebFetch", "file": "prompt-injection-detector.py" },
-    { "event": "PreToolUse", "matcher": "Task|Agent", "file": "epistemic-preamble-guard.py" },
     { "event": "SessionStart", "matcher": null, "file": "epistemic-observe-guard.py" }
-  ]
+  ],
+  "hookSupport": ["shell_words.py", "spanish-scan.py"]
 }
