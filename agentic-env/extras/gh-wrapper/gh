@@ -1,12 +1,18 @@
 #!/bin/sh
 # gh wrapper: uses the personal GitHub account inside personal work, and leaves gh alone elsewhere.
 # Personal work = the current folder is under $GH_PERSONAL_DIR, or the repo's origin belongs to
-# $GH_PERSONAL_USER (or uses the github-personal SSH alias). The active account in `gh auth status`
+# $GH_PERSONAL_USER (or uses the github-personal SSH alias). Both are read from the environment;
+# without GH_PERSONAL_USER the wrapper does nothing. The active account in `gh auth status`
 # is never changed: the personal token is passed to that one command through GH_TOKEN.
 # The real binary is ~/bin/gh-real. To undo: mv ~/bin/gh-real ~/bin/gh
 real="$HOME/bin/gh-real"
-user="${GH_PERSONAL_USER:-adrianflda}"
-dir="${GH_PERSONAL_DIR:-$HOME/Projects/personal}"
+user="${GH_PERSONAL_USER:-}"
+dir="${GH_PERSONAL_DIR:-}"
+
+# Not configured: behave exactly like gh.
+if [ -z "$user" ]; then
+  exec "$real" "$@"
+fi
 
 # An explicit token, or managing accounts, is the caller's decision.
 if [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || [ "${1:-}" = auth ]; then
@@ -14,7 +20,9 @@ if [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || [ "${1:-}" = auth ]; then
 fi
 
 personal=
-case "$(pwd -P)/" in "$dir"/*) personal=1 ;; esac
+if [ -n "$dir" ]; then
+  case "$(pwd -P)/" in "$dir"/*) personal=1 ;; esac
+fi
 if [ -z "$personal" ]; then
   case "$(git remote get-url origin 2>/dev/null)" in
     *github-personal:*|*[:/]"$user"/*) personal=1 ;;

@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-Secret Scanner Hook
-Detects hardcoded secrets before git commits
+Secret Scanner Hook (PreToolUse Bash): detects hardcoded secrets before `git commit`.
+
+A finding of medium severity or above blocks the commit (exit 2). The matched text is never
+printed: hook output goes back into the session and its transcript.
+A hit is dropped when the token itself carries a placeholder marker, when the whole line is a
+comment that does, or when it is a hex digest (see is_false_positive). Paths can be opted out
+per repo with glob patterns in .secret-scanner-ignore.
+Tests: test_secret_scanner.py
 """
 
 import json
@@ -68,7 +74,7 @@ SECRET_PATTERNS = [
     (r'(?i)azure[_\-\s]*(?:key|secret|token)[\'"\s]*[=:][\'"\s]*[A-Za-z0-9+/=]{32,}', 'Azure Key', 'high'),
 
     # Cloudflare API Tokens
-    (r'(?:cf|cloudflare)[_\-]?[A-Za-z0-9_\-]{37,}', 'Cloudflare API Token', 'medium'),
+    (r'(?<![A-Za-z0-9])(?:cf|cloudflare)[_\-]?[A-Za-z0-9_\-]{37,}', 'Cloudflare API Token', 'medium'),
 
     # DigitalOcean Tokens
     (r'dop_v1_[0-9a-f]{64}', 'DigitalOcean Personal Access Token', 'high'),
@@ -153,7 +159,10 @@ def is_false_positive(matched, line, description):
       - any lowercase-hex hit sitting inside a longer hex digest, or on a line
         explicitly labelled as a hash/digest/checksum.
     """
-    haystack = (matched + ' ' + line).lower()
+    # A marker counts in the token itself, or anywhere in a line that is only a comment. A marker
+    # elsewhere on a code line (a URL host, a trailing comment) does not excuse a real secret.
+    stripped = line.strip().lower()
+    haystack = matched.lower() + (' ' + stripped if stripped.startswith(('#', '//')) else '')
     if any(m in haystack for m in PLACEHOLDER_MARKERS):
         return True
     if description == 'Cloudflare API Token':
@@ -245,7 +254,8 @@ def should_skip_file(file_path):
             chunk = f.read(1024)
             if b'\0' in chunk:
                 return True
-    except:
+    except OSError as e:
+        print(f'secret-scanner: could not read {file_path}: {e}', file=sys.stderr)
         return True
 
     return False
@@ -278,23 +288,16 @@ def scan_file(file_path):
             for pattern, description, severity in SECRET_PATTERNS:
                 matches = re.finditer(pattern, line)
                 for match in matches:
-                    # Skip if the line contains example/placeholder markers (inline or full-line comment)
-                    line_stripped = line.strip()
-                    line_lower = line_stripped.lower()
-                    if 'example' in line_lower or 'placeholder' in line_lower:
+                    if is_false_positive(match.group(0), line, description):
                         continue
-
                     findings.append({
                         'file': file_path,
                         'line': line_num,
                         'description': description,
                         'severity': severity,
-                        'match': match.group(0)[:50] + '...' if len(match.group(0)) > 50 else match.group(0),
-                        'full_line': line.strip()[:100]
                     })
-    except Exception as e:
-        # Skip files that can't be read
-        pass
+    except OSError as e:
+        print(f'secret-scanner: could not scan {file_path}: {e}', file=sys.stderr)
 
     return findings
 
@@ -337,7 +340,6 @@ def print_findings(findings):
 
         print(f'{severity_emoji} {finding["description"]}', file=sys.stderr)
         print(f'   File: {finding["file"]}:{finding["line"]}', file=sys.stderr)
-        print(f'   Match: {finding["match"]}', file=sys.stderr)
         print('', file=sys.stderr)
 
     print('❌ COMMIT BLOCKED: Remove secrets before committing', file=sys.stderr)
@@ -352,8 +354,7 @@ def print_findings(findings):
     print('     • HashiCorp Vault, Doppler, 1Password', file=sys.stderr)
     print('', file=sys.stderr)
     print('  3. For false positives:', file=sys.stderr)
-    print('     • Add comments with "example" or "placeholder" to skip detection', file=sys.stderr)
-    print('     • Disable hook temporarily: remove from .claude/hooks.json', file=sys.stderr)
+    print('     • Add the path as a glob pattern to .secret-scanner-ignore at the repo root', file=sys.stderr)
     print('', file=sys.stderr)
 
 def main():
@@ -419,9 +420,10 @@ def main():
         findings = scan_file(file_path)
         all_findings.extend(findings)
 
-    # If we found any secrets, block the commit
-    if all_findings:
-        print_findings(all_findings)
+    # Low-severity patterns (a bare UUID) match ordinary content: they never block.
+    blocking = [f for f in all_findings if f['severity'] != 'low']
+    if blocking:
+        print_findings(blocking)
         sys.exit(2)
 
     # No secrets found, allow commit

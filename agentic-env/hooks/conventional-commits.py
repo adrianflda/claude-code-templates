@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Conventional Commits hook (PreToolUse Bash): denies a commit made with -m whose message does not
+start with `type(scope): description`. A message it cannot read with certainty (a file, an
+editor, a command substitution other than the usual heredoc) is allowed: the hook never guesses.
+Tests: test_conventional_commits.py
+"""
 import json
 import sys
 import re
@@ -13,22 +18,29 @@ tool_name = input_data.get("tool_name", "")
 tool_input = input_data.get("tool_input", {})
 command = tool_input.get("command", "")
 
-# Only validate git commit commands
+# Only a command that runs `git commit`: the words inside a script body, a grep pattern or an
+# echo are text. The command is cut at `&&`, `||`, `;` and line ends, and a part must start with it.
 if tool_name != "Bash" or "git commit" not in command:
     sys.exit(0)
+starts = [m.end() for m in re.finditer(r'(?:^|&&|\|\||;|\n)(?=\s*git commit\b)', command)]
+if not starts:
+    sys.exit(0)
+segment = command[starts[0]:]
 
-# Extract commit message from -m flag
-# Handle both -m "message" and -m 'message' formats
-match = re.search(r'git commit.*?-m\s+["\']([^"\']+)["\']', command)
-if not match:
-    # Also try heredoc format: -m "$(cat <<'EOF' ... EOF)"
-    heredoc_match = re.search(r'git commit.*?-m\s+"?\$\(cat\s+<<["\']?EOF["\']?\s*\n(.+?)\nEOF', command, re.DOTALL)
-    if heredoc_match:
-        commit_msg = heredoc_match.group(1).strip()
-    else:
-        sys.exit(0)  # Can't extract message, allow it
+# The heredoc form first: -m "$(cat <<'EOF' ... EOF)". Its opening quote would otherwise be read
+# as a plain -m "..." that ends at the quote of <<'EOF'.
+heredoc = re.search(r'^\s*git commit\b[^\n]*?-m\s+"?\$\(cat\s+<<-?\s*["\']?(\w+)["\']?[ \t]*\n(.+?)\n\s*\1\b', segment, re.DOTALL)
+if heredoc:
+    commit_msg = heredoc.group(2)
 else:
-    commit_msg = match.group(1)
+    # -m "message" or -m 'message': the quote that opens the message is the one that closes it.
+    plain = re.search(r'^\s*git commit\b[^\n]*?-m\s+(?:"((?:[^"\\]|\\.)*)"|\'([^\']*)\')', segment, re.DOTALL)
+    if not plain:
+        sys.exit(0)  # no readable message: allow it
+    commit_msg = plain.group(1) if plain.group(1) is not None else plain.group(2)
+    if '$(' in commit_msg or '`' in commit_msg:
+        sys.exit(0)  # built by a command: not readable here, allow it
+commit_msg = commit_msg.strip()
 
 # Check if message follows Conventional Commits format
 # Format: type(scope)?: description

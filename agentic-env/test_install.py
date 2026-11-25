@@ -62,12 +62,19 @@ class InstallTest(unittest.TestCase):
     def test_a_hook_wired_with_HOME_in_its_path_counts_as_wired(self):
         self.assertEqual(run(self.home).returncode, 0)
         d = json.loads(self.settings.read_text())
-        for group in d['hooks']['PreToolUse']:
-            for h in group['hooks']:
-                h['command'] = h['command'].replace(str(self.home), '$HOME')
-        self.settings.write_text(json.dumps(d))
+        wired = json.dumps(d)
+        for spelling in ('$HOME', '${HOME}', '~'):
+            self.settings.write_text(wired.replace(str(self.home), spelling))
+            r = run(self.home, '--check')
+            self.assertEqual((r.returncode, r.stdout.strip()), (0, 'OK: in sync with the repo'), spelling)
+
+    def test_a_hook_wired_from_another_folder_is_still_missing(self):
+        self.assertEqual(run(self.home).returncode, 0)
+        elsewhere = self.settings.read_text().replace(str(self.home / '.claude' / 'hooks'), '/opt/elsewhere~/hooks')
+        self.settings.write_text(elsewhere)
         r = run(self.home, '--check')
-        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'OK: in sync with the repo'))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('unwired   PreToolUse[Bash]', r.stdout)
 
     def test_only_the_hooks_the_manifest_names_are_copied(self):
         self.assertEqual(run(self.home).returncode, 0)
