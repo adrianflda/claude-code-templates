@@ -175,8 +175,10 @@ const truncateBody = (text) =>
 
 const redactHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, SECRET_HEADER_RE.test(k) ? REDACTED : v]));
 
-function redactUrl(href) {
+export function redactUrl(href) {
   const url = new URL(href);
+  // A token is often sent as the user part alone (https://<token>@host), so both parts go.
+  if (url.username) url.username = REDACTED;
   if (url.password) url.password = REDACTED;
   for (const name of new Set(url.searchParams.keys())) if (SECRET_FIELD_RE.test(name)) url.searchParams.set(name, REDACTED);
   return url.href;

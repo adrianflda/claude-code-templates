@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 
-import { isAcceptableHost, jsonPointer, runHttpVector, validateHttpSpec } from "./http-probe.mjs";
+import { isAcceptableHost, jsonPointer, redactUrl, runHttpVector, validateHttpSpec } from "./http-probe.mjs";
 
 // A real local system: an in-memory cart with an idempotency bug on POST /cart/items.
 let server;
@@ -267,4 +267,17 @@ test("runHttpVector: keeps the steps that ran when a later request cannot comple
   const ok = await runHttpVector({ systemUrl: base, spec: spec([{ method: "GET", path: "/text" }], { status: 200 }) });
   assert.deepEqual(ok.actual, { status: 200, body: "plain" });
   assert.deepEqual(ok.expected, { status: 200 });
+});
+
+test("redactUrl: a credential in the user part of the URL is hidden, alone or with a password", () => {
+  assert.doesNotMatch(redactUrl("https://ghp_tok3n@example.com/repo?page=2"), /ghp_tok3n/);
+  assert.doesNotMatch(redactUrl("https://ana:hunter2@example.com/"), /ana|hunter2/);
+  assert.equal(redactUrl("https://example.com/repo?page=2"), "https://example.com/repo?page=2");
+});
+
+test("redactUrl: every occurrence of a repeated secret parameter is hidden and the others are kept", () => {
+  const out = new URL(redactUrl("https://example.com/x?token=a1&page=2&token=b2"));
+  assert.deepEqual(out.searchParams.getAll("token"), ["[redacted]"]);
+  assert.equal(out.searchParams.get("page"), "2");
+  assert.doesNotMatch(out.href, /a1|b2/);
 });
