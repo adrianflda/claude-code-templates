@@ -141,15 +141,11 @@ def uv_tools():
 UV_MISSING = 'uv not found (brew install uv)'
 
 
-def has_uv():
-    return shutil.which('uv') is not None
-
-
 def tool_drift():
     listed = tools()
     if not listed:
         return []
-    if not has_uv():
+    if not shutil.which('uv'):
         return [f"tool      {t['package']}: {UV_MISSING}" for t in listed]
     installed = uv_tools()
     drift = []
@@ -166,7 +162,7 @@ def install_tools():
     """Install each tool that is absent or at another version. A missing prerequisite is skipped
     with the command that provides it; the check that follows the install then reports the tool."""
     listed = tools()
-    if listed and not has_uv():
+    if listed and not shutil.which('uv'):
         print(f'skip      tools: {UV_MISSING}')
         return
     installed = uv_tools() if listed else {}

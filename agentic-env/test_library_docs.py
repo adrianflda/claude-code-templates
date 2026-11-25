@@ -35,6 +35,12 @@ class FakeContext7(BaseHTTPRequestHandler):
         if library == 'broken':
             self.send_error(500)
             return
+        if library == 'truncated':  # promises more bytes than it sends: http.client.IncompleteRead
+            self.send_response(200)
+            self.send_header('Content-Length', '500')
+            self.end_headers()
+            self.wfile.write(b'{"results": [')
+            return
         if url.path == '/api/v2/libs/search':
             body, kind = SEARCH_ANSWERS.get(library, json.dumps(SEARCH_BODY)), 'application/json'
         elif url.path == '/api/v2/context':
@@ -169,7 +175,7 @@ class LookupTest(unittest.TestCase):
         self.assertIn('versions: v1, v2, v3, v4, v5, v6, v7, v8\n', r.stdout)
 
     def test_an_answer_that_is_not_the_documented_one_exits_1(self):
-        for library in ('broken', 'notjson', 'alist'):
+        for library in ('broken', 'truncated', 'notjson', 'alist'):
             with self.subTest(library=library):
                 r = self.run_lookup('search', library, 'hooks')
                 self.assertEqual(r.returncode, 1, r.stderr)
