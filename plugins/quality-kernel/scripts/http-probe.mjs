@@ -166,18 +166,48 @@ function requestInit(req, timeoutMs) {
 // truncation apply to the log only; the wire request is built from the untouched spec.
 export const MAX_LOGGED_BODY = 4096;
 const SECRET_HEADER_RE = /secret|token|auth|key|cookie/i;
+// Names of body fields and query parameters whose value is hidden in the log.
+const SECRET_FIELD_RE = /secret|token|auth|key|cookie|passw|credential/i;
+const REDACTED = "[redacted]";
 
 const truncateBody = (text) =>
   text === undefined || text.length <= MAX_LOGGED_BODY ? text : `${text.slice(0, MAX_LOGGED_BODY)}…[truncated, ${text.length - MAX_LOGGED_BODY} more chars]`;
 
-const redactHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, SECRET_HEADER_RE.test(k) ? "[redacted]" : v]));
+const redactHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, SECRET_HEADER_RE.test(k) ? REDACTED : v]));
+
+function redactUrl(href) {
+  const url = new URL(href);
+  if (url.password) url.password = REDACTED;
+  for (const name of new Set(url.searchParams.keys())) if (SECRET_FIELD_RE.test(name)) url.searchParams.set(name, REDACTED);
+  return url.href;
+}
+
+// A JSON body with a secret-looking field is logged re-serialized with that value hidden; any
+// other body is logged as it was. A secret outside a named JSON field is not recognised.
+function redactBody(text) {
+  if (typeof text !== "string" || !SECRET_FIELD_RE.test(text)) return text;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  let hidden = false;
+  const walk = (value) => {
+    if (Array.isArray(value)) return value.map(walk);
+    if (value === null || typeof value !== "object") return value;
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => (SECRET_FIELD_RE.test(k) ? ((hidden = true), [k, REDACTED]) : [k, walk(v)])));
+  };
+  const clean = walk(parsed);
+  return hidden ? JSON.stringify(clean) : text;
+}
 
 function stepRecord(method, url, init, status, text) {
   return {
     method,
-    url,
-    request: { headers: redactHeaders(init.headers), body: truncateBody(init.body) },
-    response: { status, body: truncateBody(text) },
+    url: redactUrl(url),
+    request: { headers: redactHeaders(init.headers), body: truncateBody(redactBody(init.body)) },
+    response: { status, body: truncateBody(redactBody(text)) },
   };
 }
 

@@ -23,6 +23,7 @@ before(async () => {
       if (req.url === "/cart" && req.method === "GET") return json(200, { items, count: items.length });
       if (req.url === "/cart/items" && req.method === "POST") return items.push(JSON.parse(body)), json(201, { count: items.length });
       if (req.url === "/big") return json(200, { echo: body });
+      if (req.url.startsWith("/login")) return json(200, { access_token: "t0k-resp", user: "ana", session: { refreshToken: "r3fresh" } });
       if (req.url === "/redirect") return res.writeHead(302, { location: "http://example.com/" }), res.end();
       if (req.url === "/text") return res.writeHead(200), res.end("plain");
       if (req.url === "/slow") return setTimeout(() => json(200, {}), 2000);
@@ -224,6 +225,23 @@ test("runHttpVector: secret-looking header values are redacted in the log, not o
   assert.equal(logged["x-test"], "visible");
   assert.equal(seen[0].headers.authorization, "Bearer s3cret"); // the real request is untouched
   assert.doesNotMatch(JSON.stringify(r.steps), /s3cret|k-123|sid=abc/);
+});
+
+test("runHttpVector: secret-looking query parameters and JSON body fields are hidden in the log, not on the wire", async () => {
+  seen.length = 0;
+  const r = await runHttpVector({ systemUrl: base, spec: spec([{ method: "POST", path: "/login?api_key=k-999&page=2", body: { user: "ana", password: "hunter2", nested: [{ clientSecret: "s3cr3t" }] } }]) });
+  const step = r.steps[0];
+  assert.equal(new URL(step.url).searchParams.get("api_key"), "[redacted]");
+  assert.equal(new URL(step.url).searchParams.get("page"), "2");
+  assert.deepEqual(JSON.parse(step.request.body), { user: "ana", password: "[redacted]", nested: [{ clientSecret: "[redacted]" }] });
+  assert.deepEqual(JSON.parse(step.response.body), { access_token: "[redacted]", user: "ana", session: { refreshToken: "[redacted]" } });
+  assert.doesNotMatch(JSON.stringify(r.steps), /k-999|hunter2|s3cr3t|t0k-resp|r3fresh/);
+  assert.match(seen[0].url, /api_key=k-999/); // the real request is untouched
+});
+
+test("runHttpVector: a body without a secret-looking field is logged byte for byte", async () => {
+  const r = await runHttpVector({ systemUrl: base, spec: spec([{ method: "POST", path: "/reset" }, { method: "GET", path: "/cart" }]) });
+  assert.equal(r.steps[1].response.body, JSON.stringify({ items: [], count: 0 }));
 });
 
 test("runHttpVector: request and response bodies over 4 KB are truncated with a marker", async () => {

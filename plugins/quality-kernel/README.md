@@ -186,9 +186,13 @@ most leverage and the least prior mechanism: a **plan that produces a machine-ch
      verdict in code. Whatever the author writes in prose is ignored.
   Each HTTP vector in the output JSON also carries `steps`: the exact requests it ran, in order, as
   `{method, url, request: {headers, body}, response: {status, body}}`, so a verdict can be replayed.
-  The log (never the wire) replaces the value of any header whose name matches
-  `/secret|token|auth|key|cookie/i` with `[redacted]` and cuts bodies over 4096 chars with a
-  `[truncated, N more chars]` marker. Steps are kept on INSTRUMENT-BROKEN too (those that completed).
+  The log (never the wire) replaces with `[redacted]` the value of any header whose name matches
+  `/secret|token|auth|key|cookie/i`, and of any query parameter or JSON body field (request and
+  response, at any depth) whose name matches that or `passw` / `credential`. It cuts bodies over
+  4096 chars with a `[truncated, N more chars]` marker. Steps are kept on INSTRUMENT-BROKEN too
+  (those that completed). **Residual:** redaction goes by field name. A secret in a body that is
+  not JSON, in a URL path, or under a name that does not look secret is logged as it is, so treat
+  the breaker's output as sensitive when the target handles real credentials.
   The blind input with any key beyond the four above is refused. **Residual:** the contract probe is
   a shell command from the human-approved contract and runs with the gate's privileges.
   `scripts/breaker-gate.mjs` = the composed gate + the enforced breaker: on the critical surface a green
