@@ -64,7 +64,8 @@ const route = await runJson('route.mjs');
 // (opError) still emits a JSON body with requiresBreaker:true, so reading only route.json would
 // downgrade an exit-2 classification failure into a mere breaker requirement — and a later
 // BREAKER_PASS could then green a change whose blast radius was never established. Block here.
-if (route.code !== 0) {
+// A zero exit with no readable verdict is the same failure: the added lines were not scanned.
+if (route.code !== 0 || !route.json) {
   process.stdout.write(JSON.stringify({
     gate: 'indeterminate',
     refereePass: null,
@@ -91,8 +92,7 @@ const suppressions = (route.json && Array.isArray(route.json.addedSuppressions))
 // A test change, or a check suppression the change adds, is a CONTRACT change: no breaker verdict
 // can stand in for the human who owns the contract. Exported so breaker-gate can tell the two
 // exit-3 causes apart (a passing breaker closes the critical-surface cause, never this one).
-// Without a route verdict the added lines were not scanned, so the human is required too.
-const requiresHumanReview = overlaidTests.length > 0 || suppressions.length > 0 || !route.json;
+const requiresHumanReview = overlaidTests.length > 0 || suppressions.length > 0;
 const notes = [];
 // Code the gate executed runs with the user's rights: if the org config changed during the run,
 // the pinned config may no longer be what the org says — the verdict cannot be trusted.

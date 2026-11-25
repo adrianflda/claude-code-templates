@@ -126,9 +126,10 @@ export function classify(changed, config, proposed, deleted = [], suppressions =
   const criticalFiles = changed.filter((p) => matchesAny(criticalGlobs, p));
   const deletedCritical = deleted.filter((p) => matchesAny(criticalGlobs, p));
 
-  const floorName = (() => {
+  // The floor and the reason the changed PATHS give; an added suppression is a second, separate
+  // cause that raises the floor to critical and is named after it.
+  const surfaceFloor = (() => {
     if (deletedTests.length) return 'critical';               // removing tests is never trivial
-    if (suppressions.length) return 'critical';               // switching a check off is never trivial
     if (!changed.length && !deleted.length) return 'trivial';  // truly nothing changed
     if (!config) return 'critical';                            // fail-safe (P5)
     if (criticalFiles.length || deletedCritical.length) return 'critical';
@@ -140,10 +141,19 @@ export function classify(changed, config, proposed, deleted = [], suppressions =
     return 'standard';
   })();
 
+  const surfaceReason =
+    deletedTests.length ? `test file(s) removed: ${deletedTests.join(', ')}`
+      : invalidConfig ? `invalid critical-surface.json (${invalidConfig}) -> fail-safe critical`
+        : surfaceFloor === 'critical' && !config ? 'no critical-surface config -> fail-safe critical'
+          : changedTests.length ? `test file(s) modified (contract change -> human review): ${changedTests.join(', ')}`
+            : surfaceFloor === 'critical' ? `critical surface touched: ${[...criticalFiles, ...deletedCritical].join(', ')}`
+              : surfaceFloor === 'trivial' ? 'all changed paths are on the safe surface'
+                : 'no critical paths, but not all safe';
+  const suppressed = `check suppression(s) added (human review): ${formatSuppressions(suppressions)}`;
+
+  const floorName = suppressions.length ? 'critical' : surfaceFloor; // switching a check off is never trivial
   const prop = proposed && proposed in TIERS ? TIERS[proposed] : 0;
   const tierName = NAME[Math.max(TIERS[floorName], prop)];
-  const suppressed = `check suppression(s) added (human review): ${formatSuppressions(suppressions)}`;
-  const withSuppressions = (reason) => (!suppressions.length || reason === suppressed ? reason : `${reason}; ${suppressed}`);
   return {
     tierFloor: floorName,
     tier: tierName,
@@ -152,15 +162,10 @@ export function classify(changed, config, proposed, deleted = [], suppressions =
     deletedTests,
     changedTests,
     addedSuppressions: suppressions,
-    reason: withSuppressions(
-      deletedTests.length ? `test file(s) removed: ${deletedTests.join(', ')}`
-        : invalidConfig ? `invalid critical-surface.json (${invalidConfig}) -> fail-safe critical`
-          : floorName === 'critical' && !config ? 'no critical-surface config -> fail-safe critical'
-          : changedTests.length ? `test file(s) modified (contract change -> human review): ${changedTests.join(', ')}`
-            : suppressions.length && !criticalFiles.length && !deletedCritical.length ? suppressed
-            : floorName === 'critical' ? `critical surface touched: ${[...criticalFiles, ...deletedCritical].join(', ')}`
-              : floorName === 'trivial' ? 'all changed paths are on the safe surface'
-                : 'no critical paths, but not all safe'),
+    // Both causes are named when the paths are critical on their own; otherwise the suppression is the cause.
+    reason: !suppressions.length ? surfaceReason
+      : surfaceFloor === 'critical' ? `${surfaceReason}; ${suppressed}`
+        : suppressed,
   };
 }
 
