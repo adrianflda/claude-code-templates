@@ -26,7 +26,7 @@ claude plugin install dev-toolbox@adrianflda-claude-code-templates
 | Containers and servers | `docker-expert`, `server-management` | this plugin |
 | AWS serverless | `aws-serverless` | this plugin |
 | Google Cloud | `gcloud`, `/dev-toolbox:google-cloud-recipe-auth`, `/dev-toolbox:cloud-run-basics`, `/dev-toolbox:cloud-sql-basics`, `/dev-toolbox:gke-basics` | this plugin |
-| Terraform and OpenTofu | `/dev-toolbox:terraform-skill` | this plugin |
+| Terraform and OpenTofu | `opentofu`, `/dev-toolbox:terraform-skill` | this plugin |
 | Browser automation and end-to-end tests | `/dev-toolbox:playwright-cli` | this plugin |
 | Interface design | `frontend-design`, `/dev-toolbox:web-design-guidelines`, `/dev-toolbox:pick-ui-library` | this plugin |
 | Motion and interaction | `emil-design-eng`, and typed as `/dev-toolbox:<name>`: `animate`, `animation-performance`, `gestures`, `mobile-native`, `review-animations`, `choreograph`, `break-ui` | this plugin |
@@ -37,7 +37,7 @@ claude plugin install dev-toolbox@adrianflda-claude-code-templates
 
 A name written `/dev-toolbox:<name>` runs only when the user types it
 (`disable-model-invocation: true`); the others are also picked up by the model from their
-description. Seventeen of the thirty-four skills are in the second group, so that two skills never
+description. Eighteen of the thirty-five skills are in the second group, so that two skills never
 compete for the same task and the descriptions loaded in every session stay short.
 
 A machine that still has one of these skills as a folder in `~/.claude/skills` would list it twice:
@@ -45,8 +45,6 @@ remove the folder after installing.
 
 ## Not in it yet
 
-- A short OpenTofu reference of our own (state encryption, `tofu test`): `terraform-skill` covers
-  them thinly.
 - Playwright at suite level (configuration, fixtures, CI): `playwright-cli` drives a browser and
   writes a test, it does not set up a suite.
 - Google Cloud Secret Manager and Pub/Sub: the source has no skill for them.
@@ -89,7 +87,9 @@ checkouts.
 
 ## Where the other skills come from
 
-Thirteen skills are the copies in daily use on the author's machine. They started as the skills of
+`opentofu` was written for this plugin from the OpenTofu documentation (`terraform-skill` covers
+state encryption and `tofu test` thinly). Thirteen skills are the copies in daily use on the
+author's machine. They started as the skills of
 the same name under `cli-tool/components/skills` and were edited since (shorter descriptions,
 corrected examples, current image and runtime names). Their original licenses have not been
 re-checked one by one; five carry a `source:` line naming the collection they came from.
