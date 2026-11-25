@@ -87,7 +87,7 @@ import { resolve } from 'path';
 import { homedir } from 'os';
 import { packDiff, MAX_DIFF_LINES, MAX_DIFF_BYTES, MAX_FILE_BYTES, MAX_LINE_CHARS } from './diff-budget.mjs';
 import { addUsage, emptyCounts, recordRun, usageOf } from './run-log.mjs';
-import { QUICK_ROLES, ROLES } from './roles.mjs';
+import { ROLES, selectRoles } from './roles.mjs';
 import { BATCH_SIZE, VERIFIER_ROLE, VERIFIER_TOOLS, applyVerdicts, batches, buildVerifierPrompt, isRefuted, repoFileChecker, selectClaims, verifierSettings } from './verify.mjs';
 
 // Lines alone do not bound the prompt: one regenerated catalog line can be megabytes, and a
@@ -862,10 +862,7 @@ if (ticket.text && ticketView !== pushView) {
 // qualifies; 0 turns it off.
 const changedLines = diff.split('\n').filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---) ([ab]\/|\/dev\/null)/.test(l)).length;
 const quick = !ROLE_FILTER.length && QUICK_LINES > 0 && !cut.partial && !cut.omitted.length && changedLines <= QUICK_LINES;
-const roles = ROLES.filter(
-  (r) => (!r.needsTicket || ticket.text)
-    && (ROLE_FILTER.length ? ROLE_FILTER.includes('all') || ROLE_FILTER.includes(r.key) : !r.optional && (!quick || QUICK_ROLES.includes(r.key))),
-);
+const roles = selectRoles({ filter: ROLE_FILTER, quick, hasTicket: Boolean(ticket.text) });
 if (quick) {
   console.log(
     `[pre-push-review] Quick mode: ${changedLines} changed line(s), at most ${QUICK_LINES}: ${roles.map((r) => r.title).join(', ')} review it. AI_REVIEW_QUICK_LINES=0 runs the whole panel.`,

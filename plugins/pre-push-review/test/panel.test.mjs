@@ -328,6 +328,17 @@ test('the optional reviewers stay out of a default review', () => {
   assert.doesNotMatch(result.stdout, /Maintainability & Readability|Performance & Scale/);
 });
 
+test('naming the optional reviewers runs those two alone', () => {
+  const repo = repoWithDeletion();
+  const claude = fakeClaude();
+  const result = runNode(PANEL, { args: ['--branch', '--base', 'main'], cwd: repo, env: { CLAUDE_BIN: claude.bin, AI_REVIEW_ROLES: 'performance,maintainability' } });
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(roleOf(claude.calls(), 'senior performance reviewer').length, 1);
+  assert.equal(roleOf(claude.calls(), 'reads code the way the next teammate will').length, 1);
+  assert.equal(claude.calls().length, 2);
+});
+
 test('AI_REVIEW_ROLES=all runs every reviewer; Maintainability & Readability is capped at medium', () => {
   const repo = repoWithDeletion();
   const claude = fakeClaude();
@@ -336,6 +347,8 @@ test('AI_REVIEW_ROLES=all runs every reviewer; Maintainability & Readability is 
   assert.equal(result.code, 0, result.stderr);
   const [reviewer] = roleOf(claude.calls(), 'reads code the way the next teammate will');
   assert.ok(reviewer, 'the maintainability reviewer ran');
+  assert.equal(roleOf(claude.calls(), 'senior performance reviewer').length, 1);
+  assert.equal(claude.calls().length, 6, 'every reviewer but the ticket one: there is no ticket');
   assert.match(reviewer.role, /poor API\/module boundaries, duplication, dead code/);
   assert.match(reviewer.role, /jargon, invented terms/);
   assert.match(reviewer.role, /always name the simpler alternative/);
