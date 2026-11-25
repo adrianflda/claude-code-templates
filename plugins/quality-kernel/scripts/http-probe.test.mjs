@@ -231,10 +231,12 @@ test("runHttpVector: request and response bodies over 4 KB are truncated with a 
   const r = await runHttpVector({ systemUrl: base, spec: spec([{ method: "POST", path: "/big", body: big }]) });
   const { request, response } = r.steps[0];
   assert.ok(request.body.startsWith("x".repeat(4096)));
-  assert.match(request.body.slice(4096), /truncated/);
-  assert.ok(request.body.length < 4096 + 100);
-  assert.match(response.body.slice(4096), /truncated/);
-  assert.ok(response.body.length < 4096 + 100);
+  // A string body goes out as it is (5000 chars); the server echoes it inside {"echo":"…"}.
+  assert.equal(request.body.slice(4096), "…[truncated, 904 more chars]");
+  assert.equal(response.body.slice(4096), "…[truncated, 915 more chars]");
+  // A logged body of exactly 4096 chars is kept whole.
+  const exact = await runHttpVector({ systemUrl: base, spec: spec([{ method: "POST", path: "/big", body: "x".repeat(4096) }]) });
+  assert.equal(exact.steps[0].request.body, "x".repeat(4096));
   const small = await runHttpVector({ systemUrl: base, spec: spec([{ method: "GET", path: "/text" }]) });
   assert.equal(small.steps[0].response.body, "plain");
   assert.equal(small.steps[0].request.body, undefined);
