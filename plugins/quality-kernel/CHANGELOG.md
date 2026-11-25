@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Breaker step log.** Each HTTP vector in the breaker's output JSON carries `steps`: the requests
+  it ran, in order, with the response status and body, so a verdict can be replayed. In the log
+  (never on the wire) the value of a header whose name matches `/secret|token|auth|key|cookie/i` is
+  `[redacted]` and a body over 4096 chars is cut with a `[truncated, N more chars]` marker. Steps
+  that completed are kept on INSTRUMENT-BROKEN too.
+
 ## [0.13.0] - 2026-11-25
 
 ### Added
