@@ -66,16 +66,16 @@ test('a passing run appends one row with the reviewers, their findings, usage an
   assert.equal(row.exit, 0);
   assert.equal(row.blocking, 0);
   assert.equal(row.ticket, 'none');
-  assert.deepEqual(row.roles.run, ['security', 'correctness', 'reliability', 'performance', 'tests', 'maintainability']);
-  assert.deepEqual(row.roles.skipped, ['ticket']);
+  assert.deepEqual(row.roles.run, ['security', 'correctness', 'reliability', 'tests']);
+  assert.deepEqual(row.roles.skipped, ['performance', 'maintainability', 'ticket']);
   assert.deepEqual(row.roles.failed, []);
   assert.deepEqual(row.findings.security, { critical: 0, high: 0, medium: 0, low: 0 });
   assert.deepEqual(row.counts, { critical: 0, high: 0, medium: 0, low: 0 });
   assert.equal(row.quick, false);
   assert.equal(row.changedLines, 2);
-  assert.equal(row.calls, 6);
-  assert.equal(row.costUsd, 0.3);
-  assert.deepEqual(row.usage, { input: 600, output: 240, cacheRead: 3000, cacheCreation: 12000 });
+  assert.equal(row.calls, 4);
+  assert.equal(row.costUsd, 0.2);
+  assert.deepEqual(row.usage, { input: 400, output: 160, cacheRead: 2000, cacheCreation: 8000 });
   assert.ok(row.durationMs >= 0);
   assert.equal(row.verifier, null);
   assert.equal(row.model, 'sonnet');
@@ -114,9 +114,9 @@ test('an envelope with is_error counts as a failed reviewer, and its cost is sti
   assert.match(r.stdout, /FAILED: rate limited/);
   const row = r.rows[0];
   assert.equal(row.outcome, 'not-reviewed');
-  assert.equal(row.roles.failed.length, 6);
-  assert.equal(row.calls, 12, 'each reviewer was retried once');
-  assert.equal(row.costUsd, 0.6, 'both attempts were billed');
+  assert.equal(row.roles.failed.length, 4);
+  assert.equal(row.calls, 8, 'each reviewer was retried once');
+  assert.equal(row.costUsd, 0.4, 'both attempts were billed');
 });
 
 test('a run with nothing to review still leaves a row', () => {

@@ -1,6 +1,7 @@
 /**
  * pre-push-review — the expert panel: independent branches of review (project-agnostic). A role
  * with `needsTicket` runs only when ticket text was found. `key` names a role in the run log.
+ * A role marked `optional` runs only when AI_REVIEW_ROLES names it or is `all`.
  */
 export const ROLES = [
   {
@@ -32,6 +33,7 @@ export const ROLES = [
   },
   {
     key: 'performance',
+    optional: true,
     title: 'Performance & Scale',
     system:
       'You are a senior performance reviewer. Review ONLY: N+1 queries/calls, unbounded ' +
@@ -51,6 +53,7 @@ export const ROLES = [
     // roles (Maintainability & Design, Readability & Simplicity) never reported above medium,
     // so a second model call bought nothing a single reviewer with both lists does not.
     key: 'maintainability',
+    optional: true,
     title: 'Maintainability & Readability',
     system:
       'You are a senior reviewer who reads code the way the next teammate will. Review ONLY: ' +
@@ -100,6 +103,21 @@ export const ROLES = [
  * findings can block, plus the ticket. The others only ever reported medium and low.
  */
 export const QUICK_ROLES = ['security', 'correctness', 'reliability', 'ticket'];
+
+/** The value of AI_REVIEW_ROLES that selects every role, the optional ones included. */
+export const ALL_ROLES = 'all';
+
+/**
+ * The roles one run uses. `filter` is the list of keys from AI_REVIEW_ROLES (empty when unset);
+ * `quick` says the push qualified for the quick panel, which only an empty filter allows.
+ */
+export function selectRoles({ filter, quick, hasTicket }) {
+  const eligible = ROLES.filter((r) => !r.needsTicket || hasTicket);
+  if (filter.includes(ALL_ROLES)) return eligible;
+  if (filter.length) return eligible.filter((r) => filter.includes(r.key));
+  const defaults = eligible.filter((r) => !r.optional);
+  return quick ? defaults.filter((r) => QUICK_ROLES.includes(r.key)) : defaults;
+}
 
 /** Role title by key, for reports that read the run log; retired keys keep a title for old rows. */
 export const ROLE_TITLES = {
