@@ -1,6 +1,6 @@
 # Discipline preamble — inject into every subagent prompt
 
-Copy the block below verbatim into the prompt of every agent/subagent you spawn. The literal marker on the first line is what `epistemic-preamble-guard` checks for; spawns without it (or without an explicit `[EPISTEMIC-EXEMPT: <reason>]` tag) are blocked.
+Copy the block below verbatim into the prompt of every agent/subagent you spawn. The literal marker on the first line is what the quality-kernel `epistemic-guard` hook checks for; spawns without it (or without an explicit `[EPISTEMIC-EXEMPT: <reason>]` tag) get a warning, and are blocked only when `QK_EPISTEMIC_MODE=block`.
 
 ---
 

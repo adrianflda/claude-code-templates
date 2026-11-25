@@ -59,6 +59,29 @@ class InstallTest(unittest.TestCase):
         self.assertNotIn('matcher', d['hooks']['SessionStart'][0])
         self.assertEqual(len(list((self.home / '.claude').glob('settings.json.bak-*'))), 1)
 
+    def test_a_hook_wired_with_HOME_in_its_path_counts_as_wired(self):
+        self.assertEqual(run(self.home).returncode, 0)
+        d = json.loads(self.settings.read_text())
+        wired = json.dumps(d)
+        for spelling in ('$HOME', '${HOME}', '~'):
+            self.settings.write_text(wired.replace(str(self.home), spelling))
+            r = run(self.home, '--check')
+            self.assertEqual((r.returncode, r.stdout.strip()), (0, 'OK: in sync with the repo'), spelling)
+
+    def test_a_hook_wired_from_another_folder_is_still_missing(self):
+        self.assertEqual(run(self.home).returncode, 0)
+        elsewhere = self.settings.read_text().replace(str(self.home / '.claude' / 'hooks'), '/opt/elsewhere~/hooks')
+        self.settings.write_text(elsewhere)
+        r = run(self.home, '--check')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('unwired   PreToolUse[Bash]', r.stdout)
+
+    def test_only_the_hooks_the_manifest_names_are_copied(self):
+        self.assertEqual(run(self.home).returncode, 0)
+        copied = sorted(p.name for p in (self.home / '.claude' / 'hooks').iterdir())
+        self.assertEqual(copied, sorted([e['file'] for e in MANIFEST['hooks']] + MANIFEST['hookSupport']))
+        self.assertFalse([n for n in copied if n.startswith('test_')], 'tests stay in the repo')
+
     def test_a_changed_file_is_drift_and_install_restores_it(self):
         run(self.home)
         target = self.home / '.claude' / 'hooks' / 'secret-scanner.py'
