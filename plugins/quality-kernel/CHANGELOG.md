@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-25
+
 ### Added
 - **`productionExclude` in `tools.json`** (optional, read at base like the rest of the contract):
   include + exclude semantics for production code, exclude wins — the same model as tsconfig
