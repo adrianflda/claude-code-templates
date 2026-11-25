@@ -30,7 +30,7 @@ Everything comes from [`manifest.json`](manifest.json):
 | skills `epistemic-discipline`, `qa-paradigms`, and the two in `agentic-env/skills/`: `library-docs` (current third-party docs from Context7) and `code-graph` (a local structural graph of a codebase) | `~/.claude/skills/<name>/` |
 | command `/diagnose` | `~/.claude/commands/` |
 | the hooks the manifest names in [`hooks/`](hooks), plus the modules they import (`hookSupport`) | `~/.claude/hooks/`; each one is wired into `~/.claude/settings.json`. A hook already wired with `$HOME` or `~` in its path counts as wired. Tests stay in the repo |
-| plugins `quality-kernel`, `pre-push-review`, `usage-guard`, `pr-draft-guard`, `aws-admin-guard`, `agent-skills` | installed from this repo's marketplace (`adrianflda-claude-code-templates`) |
+| plugins `quality-kernel`, `pre-push-review`, `usage-guard`, `pr-draft-guard`, `aws-admin-guard`, `agent-skills`, and the bundle `dev-toolbox`, which depends on the other six and adds fifteen stack skills ([what is in it](../plugins/dev-toolbox/README.md)) | installed from this repo's marketplace (`adrianflda-claude-code-templates`) |
 | external tools in the manifest's `tools` list (today `graphifyy`, which gives the `graphify` command) | `uv tool install`, at the exact version the manifest pins |
 | pre-push review gate | global git config, via `plugins/pre-push-review/scripts/install-git-hook.mjs` |
 

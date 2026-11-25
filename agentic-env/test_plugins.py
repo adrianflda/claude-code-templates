@@ -15,7 +15,7 @@ REPO = HERE.parent
 INSTALL = HERE / 'install.py'
 MKT = 'adrianflda-claude-code-templates'
 # The contract: every plugin the other machine must get from this repo's marketplace.
-REQUIRED = ['quality-kernel', 'pre-push-review', 'usage-guard', 'pr-draft-guard', 'aws-admin-guard', 'agent-skills']
+REQUIRED = ['quality-kernel', 'pre-push-review', 'usage-guard', 'pr-draft-guard', 'aws-admin-guard', 'agent-skills', 'dev-toolbox']
 GUARDS = ['pr-draft-guard', 'aws-admin-guard']
 OTHERS = [n for n in REQUIRED if n not in GUARDS]
 
@@ -111,6 +111,7 @@ class PluginCheckTest(unittest.TestCase):
             f'plugin update pr-draft-guard@{MKT}',
             f'plugin install aws-admin-guard@{MKT}',
             f'plugin update agent-skills@{MKT}',
+            f'plugin update dev-toolbox@{MKT}',
         ])
 
     def test_install_adds_ours_beside_a_foreign_copy_and_only_warns(self):

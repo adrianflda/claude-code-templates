@@ -1,0 +1,28 @@
+{
+  "name": "dev-toolbox",
+  "version": "0.1.0",
+  "description": "One install for the daily software toolbox: it pulls in the development cycle (quality-kernel), the review on push (pre-push-review), spend control (usage-guard), the PR and AWS guards and the engineering skills (agent-skills), and adds fifteen stack skills of its own: TypeScript on Node, React and Next.js, Python, Docker, AWS serverless, LLM agents and tools, test planning, group brainstorming and git worktrees.",
+  "author": {
+    "name": "adrianflda"
+  },
+  "repository": "https://github.com/adrianflda/claude-code-templates",
+  "license": "MIT",
+  "keywords": [
+    "bundle",
+    "fullstack",
+    "typescript",
+    "aws",
+    "python",
+    "docker",
+    "llm-agents",
+    "testing"
+  ],
+  "dependencies": [
+    "quality-kernel",
+    "pre-push-review",
+    "usage-guard",
+    "pr-draft-guard",
+    "aws-admin-guard",
+    "agent-skills"
+  ]
+}
