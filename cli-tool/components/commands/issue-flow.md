@@ -113,7 +113,7 @@ Print a summary table: issue number, title, decision (Ready / Needs clarificatio
 
 ## Mode: WORK
 
-> **Routing: issue-flow vs SDD.** WORK mode is only for **small, low-risk fixes** (typos, small bug fixes, config tweaks, isolated one-file changes). It runs a lightweight test-spec + completeness gate but confers **NO SDD gate guarantees** — there is no TDD RED gate and no multi-agent design review here. **Feature-scale or security-sensitive work MUST route to `/sdd-specify --from-issue <NNN>`** instead, which drives the full SDD pipeline (TDD RED gate + mandatory 6-agent review). Regardless of path, whatever WORK mode produces is committed locally only — its commits still face the mandatory pre-push multi-agent review pipeline before any `git push` or `gh pr create`.
+> **Routing: issue-flow vs SDD.** WORK mode is only for **small, low-risk fixes** (typos, small bug fixes, config tweaks, isolated one-file changes). It runs a lightweight test-spec + completeness gate but confers **NO SDD gate guarantees** — there is no TDD RED gate and no multi-agent design review here. **Feature-scale or security-sensitive work MUST route to `/sdd-specify --from-issue <NNN>`** instead, which drives the full SDD pipeline (TDD RED gate + mandatory 7-agent review). Regardless of path, whatever WORK mode produces is committed locally only — its commits still face the mandatory pre-push multi-agent review pipeline before any `git push` or `gh pr create`.
 
 ### Step 1 — Select issue
 
