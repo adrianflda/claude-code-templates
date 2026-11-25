@@ -6,7 +6,7 @@ Run the usage-guard tools and relay their output as is. Do not summarize numbers
 
 Subcommand from `$ARGUMENTS` (default: `report`):
 
-- `report [days]` → price-weighted attribution of the last `days` days (default 7) by kind, model, day, session and subagent:
+- `report [days]` → price-weighted attribution of the last `days` days (default 7) by kind, model, day, session, subagent and agent type (with the context each type starts a run with):
   ```bash
   python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/report.py" --days <days>
   ```
