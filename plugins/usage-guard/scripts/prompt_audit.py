@@ -155,17 +155,23 @@ def audit(settings, cwd, root, days, mode="user-invocable-only", grace=7, now=No
     now = now or time.time()
     for it in items:
         it["uses"] = uses_for(it, counts)
-        it["off"] = overrides.get(it["name"]) in ("off", "user-invocable-only")
+        # skillOverrides does not reach a plugin's skills: an entry for one changes nothing.
+        it["plugin"] = it["scope"] not in ("user", "project")
+        it["off"] = not it["plugin"] and overrides.get(it["name"]) in ("off", "user-invocable-only")
         it["new"] = it["born"] > now - grace * 86400
     known = {it["name"] for it in items} | {it["name"].split(":", 1)[1] for it in items if ":" in it["name"]}
     unknown = sorted(n for n in list(counts["skill"]) + list(counts["agent"]) if n not in known
                      and not (":" in n and n.split(":", 1)[1] in known))
     synced_used = sorted(n for n in counts["skill"] if n.startswith(SYNCED_PREFIX))
-    suggested = {it["name"]: mode for it in items
-                 if it["kind"] == "skill" and it["uses"] == 0 and not it["off"] and not it["new"]
-                 and it["name"] not in keep and it["name"].split(":", 1)[-1] not in keep}
+    idle = [it for it in items
+            if it["kind"] == "skill" and it["uses"] == 0 and not it["off"] and not it["new"]
+            and it["name"] not in keep and it["name"].split(":", 1)[-1] not in keep]
+    suggested = {it["name"]: mode for it in idle if not it["plugin"]}
+    plugin_skills = {it["name"] for it in items if it["kind"] == "skill" and it["plugin"]}
     return {"days": days, "files": files, "mode": mode, "items": items, "unknown": unknown, "synced_used": synced_used,
             "suggested_skill_overrides": suggested,
+            "unused_plugin_skills": sorted(it["name"] for it in idle if it["plugin"]),
+            "inert_overrides": sorted(k for k in overrides if k in plugin_skills),
             "loaded_tokens": sum(it["tokens"] for it in items if not it["off"]),
             "unused_tokens": sum(it["tokens"] for it in items if it["uses"] == 0 and not it["off"])}
 
@@ -197,6 +203,15 @@ def print_report(res):
         print(json.dumps({"skillOverrides": res["suggested_skill_overrides"]}, indent=2))
     else:
         print("\nno unused skills to turn off")
+    if res["unused_plugin_skills"]:
+        print(f"\nplugin skills never used ({len(res['unused_plugin_skills'])}); skillOverrides does not reach them. Disable the plugin"
+              " in /plugin or, in a plugin you own, set `disable-model-invocation: true` in the skill's frontmatter:")
+        for name in res["unused_plugin_skills"]:
+            print(f"  {name}")
+    if res["inert_overrides"]:
+        print(f"\nskillOverrides entries that do nothing ({len(res['inert_overrides'])}, they name plugin skills); remove them from settings.json:")
+        for name in res["inert_overrides"]:
+            print(f"  {name}")
 
 
 def apply_overrides(settings_path, settings, suggested):

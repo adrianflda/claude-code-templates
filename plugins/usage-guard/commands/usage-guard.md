@@ -31,7 +31,7 @@ Subcommand from `$ARGUMENTS` (default: `report`):
   ```bash
   python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/prompt_audit.py" --days <days> --cwd "$PWD"
   ```
-  Relay both tables and the block. The suggested value is `user-invocable-only` (hidden from the model, `/name` keeps working); `--mode off` removes the skill entirely; `--keep <name>` (repeatable) protects a skill the user's CLAUDE.md declares mandatory. Apply with `--apply` only if the user agrees; a `.bak-<timestamp>` copy of `settings.json` is written first. Never delete agent files: list them and let the user decide.
+  Relay both tables and the block, plus the two lists about plugin skills when present (unused ones, and `skillOverrides` entries that do nothing because they name plugin skills). The suggested value is `user-invocable-only` (hidden from the model, `/name` keeps working); `--mode off` removes the skill entirely; `--keep <name>` (repeatable) protects a skill the user's CLAUDE.md declares mandatory. Apply with `--apply` only if the user agrees; a `.bak-<timestamp>` copy of `settings.json` is written first. Never delete agent files: list them and let the user decide.
 - `hooks` → explain the three hooks the plugin installs (context watchdog, spawn budget, subagent note) and the `USAGE_GUARD_*` knobs from `${CLAUDE_PLUGIN_ROOT}/README.md`, then show the current ledger for this session if `$CLAUDE_SCRATCHPAD_DIR/usage-guard/` exists.
 - `mem [status|pause|resume|provider <claude|gemini|openrouter> [--model <name>]]` → the claude-mem observer (default `status`):
   ```bash
