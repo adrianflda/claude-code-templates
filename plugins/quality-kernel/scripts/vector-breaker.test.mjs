@@ -267,3 +267,16 @@ test("runVectors (EARS-V4 step 4): a silent HTTP vector with no contract probe i
   assert.match(out.dropped[0].reason, /expect/i);
   assert.equal(out.verdict, "BREAKER_PASS");
 });
+
+test("runVectors: each executed vector carries its steps in order; old fields are unchanged", async () => {
+  const out = await runVectors({ vectors: [httpVector("INV-1", 1), httpVector("INV-2", 2), httpVector("INV-1", 1)], blind: blind() });
+  assert.deepEqual(out.vectors.map((v) => v.result), ["HOLDS", "VIOLATED", "HOLDS"]);
+  for (const v of out.vectors) assert.deepEqual(v.steps.map((s) => `${s.method} ${s.url}`), [`POST ${base}/reset`, `POST ${base}/inc`]);
+  const violated = out.vectors[1];
+  assert.equal(violated.steps[1].response.status, 200);
+  assert.equal(violated.steps[1].response.body, JSON.stringify({ count: 1 }));
+  assert.deepEqual(violated.expected, { json: [{ pointer: "/count", equals: 2 }] });
+  assert.deepEqual(violated.actual, { status: 200, body: JSON.stringify({ count: 1 }) });
+  assert.match(violated.reason, /\/count/);
+  assert.deepEqual(Object.keys(out).sort(), ["dropped", "executed", "vectors", "verdict"]);
+});

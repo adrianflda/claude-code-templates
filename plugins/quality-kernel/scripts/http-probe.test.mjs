@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 
-import { isAcceptableHost, jsonPointer, runHttpVector, validateHttpSpec } from "./http-probe.mjs";
+import { isAcceptableHost, jsonPointer, redactUrl, runHttpVector, validateHttpSpec } from "./http-probe.mjs";
 
 // A real local system: an in-memory cart with an idempotency bug on POST /cart/items.
 let server;
@@ -22,6 +22,8 @@ before(async () => {
       if (req.url === "/reset" && req.method === "POST") return (items = []), json(200, { ok: true });
       if (req.url === "/cart" && req.method === "GET") return json(200, { items, count: items.length });
       if (req.url === "/cart/items" && req.method === "POST") return items.push(JSON.parse(body)), json(201, { count: items.length });
+      if (req.url === "/big") return json(200, { echo: body });
+      if (req.url.startsWith("/login")) return json(200, { access_token: "t0k-resp", user: "ana", session: { refreshToken: "r3fresh" } });
       if (req.url === "/redirect") return res.writeHead(302, { location: "http://example.com/" }), res.end();
       if (req.url === "/text") return res.writeHead(200), res.end("plain");
       if (req.url === "/slow") return setTimeout(() => json(200, {}), 2000);
@@ -187,4 +189,95 @@ test("runHttpVector: INSTRUMENT-BROKEN for a non-local system, an invalid spec, 
   const slow = await runHttpVector({ systemUrl: base, spec: spec([{ method: "GET", path: "/slow" }], { status: 200 }), timeoutMs: 200 });
   assert.equal(slow.result, "INSTRUMENT-BROKEN");
   assert.match(slow.reason, /timed out|abort/i);
+});
+
+// --- Step log: the exact requests the breaker authored and ran, so a VIOLATED vector can be replayed. ---
+test("runHttpVector: records every step in order with method, url, headers, body and the response", async () => {
+  const r = await runHttpVector({
+    systemUrl: base,
+    spec: spec([{ method: "POST", path: "/reset" }, { method: "POST", path: "/cart/items", headers: { "x-test": "yes" }, body: { sku: "A" } }, { method: "GET", path: "/cart" }], { json: [{ pointer: "/count", equals: 1 }] }),
+  });
+  assert.equal(r.result, "HOLDS");
+  assert.deepEqual(r.steps.map((s) => `${s.method} ${s.url}`), [`POST ${base}/reset`, `POST ${base}/cart/items`, `GET ${base}/cart`]);
+  assert.deepEqual(r.steps.map((s) => s.response.status), [200, 201, 200]);
+  assert.equal(r.steps[1].request.headers["x-test"], "yes");
+  assert.equal(r.steps[1].request.headers["content-type"], "application/json");
+  assert.equal(r.steps[1].request.body, JSON.stringify({ sku: "A" }));
+  assert.deepEqual(JSON.parse(r.steps[2].response.body), { items: [{ sku: "A" }], count: 1 });
+});
+
+test("runHttpVector: a VIOLATED vector keeps its full ordered step log", async () => {
+  const r = await runHttpVector({
+    systemUrl: base,
+    spec: spec([{ method: "POST", path: "/reset" }, { method: "POST", path: "/cart/items", body: { sku: "A" } }, { method: "POST", path: "/cart/items", body: { sku: "A" } }, { method: "GET", path: "/cart" }], { json: [{ pointer: "/count", equals: 1 }] }),
+  });
+  assert.equal(r.result, "VIOLATED");
+  assert.equal(r.steps.length, 4);
+  assert.equal(JSON.parse(r.steps[3].response.body).count, 2);
+});
+
+test("runHttpVector: secret-looking header values are redacted in the log, not on the wire", async () => {
+  seen.length = 0;
+  const headers = { Authorization: "Bearer s3cret", "X-Api-Key": "k-123", Cookie: "sid=abc", "X-Auth-Token": "t", "x-csrf-token": "c", "x-secret": "s", "x-test": "visible" };
+  const r = await runHttpVector({ systemUrl: base, spec: spec([{ method: "GET", path: "/cart", headers }]) });
+  const logged = r.steps[0].request.headers;
+  for (const k of ["Authorization", "X-Api-Key", "Cookie", "X-Auth-Token", "x-csrf-token", "x-secret"]) assert.equal(logged[k], "[redacted]", k);
+  assert.equal(logged["x-test"], "visible");
+  assert.equal(seen[0].headers.authorization, "Bearer s3cret"); // the real request is untouched
+  assert.doesNotMatch(JSON.stringify(r.steps), /s3cret|k-123|sid=abc/);
+});
+
+test("runHttpVector: secret-looking query parameters and JSON body fields are hidden in the log, not on the wire", async () => {
+  seen.length = 0;
+  const r = await runHttpVector({ systemUrl: base, spec: spec([{ method: "POST", path: "/login?api_key=k-999&page=2", body: { user: "ana", password: "hunter2", nested: [{ clientSecret: "s3cr3t" }] } }]) });
+  const step = r.steps[0];
+  assert.equal(new URL(step.url).searchParams.get("api_key"), "[redacted]");
+  assert.equal(new URL(step.url).searchParams.get("page"), "2");
+  assert.deepEqual(JSON.parse(step.request.body), { user: "ana", password: "[redacted]", nested: [{ clientSecret: "[redacted]" }] });
+  assert.deepEqual(JSON.parse(step.response.body), { access_token: "[redacted]", user: "ana", session: { refreshToken: "[redacted]" } });
+  assert.doesNotMatch(JSON.stringify(r.steps), /k-999|hunter2|s3cr3t|t0k-resp|r3fresh/);
+  assert.match(seen[0].url, /api_key=k-999/); // the real request is untouched
+});
+
+test("runHttpVector: a body without a secret-looking field is logged byte for byte", async () => {
+  const r = await runHttpVector({ systemUrl: base, spec: spec([{ method: "POST", path: "/reset" }, { method: "GET", path: "/cart" }]) });
+  assert.equal(r.steps[1].response.body, JSON.stringify({ items: [], count: 0 }));
+});
+
+test("runHttpVector: request and response bodies over 4 KB are truncated with a marker", async () => {
+  const big = "x".repeat(5000);
+  const r = await runHttpVector({ systemUrl: base, spec: spec([{ method: "POST", path: "/big", body: big }]) });
+  const { request, response } = r.steps[0];
+  assert.ok(request.body.startsWith("x".repeat(4096)));
+  // A string body goes out as it is (5000 chars); the server echoes it inside {"echo":"…"}.
+  assert.equal(request.body.slice(4096), "…[truncated, 904 more chars]");
+  assert.equal(response.body.slice(4096), "…[truncated, 915 more chars]");
+  // A logged body of exactly 4096 chars is kept whole.
+  const exact = await runHttpVector({ systemUrl: base, spec: spec([{ method: "POST", path: "/big", body: "x".repeat(4096) }]) });
+  assert.equal(exact.steps[0].request.body, "x".repeat(4096));
+  const small = await runHttpVector({ systemUrl: base, spec: spec([{ method: "GET", path: "/text" }]) });
+  assert.equal(small.steps[0].response.body, "plain");
+  assert.equal(small.steps[0].request.body, undefined);
+});
+
+test("runHttpVector: keeps the steps that ran when a later request cannot complete; existing fields unchanged", async () => {
+  const r = await runHttpVector({ systemUrl: base, timeoutMs: 100, spec: spec([{ method: "GET", path: "/cart" }, { method: "GET", path: "/slow" }]) });
+  assert.equal(r.result, "INSTRUMENT-BROKEN");
+  assert.equal(r.steps.length, 1);
+  const ok = await runHttpVector({ systemUrl: base, spec: spec([{ method: "GET", path: "/text" }], { status: 200 }) });
+  assert.deepEqual(ok.actual, { status: 200, body: "plain" });
+  assert.deepEqual(ok.expected, { status: 200 });
+});
+
+test("redactUrl: a credential in the user part of the URL is hidden, alone or with a password", () => {
+  assert.doesNotMatch(redactUrl("https://ghp_tok3n@example.com/repo?page=2"), /ghp_tok3n/);
+  assert.doesNotMatch(redactUrl("https://ana:hunter2@example.com/"), /ana|hunter2/);
+  assert.equal(redactUrl("https://example.com/repo?page=2"), "https://example.com/repo?page=2");
+});
+
+test("redactUrl: every occurrence of a repeated secret parameter is hidden and the others are kept", () => {
+  const out = new URL(redactUrl("https://example.com/x?token=a1&page=2&token=b2"));
+  assert.deepEqual(out.searchParams.getAll("token"), ["[redacted]"]);
+  assert.equal(out.searchParams.get("page"), "2");
+  assert.doesNotMatch(out.href, /a1|b2/);
 });

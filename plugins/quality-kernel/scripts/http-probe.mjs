@@ -162,8 +162,60 @@ function requestInit(req, timeoutMs) {
   return { method: req.method, headers, body, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) };
 }
 
+// Step log: what the breaker actually sent and saw, kept so a verdict can be replayed. Redaction and
+// truncation apply to the log only; the wire request is built from the untouched spec.
+export const MAX_LOGGED_BODY = 4096;
+const SECRET_HEADER_RE = /secret|token|auth|key|cookie/i;
+// Names of body fields and query parameters whose value is hidden in the log.
+const SECRET_FIELD_RE = /secret|token|auth|key|cookie|passw|credential/i;
+const REDACTED = "[redacted]";
+
+const truncateBody = (text) =>
+  text === undefined || text.length <= MAX_LOGGED_BODY ? text : `${text.slice(0, MAX_LOGGED_BODY)}…[truncated, ${text.length - MAX_LOGGED_BODY} more chars]`;
+
+const redactHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, SECRET_HEADER_RE.test(k) ? REDACTED : v]));
+
+export function redactUrl(href) {
+  const url = new URL(href);
+  // A token is often sent as the user part alone (https://<token>@host), so both parts go.
+  if (url.username) url.username = REDACTED;
+  if (url.password) url.password = REDACTED;
+  for (const name of new Set(url.searchParams.keys())) if (SECRET_FIELD_RE.test(name)) url.searchParams.set(name, REDACTED);
+  return url.href;
+}
+
+// A JSON body with a secret-looking field is logged re-serialized with that value hidden; any
+// other body is logged as it was. A secret outside a named JSON field is not recognised.
+function redactBody(text) {
+  if (typeof text !== "string" || !SECRET_FIELD_RE.test(text)) return text;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  let hidden = false;
+  const walk = (value) => {
+    if (Array.isArray(value)) return value.map(walk);
+    if (value === null || typeof value !== "object") return value;
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => (SECRET_FIELD_RE.test(k) ? ((hidden = true), [k, REDACTED]) : [k, walk(v)])));
+  };
+  const clean = walk(parsed);
+  return hidden ? JSON.stringify(clean) : text;
+}
+
+function stepRecord(method, url, init, status, text) {
+  return {
+    method,
+    url: redactUrl(url),
+    request: { headers: redactHeaders(init.headers), body: truncateBody(redactBody(init.body)) },
+    response: { status, body: truncateBody(redactBody(text)) },
+  };
+}
+
 export async function runHttpVector({ systemUrl, spec, timeoutMs = DEFAULT_TIMEOUT_MS, localPattern = DEFAULT_LOCAL_PATTERN, invariant = null }) {
-  const broken = (reason) => ({ invariant, result: "INSTRUMENT-BROKEN", reason });
+  const steps = [];
+  const broken = (reason) => ({ invariant, result: "INSTRUMENT-BROKEN", reason, steps });
   if (!isLocalTarget(systemUrl, localPattern)) {
     return broken(`target is not local: ${systemUrl} — the autonomous breaker only drives local test/staging systems`);
   }
@@ -173,8 +225,11 @@ export async function runHttpVector({ systemUrl, spec, timeoutMs = DEFAULT_TIMEO
   let last;
   for (const [i, req] of spec.requests.entries()) {
     try {
-      const res = await fetch(new URL(req.path, systemUrl), requestInit(req, timeoutMs));
+      const url = new URL(req.path, systemUrl);
+      const init = requestInit(req, timeoutMs);
+      const res = await fetch(url, init);
       last = { status: res.status, text: await res.text() };
+      steps.push(stepRecord(req.method, url.href, init, last.status, last.text));
     } catch (err) {
       const why = err && err.name === "TimeoutError" ? `timed out after ${timeoutMs} ms` : String(err && err.cause ? err.cause.message || err.cause : err);
       return broken(`requests[${i}] ${req.method} ${req.path} could not complete: ${why}`);
@@ -186,5 +241,6 @@ export async function runHttpVector({ systemUrl, spec, timeoutMs = DEFAULT_TIMEO
     ...verdict,
     expected: spec.expect ?? null,
     actual: { status: last.status, body: last.text.slice(0, 500) },
+    steps,
   };
 }

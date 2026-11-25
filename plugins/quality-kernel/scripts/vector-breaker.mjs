@@ -158,7 +158,7 @@ export async function runVectors({ vectors, blind, config = null, cwd = process.
   return {
     verdict: decideVerdict(results),
     executed: results.filter((r) => r.result !== "INSTRUMENT-BROKEN").length,
-    vectors: results.map((r) => ({ invariant: r.invariant, result: r.result, reason: r.reason, expected: r.expected, actual: r.actual, probe_output: r.probe_output })),
+    vectors: results.map((r) => ({ invariant: r.invariant, result: r.result, reason: r.reason, expected: r.expected, actual: r.actual, probe_output: r.probe_output, steps: r.steps })),
     dropped,
   };
 }
