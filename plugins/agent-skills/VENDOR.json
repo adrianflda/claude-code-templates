@@ -1,0 +1,37 @@
+{
+  "comment": "Input of scripts/vendor_agent_skills.py. `active` skills may be invoked by the model on its own; `userOnly` skills run only when the user types /agent-skills:<name>.",
+  "repo": "addyosmani/agent-skills",
+  "version": "0.6.18",
+  "commit": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+  "license": "MIT",
+  "active": [
+    "api-and-interface-design",
+    "debugging-and-error-recovery",
+    "deprecation-and-migration",
+    "observability-and-instrumentation",
+    "performance-optimization",
+    "security-and-hardening"
+  ],
+  "userOnly": [
+    "accessibility-engineering",
+    "browser-testing-with-devtools",
+    "ci-cd-and-automation",
+    "code-review-and-quality",
+    "code-simplification",
+    "constraint-driven-development",
+    "context-engineering",
+    "documentation-and-adrs",
+    "doubt-driven-development",
+    "frontend-ui-engineering",
+    "git-workflow-and-versioning",
+    "idea-refine",
+    "incremental-implementation",
+    "interview-me",
+    "planning-and-task-breakdown",
+    "shipping-and-launch",
+    "source-driven-development",
+    "spec-driven-development",
+    "test-driven-development",
+    "using-agent-skills"
+  ]
+}
