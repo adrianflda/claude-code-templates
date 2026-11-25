@@ -19,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or a degenerate entry (`**`) is indeterminate, never ignored. Without the key, behavior is
   unchanged. Regression tests: the `EXCLUDE` block in `scripts/attacks.test.mjs`.
 
+### Added
+- **Added check suppressions need human review.** A line the change adds that carries an inline
+  marker switching a check off (`@ts-ignore`, `@ts-expect-error`, `eslint-disable`, `biome-ignore`,
+  `istanbul` / `c8` / `v8 ignore`, `Stryker disable`, `nosemgrep`, `# noqa`, `# type: ignore`,
+  `pragma: no cover`, `pylint: disable`, `# nosec`) is routed critical and sets
+  `requiresHumanReview` (exit 3), like a modified test: it weakens the bar without touching a test
+  or a config, so the base harness still passes. `route.mjs` reports them in `addedSuppressions`;
+  a passing breaker does not close this cause. Markers already in the base, and markers the change
+  removes, do not count. The diff is forced to text, so a `-diff` or `binary` attribute committed
+  with the change cannot hide a marker. It is a text search: a marker inside a string or a document also asks
+  for review. Regression tests: the `SUPPRESS` block in `scripts/attacks.test.mjs`.
+
 ### Changed
 - **Agent prompts absorb four practices from the vendored `agent-skills` plugin**, so the
   pipeline applies them without a second tool firing for the same task:
