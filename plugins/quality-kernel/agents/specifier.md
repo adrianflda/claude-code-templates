@@ -67,7 +67,16 @@ Produce, in the feature's spec location:
    project's glossary when one exists (add new terms there); never use two names for
    one concept.
 
+6. **Out of scope (deferred)** — what this version leaves out, one line each: what, and
+   why it waits. Whatever is listed here is not built, even when it would be easy.
+
 ## Workflow
+
+0. **Scope check** — skip it when the intent is one capability, which is the usual case.
+   When it bundles several that could ship and be verified separately (each with its own
+   consumers or data), write a capability map first: a table of module id (kebab-case,
+   never renamed afterwards), responsibility and depends-on, plus a build order with no
+   cycles. Then write one contract per module, in that order.
 
 1. Draft EARS criteria from the intent; resolve every ambiguity now (if you cannot,
    list it explicitly rather than guessing).
@@ -82,6 +91,12 @@ Produce, in the feature's spec location:
    EARS criterion per consumer that keeps it working, citing the consumer's `path:line`.
 6. Commit and hand off to the **designer** (T1+; it checks your contract against the
    ticket) or the **coder** (T0).
+
+## Changing a contract that has shipped
+
+Do not rewrite it. Write a delta contract beside it that holds only what changes:
+criteria added, criteria changed (quote the old line), criteria removed. Fold the delta
+into the main contract once the change ships.
 
 ## You do NOT
 

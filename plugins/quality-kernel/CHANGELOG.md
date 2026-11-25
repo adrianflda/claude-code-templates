@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or a degenerate entry (`**`) is indeterminate, never ignored. Without the key, behavior is
   unchanged. Regression tests: the `EXCLUDE` block in `scripts/attacks.test.mjs`.
 
+### Changed
+- **Agent prompts absorb four practices from the vendored `agent-skills` plugin**, so the
+  pipeline applies them without a second tool firing for the same task:
+  - `cleaner`: code the change did not itself make dead needs evidence before deletion (no
+    consumer, and the reason it was written from `git log -S` / `git blame`), and code the
+    coder's commit did not touch is reported, not cleaned.
+  - `architect`: six concrete checks for operations that take an idempotency key (key from
+    the intent, atomic claim, payload guard, in-flight duplicate, unknown outcome, retention).
+  - `specifier`: a scope check with a capability map for bundled requests, an "Out of scope
+    (deferred)" section, and a delta contract for changes to a shipped contract.
+  - `develop` Phase 0: each question carries a recommended guess and its reason; still at
+    most five.
+
 ### Fixed
 - **ESLint flat config is harness.** `**/eslint.config.*` (the default config format since
   ESLint 9) joins `.eslintrc*` in the never-overlay set, so a change can no longer overlay a
