@@ -367,7 +367,10 @@ scenario('a lock whose holder pid does not exist is taken over and its processes
   const r = await run(REFEREE, fx, pair);
   assert.strictEqual(r.code, 0, r.stdout);
   assert.ok(await gone(gc, 3000), 'the swept grandchild is gone');
-  assert.deepStrictEqual(pgrepMarker(m), []);
+  // The sweep signals the dead run's processes; they exit a moment later, not at the verdict. This
+  // scenario already allows the grandchild 3 s, so the rest of the marked tree gets the same kind
+  // of wait instead of an instant check (it failed under load with one process still exiting).
+  assert.ok(await noMarker(m), `no process carries MARK after the sweep, left: ${pgrepMarker(m)}`);
 });
 
 scenario('PID reuse is treated as stale and the unrelated process is untouched', async () => {

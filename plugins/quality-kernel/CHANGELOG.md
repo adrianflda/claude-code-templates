@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS`. Without it, an organization that forbids experimental
   betas answered every isolated session with HTTP 400, so the contract review ended as
   `INDETERMINATE` (exit 2) and the breaker could not author vectors.
+- Acceptance test "a lock whose holder pid does not exist is taken over and its processes swept"
+  waits up to 2 s for the swept processes to exit instead of checking at once; it failed under
+  load during a push with one process still exiting.
 
 ## [0.14.0] - 2026-11-25
 
