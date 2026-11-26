@@ -3,7 +3,7 @@
 
     python3 -I agentic-env/extras/archify/add_archify.py <project-dir>
     python3 -I agentic-env/extras/archify/add_archify.py <project-dir> --from archive.tar.gz   # no download
-    python3 -I agentic-env/extras/archify/add_archify.py <project-dir> --replace               # move to the pinned commit
+    python3 -I agentic-env/extras/archify/add_archify.py <project-dir> --replace               # move to the pinned commit; the old copy is kept in .claude/archify.previous
 
 It downloads the repository archive at the commit pinned below, copies only its `archify/` folder to
 <project-dir>/.claude/skills/archify and marks the skill user-only, so it runs when `/archify` is typed
@@ -79,23 +79,29 @@ def make_user_only(skill_md):
 
 
 def install(fresh, target):
-    """Put `fresh` at `target`. The old copy is removed only after the new one is complete beside it."""
+    """Put `fresh` at `target`. A copy that was there is kept as <project>/.claude/archify.previous.
+
+    The staging and backup folders live outside skills/, so a leftover is never loaded as a skill.
+    Returns the backup folder, or None when there was nothing to replace."""
+    base = target.parent.parent
+    incoming, previous = base / 'archify.incoming', base / 'archify.previous'
     target.parent.mkdir(parents=True, exist_ok=True)
-    incoming, outgoing = target.with_name('archify.incoming'), target.with_name('archify.outgoing')
-    for leftover in (incoming, outgoing):
-        if leftover.exists():
-            shutil.rmtree(leftover)
+    if not target.exists() and previous.exists():
+        previous.rename(target)  # an earlier run stopped half-way: put the old copy back first
+    shutil.rmtree(incoming, ignore_errors=True)
+    shutil.copytree(fresh, incoming)
+    if not target.exists():
+        incoming.rename(target)
+        return None
+    if previous.exists():
+        shutil.rmtree(previous)
+    target.rename(previous)
     try:
-        shutil.copytree(fresh, incoming)
-        if target.exists():
-            target.rename(outgoing)
         incoming.rename(target)
     except OSError:
-        if outgoing.exists() and not target.exists():
-            outgoing.rename(target)
-        shutil.rmtree(incoming, ignore_errors=True)
+        previous.rename(target)
         raise
-    shutil.rmtree(outgoing, ignore_errors=True)
+    return previous
 
 
 def main(argv):
@@ -125,11 +131,13 @@ def main(argv):
             count = extract_skill(read_archive(source), fresh)
             make_user_only(fresh / 'SKILL.md')
             (fresh / 'VENDORED.txt').write_text(f'https://github.com/{REPO} at {COMMIT}\nApache-2.0; see LICENSE in this folder if present, and the repository.\n')
-            install(fresh, target)
+            previous = install(fresh, target)
     except (AddError, OSError, tarfile.TarError) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
     print(f'added {count} files to {target} (archify at {COMMIT[:12]})')
+    if previous:
+        print(f'the copy that was there is in {previous}; delete it when the new one works')
     print('Next, in that project:')
     print('  - type /archify to use it; it does not start by itself')
     print('  - add `.archify/` (its output) and `.claude/skills/archify/` (24 MB) to .gitignore, unless the team wants them')

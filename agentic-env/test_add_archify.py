@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """extras/archify/add_archify.py against archives built here: no network.
 Run: python3 -I agentic-env/test_add_archify.py"""
+import importlib.util
 import io
 import os
 import subprocess
@@ -14,6 +15,13 @@ SCRIPT = Path(__file__).resolve().parent / 'extras' / 'archify' / 'add_archify.p
 COMMIT = next(l.split("'")[1] for l in SCRIPT.read_text().splitlines() if l.startswith('COMMIT = '))
 TOP = f'archify-{COMMIT}'
 SKILL = '---\nname: archify\ndescription: Diagrams.\n---\n\n# Archify\n'
+
+
+def load_script():
+    spec = importlib.util.spec_from_file_location('add_archify', SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def archive(path, files, links=()):
@@ -113,10 +121,47 @@ class AddArchifyTest(unittest.TestCase):
         self.assertEqual((self.target / 'mine.txt').read_text(), 'local note')
         self.assertEqual(sorted(p.name for p in self.target.parent.iterdir()), ['archify'])
 
-    def test_a_replace_leaves_no_temporary_folders(self):
+    def test_a_replace_keeps_the_old_copy_outside_the_skills_folder(self):
         self.assertEqual(self.run_script(str(self.project), '--from', str(self.good)).returncode, 0)
-        self.assertEqual(self.run_script(str(self.project), '--from', str(self.good), '--replace').returncode, 0)
+        (self.target / 'mine.txt').write_text('local note')
+        r = self.run_script(str(self.project), '--from', str(self.good), '--replace')
+        self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(sorted(p.name for p in self.target.parent.iterdir()), ['archify'])
+        previous = self.project / '.claude' / 'archify.previous'
+        self.assertEqual((previous / 'mine.txt').read_text(), 'local note')
+        self.assertIn(str(previous), r.stdout)
+        self.assertFalse((self.project / '.claude' / 'archify.incoming').exists())
+
+    def test_a_swap_that_fails_puts_the_old_copy_back(self):
+        module = load_script()
+        fresh = self.root / 'fresh'
+        fresh.mkdir()
+        (fresh / 'SKILL.md').write_text('new')
+        self.target.mkdir(parents=True)
+        (self.target / 'SKILL.md').write_text('old')
+        real = Path.rename
+
+        def failing(path, dest):
+            if path.name == 'archify.incoming':
+                raise OSError('disk full')
+            return real(path, dest)
+
+        Path.rename = failing
+        try:
+            with self.assertRaises(OSError):
+                module.install(fresh, self.target)
+        finally:
+            Path.rename = real
+        self.assertEqual((self.target / 'SKILL.md').read_text(), 'old')
+
+    def test_an_interrupted_earlier_run_is_recovered_before_anything_else(self):
+        module = load_script()
+        previous = self.project / '.claude' / 'archify.previous'
+        previous.mkdir(parents=True)
+        (previous / 'SKILL.md').write_text('old, the only copy')
+        with self.assertRaises(OSError):
+            module.install(self.root / 'no-such-source', self.target)
+        self.assertEqual((self.target / 'SKILL.md').read_text(), 'old, the only copy')
 
     def test_the_home_folder_is_refused(self):
         r = self.run_script(str(self.project), '--from', str(self.good), HOME=str(self.project))
@@ -125,10 +170,14 @@ class AddArchifyTest(unittest.TestCase):
         self.assertFalse(self.target.exists())
 
     def test_wrong_arguments_print_the_usage_and_no_traceback(self):
-        for args in ((), (str(self.project), str(self.root)), (str(self.project), '--from')):
+        for args in ((), (str(self.project), str(self.root))):
             r = self.run_script(*args)
             self.assertEqual(r.returncode, 2, args)
-            self.assertNotIn('Traceback', r.stderr)
+            self.assertIn('add_archify.py <project-dir>', r.stdout)
+        for args in ((str(self.project), '--from'), (str(self.project), '--from', '--replace')):
+            r = self.run_script(*args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertEqual(r.stderr.strip(), 'error: --from needs the path of an archive')
         self.assertFalse(self.target.exists())
 
     def test_a_missing_project_folder_is_an_error(self):
