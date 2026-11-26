@@ -1,0 +1,170 @@
+#!/bin/sh
+# cli-by-folder: one wrapper that picks the account of a command-line tool by the folder the
+# command runs in. Link it under the tool's name (gcloud, gsutil, bq, aws, gh) in a folder that
+# comes before the real tool on PATH.
+#
+# Rules come from ~/.config/cli-by-folder.conf (or $CLI_BY_FOLDER_CONF), one per line:
+#     folder <label> <path>         commands run inside <path> belong to <label> (the first match wins)
+#     <tool> <label> <name>         the account <tool> uses inside the folders of <label>
+#     <tool> default <name>         the account <tool> uses everywhere else
+# <tool> is gcloud (also read by gsutil and bq), aws or gh. <name> is a gcloud configuration, an
+# AWS profile or a GitHub account. Lines that start with # are ignored. A folder line without an
+# absolute path, or a line of this tool without a name, stops the command: a typo must not select
+# the wrong account.
+#
+# What it does with the name, for that one command only:
+#     gcloud, gsutil, bq   CLOUDSDK_ACTIVE_CONFIG_NAME=<name>
+#     aws                  AWS_PROFILE=<name>
+#     gh                   GH_TOKEN=<the token gh stores for that account>
+# The tool's own stored default is never changed. The file is read as data, never executed.
+#
+# It steps aside (runs the plain tool) when the caller already chose: the variable above or a
+# credential is in the environment, --configuration / --profile is on the command line, or the
+# command manages accounts (`gcloud config configurations ...`, `gh auth ...`). It also steps
+# aside for a tool with no rule.
+#
+# It refuses (exit 2) inside a labelled folder when the tool has rules but none for that label:
+# falling back to the default account there is the mistake this wrapper exists to prevent. It
+# refuses when gh has no stored token for the chosen account (run `gh auth login`). It also
+# refuses to pick an AWS profile listed in AWS_ADMIN_GUARD_PROFILES (default: admin): that choice
+# stays an explicit --profile so the aws-admin-guard hook sees it.
+#
+# Not covered: Google's Application Default Credentials are one file for all configurations, and a
+# program that is not one of the linked tools (Terraform, an SDK) never passes here.
+#
+# The real tool is <name>-real next to this script when that exists (a tool that was installed in
+# this same folder and renamed), otherwise the next one of the same name on PATH.
+# To undo: delete the links (and rename <name>-real back).
+tool=$(basename "$0")
+self=$(cd "$(dirname "$0")" && pwd -P)
+conf="${CLI_BY_FOLDER_CONF:-$HOME/.config/cli-by-folder.conf}"
+
+case "$tool" in
+  gcloud | gsutil | bq) family=gcloud ;;
+  aws) family=aws ;;
+  gh) family=gh ;;
+  *)
+    echo "cli-by-folder: link this script as gcloud, gsutil, bq, aws or gh; '$tool' is not supported" >&2
+    exit 2 ;;
+esac
+
+real=
+if [ -x "$self/$tool-real" ]; then
+  real="$self/$tool-real"
+else
+  old_ifs=$IFS
+  IFS=:
+  for dir in $PATH; do
+    [ -n "$dir" ] && [ -x "$dir/$tool" ] || continue
+    [ "$(cd "$dir" && pwd -P)" = "$self" ] && continue
+    real="$dir/$tool"
+    break
+  done
+  IFS=$old_ifs
+fi
+if [ -z "$real" ]; then
+  echo "cli-by-folder: no $tool found on PATH besides this wrapper" >&2
+  exit 127
+fi
+
+# No rules file at the default place means the wrapper is not set up: plain tool. A file that was
+# named or exists but cannot be read is a mistake, and running with the stored account would hide it.
+if [ ! -r "$conf" ]; then
+  if [ -n "${CLI_BY_FOLDER_CONF:-}" ] || [ -e "$conf" ]; then
+    echo "cli-by-folder: cannot read the rules file $conf" >&2
+    exit 2
+  fi
+  exec "$real" "$@"
+fi
+
+# The caller already chose.
+flag=
+case "$family" in
+  gcloud)
+    [ -z "${CLOUDSDK_ACTIVE_CONFIG_NAME:-}${CLOUDSDK_CONFIG:-}" ] || exec "$real" "$@"
+    if [ "$tool" = gcloud ] && [ "${1:-}" = config ] && [ "${2:-}" = configurations ]; then
+      exec "$real" "$@"
+    fi
+    flag=--configuration ;;
+  aws)
+    [ -z "${AWS_PROFILE:-}${AWS_DEFAULT_PROFILE:-}${AWS_ACCESS_KEY_ID:-}${AWS_SESSION_TOKEN:-}" ] || exec "$real" "$@"
+    flag=--profile ;;
+  gh)
+    [ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || exec "$real" "$@"
+    [ "${1:-}" != auth ] || exec "$real" "$@" ;;
+esac
+if [ -n "$flag" ]; then
+  for arg in "$@"; do
+    case "$arg" in "$flag" | "$flag"=*) exec "$real" "$@" ;; esac
+  done
+fi
+
+refuse_line() {
+  echo "cli-by-folder: bad line in $conf: '$1' ($2)" >&2
+  exit 2
+}
+
+# Both sides are compared as physical paths, so a rule written through a symlink still matches.
+here="$(pwd -P)/"
+label=
+while read -r kind first rest || [ -n "$kind" ]; do
+  [ "$kind" = folder ] || continue
+  case "$rest" in
+    /*) ;;
+    *) refuse_line "$kind $first $rest" "a folder line is: folder <label> <absolute path>" ;;
+  esac
+  [ -z "$label" ] || continue
+  path=$(cd "${rest%/}" 2>/dev/null && pwd -P) || path=${rest%/}
+  case "$here" in "$path"/*) label="$first" ;; esac
+done < "$conf"
+
+name=
+fallback=
+has_rules=
+while read -r kind first rest || [ -n "$kind" ]; do
+  [ "$kind" = "$family" ] || continue
+  [ -n "$first" ] && [ -n "$rest" ] || refuse_line "$kind $first" "a tool line is: $family <label|default> <name>"
+  has_rules=1
+  if [ "$first" = default ]; then
+    [ -n "$fallback" ] || fallback="$rest"
+  elif [ -n "$label" ] && [ "$first" = "$label" ]; then
+    [ -n "$name" ] || name="$rest"
+  fi
+done < "$conf"
+
+[ -n "$has_rules" ] || exec "$real" "$@"
+if [ -n "$label" ] && [ -z "$name" ]; then
+  echo "cli-by-folder: this folder is '$label' and $conf has no '$family $label <name>' line; refusing to use another account here" >&2
+  exit 2
+fi
+[ -n "$name" ] || name="$fallback"
+[ -n "$name" ] || exec "$real" "$@"
+
+case "$name" in
+  *[!A-Za-z0-9._-]* | -*)
+    echo "cli-by-folder: '$name' in $conf is not a valid name (letters, digits, dot, underscore, hyphen)" >&2
+    exit 2 ;;
+esac
+
+case "$family" in
+  aws)
+    case ",${AWS_ADMIN_GUARD_PROFILES:-admin}," in
+      *,"$name",*)
+        echo "cli-by-folder: '$name' is a guarded AWS profile and is never picked by folder; pass --profile $name yourself" >&2
+        exit 2 ;;
+    esac
+    AWS_PROFILE="$name" exec "$real" "$@" ;;
+  gh)
+    token=$("$real" auth token --user "$name" 2>/dev/null) || {
+      # Asked again only to show the reason; the first call keeps warnings out of the token.
+      why=$("$real" auth token --user "$name" 2>&1 >/dev/null)
+      echo "cli-by-folder: could not get gh's token for '$name' (gh said: ${why:-nothing}); if the account is not logged in, run: gh auth login" >&2
+      exit 2
+    }
+    if [ -z "$token" ]; then
+      echo "cli-by-folder: gh gave an empty token for '$name'; run: gh auth login" >&2
+      exit 2
+    fi
+    GH_TOKEN="$token" exec "$real" "$@" ;;
+esac
+CLOUDSDK_ACTIVE_CONFIG_NAME="$name" exec "$real" "$@"

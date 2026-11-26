@@ -77,20 +77,25 @@ Ask about all of them in one message. For each, say what it is in one line.
    machine it was about 30% of the spend. Install only if the user wants it:
    `claude plugin marketplace add thedotmack/claude-mem` then
    `claude plugin install claude-mem@thedotmack`.
-3. **Two GitHub accounts on this machine?** If yes, install the `gh` wrapper, which picks the
-   account by folder. Ask for the default account and for each folder that uses another one, check
-   that `gh auth status` lists every account, then:
+3. **Work accounts and personal accounts on this machine?** If yes, install the `cli-by-folder`
+   wrapper, which picks the account of `gh`, `gcloud` (with `gsutil`, `bq`) and `aws` by folder.
+   Ask which folders are work folders (they differ on every machine) and, for each tool the user
+   has, the name to use inside them and the name to use everywhere else: a GitHub account listed
+   by `gh auth status`, a gcloud configuration, an AWS profile. Do not read the tools' credential
+   folders; ask the user to run the listing commands. Then:
 
    ```bash
    mkdir -p ~/bin ~/.config
-   mv "$(command -v gh)" ~/bin/gh-real     # only if ~/bin/gh-real does not exist yet; show this to the user first
-   cp agentic-env/extras/gh-wrapper/gh ~/bin/gh && chmod 755 ~/bin/gh
-   printf '%s\n' 'default <account>' 'dir <other-account> <folder>' > ~/.config/gh-wrapper.conf
+   cp agentic-env/extras/cli-by-folder/cli-by-folder ~/bin/cli-by-folder && chmod 755 ~/bin/cli-by-folder
+   ln -s cli-by-folder ~/bin/gh          # one link per tool the user has: gh, gcloud, gsutil, bq, aws
    ```
 
-   `~/bin` must come first in `PATH`. Verify with `gh api user --jq .login` from a folder of each
-   kind. If `gh` was installed by Homebrew, do not move it: copy the wrapper to `~/bin/gh` and
-   set `real=` in it to the Homebrew path instead, after showing the user that edit.
+   and write `~/.config/cli-by-folder.conf` (format in [`README.md`](README.md)). `~/bin` must
+   come before the real tools in `PATH`. A tool whose binary already lives in `~/bin` is renamed
+   `<tool>-real` first, after showing the user that command. A tool with no personal account gets
+   a default name that does not exist yet, so it fails outside the work folders instead of using
+   the work account. Never map a folder to an administrator AWS profile. Verify from a folder of
+   each kind: `gh api user --jq .login`, `gcloud config list`, `aws configure list`.
 4. **The routing rule in the global `CLAUDE.md`.** Show the block under "Which tool for which
    job" in [`README.md`](README.md) and offer to append it to `~/.claude/CLAUDE.md`. Append only
    on a yes, after saving a copy of the file. Any personal rule (languages, accounts, folders that
