@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""extras/gh-wrapper/gh against a stand-in gh-real and git, in a throwaway HOME.
+"""extras/gh-wrapper/gh against a stand-in gh-real, in a throwaway HOME.
 Run: python3 -I agentic-env/test_gh_wrapper.py"""
 import os
 import stat
@@ -10,81 +10,114 @@ from pathlib import Path
 
 WRAPPER = Path(__file__).resolve().parent / 'extras' / 'gh-wrapper' / 'gh'
 # Prints what the wrapper handed over: the token it would use and the arguments.
-# The stored token belongs to the account `ana`; any other request gets the active account's.
+# Like gh, `auth token` without --user answers with the active account's token.
 FAKE_GH = '''#!/bin/sh
 if [ "$1" = auth ] && [ "$2" = token ]; then
-  # Like gh: without --user it answers with the active account's token.
-  [ "$3" = --user ] && [ "$4" = ana ] || { echo tok-active; exit 0; }
-  [ -n "$FAKE_STORED_TOKEN" ] || exit 1
-  echo "$FAKE_STORED_TOKEN"; exit 0
+  [ "$3" = --user ] || { echo tok-active; exit 0; }
+  case " $FAKE_LOGGED_IN " in *" $4 "*) echo "tok-$4"; exit 0 ;; esac
+  exit 1
 fi
 echo "token=${GH_TOKEN:-none} args=$*"
 '''
-FAKE_GIT = '#!/bin/sh\n[ -n "$FAKE_ORIGIN" ] || exit 2\necho "$FAKE_ORIGIN"\n'
 
 
 class GhWrapperTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name).resolve()
-        self.home, self.bin = root / 'home', root / 'bin'
-        self.personal, self.work = root / 'personal', root / 'work'
-        for d in (self.home / 'bin', self.bin, self.personal / 'app', self.work):
+        self.home = root / 'home'
+        self.client, self.other = root / 'Client', root / 'other'
+        for d in (self.home / 'bin', self.home / '.config', self.client / 'app' / 'src', self.other):
             d.mkdir(parents=True)
-        for path, body in ((self.home / 'bin' / 'gh-real', FAKE_GH), (self.bin / 'git', FAKE_GIT)):
-            path.write_text(body)
-            path.chmod(path.stat().st_mode | stat.S_IXUSR)
+        fake = self.home / 'bin' / 'gh-real'
+        fake.write_text(FAKE_GH)
+        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+        self.conf = self.home / '.config' / 'gh-wrapper.conf'
+        self.rules(f'# accounts by folder\ndefault me\ndir work {self.client}\n')
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def gh(self, *args, cwd=None, origin='', stored='tok-personal', **env):
-        base = {'HOME': str(self.home), 'PATH': f'{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin',
-                'FAKE_ORIGIN': origin, 'FAKE_STORED_TOKEN': stored}
-        r = subprocess.run(['/bin/sh', str(WRAPPER), *args], cwd=cwd or self.work, env={**base, **env},
+    def rules(self, text):
+        self.conf.write_text(text)
+
+    def gh(self, *args, cwd=None, logged_in='me work', **env):
+        base = {'HOME': str(self.home), 'PATH': '/usr/bin:/bin', 'FAKE_LOGGED_IN': logged_in}
+        r = subprocess.run(['/bin/sh', str(WRAPPER), *args], cwd=cwd or self.other, env={**base, **env},
                            capture_output=True, text=True, timeout=20)
         return r.stdout.strip(), r.stderr.strip()
 
-    def test_without_a_configured_account_it_is_plain_gh(self):
-        out, _ = self.gh('pr', 'list', cwd=self.personal, origin='git@github.com:ana/app.git', GH_PERSONAL_DIR=str(self.personal))
-        self.assertEqual(out, 'token=none args=pr list')
+    def test_inside_a_listed_folder_its_account_is_used(self):
+        for cwd in (self.client, self.client / 'app' / 'src'):
+            out, _ = self.gh('pr', 'list', cwd=cwd)
+            self.assertEqual(out, 'token=tok-work args=pr list', cwd)
 
-    def test_a_repo_of_the_personal_account_gets_the_personal_token(self):
-        for origin in ('git@github.com:ana/app.git', 'https://github.com/ana/app.git', 'github-personal:other/app.git'):
-            out, _ = self.gh('pr', 'list', origin=origin, GH_PERSONAL_USER='ana')
-            self.assertEqual(out, 'token=tok-personal args=pr list', origin)
+    def test_everywhere_else_the_default_account_is_used(self):
+        out, _ = self.gh('pr', 'list', '--repo', 'me/app')
+        self.assertEqual(out, 'token=tok-me args=pr list --repo me/app')
 
-    def test_a_folder_under_the_personal_directory_gets_the_personal_token(self):
-        out, _ = self.gh('repo', 'view', cwd=self.personal / 'app', GH_PERSONAL_USER='ana', GH_PERSONAL_DIR=str(self.personal))
-        self.assertEqual(out, 'token=tok-personal args=repo view')
-
-    def test_other_work_is_left_alone(self):
-        for origin in ('git@github.com:company/app.git', 'git@github.com:banana/app.git', ''):
-            out, _ = self.gh('pr', 'list', origin=origin, GH_PERSONAL_USER='ana', GH_PERSONAL_DIR=str(self.personal))
-            self.assertEqual(out, 'token=none args=pr list', origin)
-
-    def test_a_sibling_folder_with_the_same_prefix_is_not_personal(self):
-        sibling = Path(str(self.personal) + '-old')
+    def test_a_sibling_folder_with_the_same_prefix_is_not_the_listed_folder(self):
+        sibling = Path(str(self.client) + '-old')
         sibling.mkdir()
-        out, _ = self.gh('pr', 'list', cwd=sibling, GH_PERSONAL_USER='ana', GH_PERSONAL_DIR=str(self.personal))
+        out, _ = self.gh('pr', 'list', cwd=sibling)
+        self.assertEqual(out, 'token=tok-me args=pr list')
+
+    def test_the_first_matching_folder_wins_and_a_trailing_slash_is_accepted(self):
+        self.rules(f'default me\ndir inner {self.client}/app/\ndir work {self.client}\n')
+        out, _ = self.gh('pr', 'list', cwd=self.client / 'app' / 'src', logged_in='me work inner')
+        self.assertEqual(out, 'token=tok-inner args=pr list')
+        out, _ = self.gh('pr', 'list', cwd=self.client, logged_in='me work inner')
+        self.assertEqual(out, 'token=tok-work args=pr list')
+
+    def test_a_folder_with_a_space_and_a_last_line_without_a_newline_are_read(self):
+        spaced = self.other / 'two words'
+        spaced.mkdir()
+        self.rules(f'default me\ndir work {spaced}')
+        out, _ = self.gh('pr', 'list', cwd=spaced)
+        self.assertEqual(out, 'token=tok-work args=pr list')
+
+    def test_a_dir_rule_without_a_folder_matches_nothing(self):
+        self.rules('default me\ndir work\ndir work \n')
+        out, _ = self.gh('pr', 'list', cwd=self.client)
+        self.assertEqual(out, 'token=tok-me args=pr list')
+
+    def test_the_rules_file_can_be_named_in_the_environment(self):
+        elsewhere = self.other / 'rules.conf'
+        elsewhere.write_text('default work\n')
+        out, _ = self.gh('pr', 'list', GH_WRAPPER_CONF=str(elsewhere))
+        self.assertEqual(out, 'token=tok-work args=pr list')
+
+    def test_without_rules_it_is_plain_gh(self):
+        self.conf.unlink()
+        out, _ = self.gh('pr', 'list', cwd=self.client)
+        self.assertEqual(out, 'token=none args=pr list')
+        self.rules(f'dir work {self.client}\n')
+        out, _ = self.gh('pr', 'list')
         self.assertEqual(out, 'token=none args=pr list')
 
     def test_an_explicit_token_and_auth_commands_are_the_callers_decision(self):
-        out, _ = self.gh('pr', 'list', origin='git@github.com:ana/app.git', GH_PERSONAL_USER='ana', GH_TOKEN='tok-explicit')
+        out, _ = self.gh('pr', 'list', GH_TOKEN='tok-explicit')
         self.assertEqual(out, 'token=tok-explicit args=pr list')
-        out, _ = self.gh('pr', 'list', origin='git@github.com:ana/app.git', GH_PERSONAL_USER='ana', GITHUB_TOKEN='x')
+        out, _ = self.gh('pr', 'list', GITHUB_TOKEN='x')
         self.assertEqual(out, 'token=none args=pr list')
-        out, _ = self.gh('auth', 'status', origin='git@github.com:ana/app.git', GH_PERSONAL_USER='ana')
+        out, _ = self.gh('auth', 'status', cwd=self.client)
         self.assertEqual(out, 'token=none args=auth status')
 
-    def test_no_stored_token_warns_and_uses_the_active_account(self):
-        out, err = self.gh('pr', 'list', origin='git@github.com:ana/app.git', stored='', GH_PERSONAL_USER='ana')
+    def test_an_account_that_is_not_logged_in_warns_and_uses_the_active_account(self):
+        out, err = self.gh('pr', 'list', cwd=self.client, logged_in='me')
         self.assertEqual(out, 'token=none args=pr list')
-        self.assertIn('no stored token for ana', err)
+        self.assertIn('no stored token for work', err)
+
+    def test_the_rules_file_is_data_and_is_never_executed(self):
+        marker = self.other / 'ran'
+        self.rules(f'default me\ntouch {marker}\n$(touch {marker})\ndir work $(touch {marker})\n')
+        out, _ = self.gh('pr', 'list')
+        self.assertEqual(out, 'token=tok-me args=pr list')
+        self.assertFalse(marker.exists())
 
     def test_arguments_with_spaces_pass_through_unchanged(self):
-        out, _ = self.gh('pr', 'create', '--title', 'two words', origin='git@github.com:ana/app.git', GH_PERSONAL_USER='ana')
-        self.assertEqual(out, 'token=tok-personal args=pr create --title two words')
+        out, _ = self.gh('pr', 'create', '--title', 'two words')
+        self.assertEqual(out, 'token=tok-me args=pr create --title two words')
 
 
 if __name__ == '__main__':

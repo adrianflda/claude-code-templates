@@ -129,11 +129,12 @@ only when the conditions hold.
   blocking, is one too many.
 - `hooks/prompt-injection-detector.py`: it runs on every file read and its false-alarm rate has
   not been measured. Wire it by hand to try it.
-- `extras/gh-wrapper/gh`: a wrapper that passes a personal GitHub account's token to `gh` inside
-  personal work (a folder, or a repository whose `origin` belongs to that account) and leaves the
-  active account alone elsewhere. To install: `mv ~/bin/gh ~/bin/gh-real`, copy the wrapper to
-  `~/bin/gh`, and export `GH_PERSONAL_USER` (the account) and, optionally, `GH_PERSONAL_DIR`
-  (the folder of personal work) in the shell profile. Without the first it behaves like `gh`.
+- `extras/gh-wrapper/gh`: a wrapper that picks the GitHub account for `gh` by the folder the
+  command runs in, for a machine with two accounts. `~/.config/gh-wrapper.conf` holds the rules,
+  for example `default my-account` and `dir client-account /Users/me/Projects/Client`: inside
+  that folder `gh` uses the client account, everywhere else the default one. The active account
+  of `gh auth status` is not changed. To install: `mv ~/bin/gh ~/bin/gh-real`, copy the wrapper
+  to `~/bin/gh` and write the rules file. Without the file it behaves like `gh`.
 - The agents `qa-expert`, `research-analyst` and `se-security-reviewer`, the `/quality-gate`
   command and the `skill-audit-3r` skill left the manifest: a second review pass before the push
   and a second security reviewer duplicate `pre-push-review` and `security-auditor`. The first

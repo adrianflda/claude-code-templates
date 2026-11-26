@@ -1,35 +1,37 @@
 #!/bin/sh
-# gh wrapper: uses the personal GitHub account inside personal work, and leaves gh alone elsewhere.
-# Personal work = the current folder is under $GH_PERSONAL_DIR, or the repo's origin belongs to
-# $GH_PERSONAL_USER (or uses the github-personal SSH alias). Both are read from the environment;
-# without GH_PERSONAL_USER the wrapper does nothing. The active account in `gh auth status`
-# is never changed: the personal token is passed to that one command through GH_TOKEN.
+# gh wrapper: picks the GitHub account by the folder the command runs in.
+#
+# Rules come from ~/.config/gh-wrapper.conf (or $GH_WRAPPER_CONF), one per line:
+#     default <account>            the account for all work not matched below
+#     dir <account> <folder>       the account inside that folder (the first match wins)
+# Lines that start with # are ignored. With no file, or no rule that applies, it is plain gh.
+#
+# The active account in `gh auth status` is never changed: the chosen account's stored token is
+# passed to that one command through GH_TOKEN. The file is read as data, never executed.
 # The real binary is ~/bin/gh-real. To undo: mv ~/bin/gh-real ~/bin/gh
 real="$HOME/bin/gh-real"
-user="${GH_PERSONAL_USER:-}"
-dir="${GH_PERSONAL_DIR:-}"
-
-# Not configured: behave exactly like gh.
-if [ -z "$user" ]; then
-  exec "$real" "$@"
-fi
+conf="${GH_WRAPPER_CONF:-$HOME/.config/gh-wrapper.conf}"
 
 # An explicit token, or managing accounts, is the caller's decision.
-if [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || [ "${1:-}" = auth ]; then
+if [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || [ "${1:-}" = auth ] || [ ! -r "$conf" ]; then
   exec "$real" "$@"
 fi
 
-personal=
-if [ -n "$dir" ]; then
-  case "$(pwd -P)/" in "$dir"/*) personal=1 ;; esac
-fi
-if [ -z "$personal" ]; then
-  case "$(git remote get-url origin 2>/dev/null)" in
-    *github-personal:*|*[:/]"$user"/*) personal=1 ;;
+here="$(pwd -P)/"
+user=
+fallback=
+while read -r kind account folder || [ -n "$kind" ]; do
+  case "$kind" in
+    default) [ -n "$fallback" ] || fallback="$account" ;;
+    dir)
+      if [ -z "$user" ] && [ -n "$folder" ]; then
+        case "$here" in "${folder%/}"/*) user="$account" ;; esac
+      fi ;;
   esac
-fi
+done < "$conf"
+[ -n "$user" ] || user="$fallback"
 
-if [ -n "$personal" ]; then
+if [ -n "$user" ]; then
   token=$("$real" auth token --user "$user" 2>/dev/null) || token=
   if [ -n "$token" ]; then
     GH_TOKEN="$token" exec "$real" "$@"
