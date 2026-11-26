@@ -155,9 +155,14 @@ case "$family" in
     esac
     AWS_PROFILE="$name" exec "$real" "$@" ;;
   gh)
-    token=$("$real" auth token --user "$name" 2>/dev/null) || token=
+    token=$("$real" auth token --user "$name" 2>/dev/null) || {
+      # Asked again only to show the reason; the first call keeps warnings out of the token.
+      why=$("$real" auth token --user "$name" 2>&1 >/dev/null)
+      echo "cli-by-folder: could not get gh's token for '$name' (gh said: ${why:-nothing}); if the account is not logged in, run: gh auth login" >&2
+      exit 2
+    }
     if [ -z "$token" ]; then
-      echo "cli-by-folder: gh has no stored token for '$name'; run: gh auth login" >&2
+      echo "cli-by-folder: gh gave an empty token for '$name'; run: gh auth login" >&2
       exit 2
     fi
     GH_TOKEN="$token" exec "$real" "$@" ;;

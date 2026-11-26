@@ -235,15 +235,19 @@ class CliByFolderTest(unittest.TestCase):
         for cwd in (self.client, self.other):
             out, err, code = self.run_tool('gh', 'pr', 'list', cwd=cwd, FAKE_LOGGED_IN='someone-else')
             self.assertEqual((out, code), ('', 2), cwd)
-            self.assertIn('no stored token', err)
+            self.assertIn("could not get gh's token", err)
             self.assertIn('gh auth login', err)
+
+    def test_an_empty_argument_does_not_make_gh_step_aside(self):
+        self.assertEqual(self.out('gh', 'pr', 'comment', '--body', '', cwd=self.client),
+                         'tool=gh token=tok-client-gh args=pr comment --body')
 
     def test_a_real_tool_renamed_next_to_the_wrapper_is_used_first(self):
         renamed = self.bin / 'gh-real'
         renamed.write_text(FAKE_GH)
         renamed.chmod(renamed.stat().st_mode | stat.S_IXUSR)
-        self.assertEqual(self.out('gh', 'pr', 'list', path=f'{self.bin}:/usr/bin:/bin'),
-                         'tool=gh-real token=tok-me-gh args=pr list')
+        # The stand-in gh in self.sdk stays on PATH: the renamed one must win over it.
+        self.assertEqual(self.out('gh', 'pr', 'list'), 'tool=gh-real token=tok-me-gh args=pr list')
 
     def test_under_an_unknown_name_it_refuses(self):
         (self.bin / 'kubectl').symlink_to('cli-by-folder')
