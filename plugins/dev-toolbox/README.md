@@ -25,9 +25,9 @@ claude plugin install dev-toolbox@adrianflda-claude-code-templates
 | Python | `python-patterns` | this plugin |
 | Containers and servers | `docker-expert`, `server-management` | this plugin |
 | AWS serverless | `aws-serverless` | this plugin |
-| Google Cloud | `gcloud`, `/dev-toolbox:google-cloud-recipe-auth`, `/dev-toolbox:cloud-run-basics`, `/dev-toolbox:cloud-sql-basics`, `/dev-toolbox:gke-basics` | this plugin |
+| Google Cloud | `gcloud`, `/dev-toolbox:google-cloud-recipe-auth`, `/dev-toolbox:cloud-run-basics`, `/dev-toolbox:cloud-sql-basics`, `/dev-toolbox:gke-basics`, `/dev-toolbox:gcp-secret-manager`, `/dev-toolbox:gcp-pubsub` | this plugin |
 | Terraform and OpenTofu | `opentofu`, `/dev-toolbox:terraform-skill` | this plugin |
-| Browser automation and end-to-end tests | `/dev-toolbox:playwright-cli` | this plugin |
+| Browser automation and end-to-end tests | `playwright-suite`, `/dev-toolbox:playwright-cli` | this plugin |
 | Interface design | `frontend-design`, `/dev-toolbox:web-design-guidelines`, `/dev-toolbox:pick-ui-library` | this plugin |
 | Motion and interaction | `emil-design-eng`, and typed as `/dev-toolbox:<name>`: `animate`, `animation-performance`, `gestures`, `mobile-native`, `review-animations`, `choreograph`, `break-ui` | this plugin |
 | LLM agents, tool design, MCP servers, prompt caching, OpenAI docs, voice agents | `ai-agents-architect`, `agent-tool-builder`, `/dev-toolbox:mcp-builder`, `prompt-caching`, `openai-docs`, `voice-ai-development` | this plugin |
@@ -37,7 +37,7 @@ claude plugin install dev-toolbox@adrianflda-claude-code-templates
 
 A name written `/dev-toolbox:<name>` runs only when the user types it
 (`disable-model-invocation: true`); the others are also picked up by the model from their
-description. Eighteen of the thirty-five skills are in the second group, so that two skills never
+description. Nineteen of the thirty-eight skills are in the second group, so that two skills never
 compete for the same task and the descriptions loaded in every session stay short.
 
 A machine that still has one of these skills as a folder in `~/.claude/skills` would list it twice:
@@ -45,9 +45,6 @@ remove the folder after installing.
 
 ## Not in it yet
 
-- Playwright at suite level (configuration, fixtures, CI): `playwright-cli` drives a browser and
-  writes a test, it does not set up a suite.
-- Google Cloud Secret Manager and Pub/Sub: the source has no skill for them.
 - Agents. They are installed by `agentic-env/install.py` and stay there until it is decided which
   of them earn a place.
 - Plugins of other marketplaces (`cc-safety-net`, `claude-mem`): a bundle cannot pull them in
@@ -87,8 +84,8 @@ checkouts.
 
 ## Where the other skills come from
 
-`opentofu` was written for this plugin from the OpenTofu documentation (`terraform-skill` covers
-state encryption and `tofu test` thinly). Thirteen skills are the copies in daily use on the
+`opentofu`, `playwright-suite`, `gcp-secret-manager` and `gcp-pubsub` were written for this plugin
+from the official documentation of each product, where the vendored skills are thin or absent. Thirteen skills are the copies in daily use on the
 author's machine. They started as the skills of
 the same name under `cli-tool/components/skills` and were edited since (shorter descriptions,
 corrected examples, current image and runtime names). Their original licenses have not been
