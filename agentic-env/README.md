@@ -139,38 +139,40 @@ only when the conditions hold.
   `dev-toolbox` on purpose: about 24 MB, it runs its own Node programs, and it checks for updates
   over the network unless `ARCHIFY_UPDATE_CHECK_DISABLED=1` is set. The script prints what to add
   to the project's `.gitignore` and settings.
-- `extras/gh-wrapper/gh`: a wrapper that picks the GitHub account for `gh` by the folder the
-  command runs in, for a machine with two accounts. `~/.config/gh-wrapper.conf` holds the rules,
-  for example `default my-account` and `dir client-account /Users/me/Projects/Client`: inside
-  that folder `gh` uses the client account, everywhere else the default one. The active account
-  of `gh auth status` is not changed. To install: `mv ~/bin/gh ~/bin/gh-real`, copy the wrapper
-  to `~/bin/gh` and write the rules file. Without the file it behaves like `gh`.
-- `extras/cli-by-folder/cli-by-folder`: the same idea for `gcloud` (with `gsutil` and `bq`) and
-  `aws`, in one script: a work folder uses the work account, everything else the personal one, and
-  each machine names its own folders. `~/.config/cli-by-folder.conf` holds the rules:
+- `extras/cli-by-folder/cli-by-folder`: one wrapper that picks the account of `gh`, `gcloud`
+  (with `gsutil` and `bq`) and `aws` by the folder the command runs in: a work folder uses the
+  work account, everything else the personal one, and each machine names its own folders.
+  `~/.config/cli-by-folder.conf` holds the rules:
 
   ```
   folder work /Users/me/Projects/Client
+  gh default my-account
+  gh work client-account
   gcloud default personal
   gcloud work client
   aws default personal
   aws work client-readonly
   ```
 
-  A name is a gcloud configuration or an AWS profile; the wrapper passes it to that one command
-  (`CLOUDSDK_ACTIVE_CONFIG_NAME`, `AWS_PROFILE`) and never changes the tool's stored default. It
+  A name is a GitHub account, a gcloud configuration or an AWS profile; the wrapper passes it to
+  that one command (`GH_TOKEN` with the token `gh` stores for the account,
+  `CLOUDSDK_ACTIVE_CONFIG_NAME`, `AWS_PROFILE`) and never changes the tool's stored default. It
   steps aside when the caller already chose (`--configuration`, `--profile`, the variable or a
-  credential in the environment). Inside a labelled folder a tool that has rules but none for
-  that label is refused, not run with the default account; so is any command when the rules
-  file cannot be read or has a malformed line. An AWS profile listed in
-  `AWS_ADMIN_GUARD_PROFILES` is never picked by folder, so `aws-admin-guard` keeps seeing it.
+  credential in the environment, `gh auth ...`) and for a tool with no rule. It stops, instead of
+  running with another account, when a tool has rules but none for the folder's label, when `gh`
+  has no stored token for the account, and when the rules file cannot be read or has a malformed
+  line. An AWS profile listed in `AWS_ADMIN_GUARD_PROFILES` is never picked by folder, so
+  `aws-admin-guard` keeps seeing it.
   To install: copy the script to `~/bin/cli-by-folder`, link each tool to it
-  (`ln -s cli-by-folder ~/bin/gcloud`, the same for `gsutil`, `bq`, `aws`), make sure `~/bin`
-  comes before the real tools on `PATH`, create the gcloud configurations
+  (`ln -s cli-by-folder ~/bin/gcloud`, the same for `gsutil`, `bq`, `aws`, `gh`), make sure
+  `~/bin` comes before the real tools on `PATH`, create the gcloud configurations
   (`gcloud config configurations create client`, then `gcloud auth login` inside the folder) and
-  write the rules file. Not covered: Google's Application Default Credentials are one file for
-  all configurations, and programs that are not these tools (Terraform, an SDK) do not pass
-  through the wrapper. `gh` keeps its own wrapper above because it works with tokens, not names.
+  write the rules file. A tool that itself lives in `~/bin` is renamed `<tool>-real` first; the
+  wrapper looks for that name before `PATH`. Not covered: Google's Application Default
+  Credentials are one file for all configurations, and programs that are not these tools
+  (Terraform, an SDK) do not pass through the wrapper. This replaces the earlier `gh`-only
+  wrapper and its `~/.config/gh-wrapper.conf` (`default A` becomes `gh default A`; `dir B F`
+  becomes `folder work F` plus `gh work B`).
 - The agents `qa-expert`, `research-analyst` and `se-security-reviewer`, the `/quality-gate`
   command and the `skill-audit-3r` skill left the manifest: a second review pass before the push
   and a second security reviewer duplicate `pre-push-review` and `security-auditor`. The first
@@ -193,8 +195,7 @@ If the other machine needs them, write them there by hand.
 python3 -I agentic-env/test_install.py               # installer, against a throwaway HOME
 python3 -I agentic-env/test_plugins.py               # plugin checks, against a stand-in claude
 python3 -I agentic-env/test_tools.py                 # external tools, against a stand-in uv
-python3 -I agentic-env/test_gh_wrapper.py            # the gh wrapper, against a stand-in gh
-python3 -I agentic-env/test_cli_by_folder.py         # the gcloud/aws wrapper, against stand-in tools
+python3 -I agentic-env/test_cli_by_folder.py         # the account-by-folder wrapper, against stand-in tools
 python3 -I agentic-env/test_add_archify.py           # the Archify installer, against archives built in the test
 python3 -I agentic-env/test_docs.py                  # SETUP.md and GUIDE.md name things that exist
 python3 -I agentic-env/test_library_docs.py          # library-docs, against a stand-in Context7

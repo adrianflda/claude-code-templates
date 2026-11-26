@@ -14,6 +14,15 @@ TOOLS = ('gcloud', 'gsutil', 'bq', 'aws')
 FAKE = '''#!/bin/sh
 echo "tool=$(basename "$0") gcloud=${CLOUDSDK_ACTIVE_CONFIG_NAME:-none} aws=${AWS_PROFILE:-none} args=$*"
 '''
+# Like gh: `auth token --user X` prints X's stored token or fails; anything else shows what it was handed.
+FAKE_GH = '''#!/bin/sh
+if [ "$1" = auth ] && [ "$2" = token ]; then
+  [ "$3" = --user ] || { echo tok-active; exit 0; }
+  case " $FAKE_LOGGED_IN " in *" $4 "*) echo "tok-$4"; exit 0 ;; esac
+  exit 1
+fi
+echo "tool=$(basename "$0") token=${GH_TOKEN:-none} args=$*"
+'''
 
 
 class CliByFolderTest(unittest.TestCase):
@@ -36,9 +45,14 @@ class CliByFolderTest(unittest.TestCase):
         script.chmod(script.stat().st_mode | stat.S_IXUSR)
         for tool in TOOLS:
             (self.bin / tool).symlink_to('cli-by-folder')
+        fake_gh = self.sdk / 'gh'
+        fake_gh.write_text(FAKE_GH)
+        fake_gh.chmod(fake_gh.stat().st_mode | stat.S_IXUSR)
+        (self.bin / 'gh').symlink_to('cli-by-folder')
         self.conf = self.home / '.config' / 'cli-by-folder.conf'
         self.rules(f'# accounts by folder\nfolder work {self.client}\n'
-                   'gcloud default me\ngcloud work client\naws default me-aws\naws work client-ro\n')
+                   'gcloud default me\ngcloud work client\naws default me-aws\naws work client-ro\n'
+                   'gh default me-gh\ngh work client-gh\n')
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -47,7 +61,8 @@ class CliByFolderTest(unittest.TestCase):
         self.conf.write_text(text)
 
     def run_tool(self, tool, *args, cwd=None, path=None, **env):
-        base = {'HOME': str(self.home), 'PATH': path or f'{self.bin}:{self.sdk}:/usr/bin:/bin'}
+        base = {'HOME': str(self.home), 'PATH': path or f'{self.bin}:{self.sdk}:/usr/bin:/bin',
+                'FAKE_LOGGED_IN': 'me-gh client-gh'}
         r = subprocess.run([str(self.bin / tool), *args], cwd=cwd or self.other, env={**base, **env},
                            capture_output=True, text=True, timeout=20)
         return r.stdout.strip(), r.stderr.strip(), r.returncode
@@ -203,6 +218,32 @@ class CliByFolderTest(unittest.TestCase):
         out, err, code = self.run_tool('gcloud', 'info', path=f'{self.bin}:/usr/bin:/bin')
         self.assertEqual((out, code), ('', 127))
         self.assertIn('no gcloud found on PATH', err)
+
+    def test_gh_gets_the_stored_token_of_the_folders_account(self):
+        self.assertEqual(self.out('gh', 'pr', 'list', cwd=self.client / 'app'), 'tool=gh token=tok-client-gh args=pr list')
+        self.assertEqual(self.out('gh', 'pr', 'create', '--title', 'two words'),
+                         'tool=gh token=tok-me-gh args=pr create --title two words')
+
+    def test_gh_with_an_explicit_token_or_an_auth_command_is_the_callers_decision(self):
+        self.assertEqual(self.out('gh', 'pr', 'list', cwd=self.client, GH_TOKEN='tok-explicit'),
+                         'tool=gh token=tok-explicit args=pr list')
+        self.assertEqual(self.out('gh', 'pr', 'list', cwd=self.client, GITHUB_TOKEN='x'), 'tool=gh token=none args=pr list')
+        self.assertEqual(self.out('gh', 'auth', 'status', cwd=self.client), 'tool=gh token=none args=auth status')
+        self.assertEqual(self.out('gh', 'auth', 'token', cwd=self.client), 'tok-active')
+
+    def test_gh_without_a_stored_token_for_the_account_stops(self):
+        for cwd in (self.client, self.other):
+            out, err, code = self.run_tool('gh', 'pr', 'list', cwd=cwd, FAKE_LOGGED_IN='someone-else')
+            self.assertEqual((out, code), ('', 2), cwd)
+            self.assertIn('no stored token', err)
+            self.assertIn('gh auth login', err)
+
+    def test_a_real_tool_renamed_next_to_the_wrapper_is_used_first(self):
+        renamed = self.bin / 'gh-real'
+        renamed.write_text(FAKE_GH)
+        renamed.chmod(renamed.stat().st_mode | stat.S_IXUSR)
+        self.assertEqual(self.out('gh', 'pr', 'list', path=f'{self.bin}:/usr/bin:/bin'),
+                         'tool=gh-real token=tok-me-gh args=pr list')
 
     def test_under_an_unknown_name_it_refuses(self):
         (self.bin / 'kubectl').symlink_to('cli-by-folder')
