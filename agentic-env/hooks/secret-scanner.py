@@ -411,11 +411,12 @@ def main():
     # The commit may run in another folder than this process (`cd <repo> && git commit`,
     # `git -C <repo> commit`): everything below reads the repository of the commit.
     if not os.path.isdir(where):
-        # A folder written with a variable or a substitution cannot be read from here. Scanning
-        # this process's folder instead would report on the wrong repository.
-        print(f'secret-scanner: cannot resolve the folder of this commit ({where}); it was NOT scanned',
+        # A folder written with a variable or a substitution cannot be read from here, and a
+        # scanner that cannot look must not wave the commit through.
+        print(f'secret-scanner: cannot resolve the folder of this commit ({where}), so it cannot be scanned.\n'
+              'Write the folder literally (cd /path/to/repo && git commit ..., or git -C /path/to/repo commit ...).',
               file=sys.stderr)
-        sys.exit(0)
+        sys.exit(2)
     os.chdir(where)
     # Staged paths are relative to the top of the repository, wherever inside it the commit runs.
     top = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True)

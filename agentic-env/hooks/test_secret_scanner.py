@@ -65,11 +65,12 @@ class SecretScannerTest(unittest.TestCase):
                 r = self.hook(command, self.repo)
                 self.assertEqual(r.returncode, 0, command + r.stderr)
 
-    def test_a_folder_that_cannot_be_resolved_is_reported_and_not_scanned_elsewhere(self):
-        self.stage_token()
-        r = self.hook('cd "$REPO_DIR" && ' + COMMIT, self.repo)
-        self.assertEqual(r.returncode, 0)
-        self.assertIn('NOT scanned', r.stderr)
+    def test_a_commit_whose_folder_cannot_be_resolved_is_blocked_with_the_way_out(self):
+        for command in ('cd "$REPO_DIR" && ' + COMMIT, 'git -C "$(pwd)/x" ' + 'commit -m "feat: x"'):
+            r = self.hook(command, self.repo)
+            self.assertEqual(r.returncode, 2, command)
+            self.assertIn('cannot be scanned', r.stderr)
+            self.assertIn('Write the folder literally', r.stderr)
 
     def test_a_relative_cd_starts_from_the_folder_the_tool_call_names(self):
         self.stage_token()
