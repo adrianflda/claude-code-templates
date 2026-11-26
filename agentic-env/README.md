@@ -5,6 +5,10 @@ usage-guard, the epistemic hooks, and the agents, skills and commands they rely 
 a copy of `~/.claude`. Machine config, account names, account ids and secrets are not in here and
 must never be added.
 
+Two companion files: [`SETUP.md`](SETUP.md) is a runbook Claude Code follows to set up a new
+machine, including the optional pieces the installer leaves out; [`GUIDE.md`](GUIDE.md) says what
+is installed and when to use each piece.
+
 ## Install
 
 ```bash
@@ -163,6 +167,9 @@ If the other machine needs them, write them there by hand.
 python3 -I agentic-env/test_install.py               # installer, against a throwaway HOME
 python3 -I agentic-env/test_plugins.py               # plugin checks, against a stand-in claude
 python3 -I agentic-env/test_tools.py                 # external tools, against a stand-in uv
+python3 -I agentic-env/test_gh_wrapper.py            # the gh wrapper, against a stand-in gh
+python3 -I agentic-env/test_add_archify.py           # the Archify installer, against archives built in the test
+python3 -I agentic-env/test_docs.py                  # SETUP.md and GUIDE.md name things that exist
 python3 -I agentic-env/test_library_docs.py          # library-docs, against a stand-in Context7
 python3 -I scripts/test_vendor_agent_skills.py       # the vendored agent-skills plugin
 for t in agentic-env/hooks/test_*.py; do python3 -I "$t"; done
