@@ -19,7 +19,7 @@
       "name": "quality-kernel",
       "source": "./plugins/quality-kernel",
       "description": "A quality-assurance kernel for agentic development: a seven-agent SwarmForge-style engine (specifier -> designer -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-      "version": "0.13.0",
+      "version": "0.14.0",
       "category": "quality-gates",
       "keywords": ["quality-gate", "multi-agent", "spec-driven-development", "tdd", "mutation-testing", "verification", "swarmforge", "agents"]
     },
@@ -83,7 +83,7 @@
       "name": "dev-toolbox",
       "source": "./plugins/dev-toolbox",
       "description": "One install for daily software work: bundles quality-kernel, pre-push-review, usage-guard, the two guards and agent-skills, and adds curated stack skills (TypeScript, React, Next.js, Python, Docker, AWS serverless, Google Cloud, Terraform/OpenTofu, Playwright, interface design and motion, LLM agents and MCP).",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "category": "bundle",
       "keywords": ["bundle", "fullstack", "typescript", "aws", "python", "docker", "llm-agents", "testing"]
     }

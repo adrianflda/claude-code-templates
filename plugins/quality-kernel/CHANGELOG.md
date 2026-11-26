@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-25
+
 ### Added
 - **Breaker step log.** Each HTTP vector in the breaker's output JSON carries `steps`: the requests
   it ran, in order, with the response status and body, so a verdict can be replayed. In the log
