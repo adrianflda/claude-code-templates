@@ -19,14 +19,18 @@ def skill_names(folder):
 class DocsTest(unittest.TestCase):
     def test_every_repo_path_in_the_docs_exists(self):
         for doc in DOCS:
-            for path in re.findall(r'`((?:agentic-env|plugins|scripts)/[\w./-]+)', doc.read_text()):
+            paths = re.findall(r'(?<![\w/.~-])((?:agentic-env|plugins|scripts)/[\w./-]*\w)', doc.read_text())
+            self.assertGreater(len(paths), 1, doc.name)
+            for path in paths:
                 self.assertTrue((REPO / path).exists(), f'{doc.name}: {path}')
 
-    def test_every_dev_toolbox_skill_is_in_the_guide_and_nothing_else_is_named_as_one(self):
+    def test_every_name_in_the_two_skill_sections_is_a_skill_that_exists(self):
         guide = (HERE / 'GUIDE.md').read_text()
-        named = set(re.findall(r'`([a-z][a-z0-9-]+)`', guide))
-        toolbox = skill_names(REPO / 'plugins' / 'dev-toolbox' / 'skills')
-        self.assertEqual(sorted(toolbox - named), [])
+        sections = guide.split('## Skills that load by themselves')[1].split('## Guards')[0]
+        known = (skill_names(REPO / 'plugins' / 'dev-toolbox' / 'skills') | skill_names(REPO / 'plugins' / 'agent-skills' / 'skills')
+                 | {Path(p).name for p in MANIFEST['skills']} | set(MANIFEST['plugins']))
+        named = set(re.findall(r'`([a-z][a-z0-9-]+)`', sections))
+        self.assertEqual(sorted(named - known), [])
 
     def test_the_guide_lists_each_skill_under_the_way_it_is_invoked(self):
         guide = (HERE / 'GUIDE.md').read_text()
