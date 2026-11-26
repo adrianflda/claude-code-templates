@@ -58,6 +58,12 @@ test("isolatedEnv: keeps auth and PATH, drops everything else", () => {
   assert.deepEqual(Object.keys(env).sort(), ["ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "HOME", "PATH"]);
 });
 
+test("isolatedEnv: keeps the switch that turns experimental betas off", () => {
+  // Without it an organization that forbids those betas answers every isolated session with HTTP 400.
+  const env = isolatedEnv({ PATH: "/bin", CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1", CLAUDE_CODE_SESSION_ID: "s", CLAUDE_CODE_MESSAGING_TOKEN: "t" });
+  assert.deepEqual(Object.keys(env).sort(), ["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS", "PATH"]);
+});
+
 test("isolatedEnv: cloud credentials pass only for the provider that is switched on", () => {
   const cloud = { PATH: "/bin", AWS_SECRET_ACCESS_KEY: "s", GOOGLE_APPLICATION_CREDENTIALS: "/g", CLOUD_ML_REGION: "r" };
   assert.deepEqual(Object.keys(isolatedEnv(cloud)), ["PATH"]);

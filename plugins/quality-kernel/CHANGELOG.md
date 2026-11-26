@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-26
+
+### Fixed
+
+- The isolated sessions of the blind contract review and the blind breaker now keep
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS`. Without it, an organization that forbids experimental
+  betas answered every isolated session with HTTP 400, so the contract review ended as
+  `INDETERMINATE` (exit 2) and the breaker could not author vectors.
+
 ## [0.14.0] - 2026-11-25
 
 ### Added
