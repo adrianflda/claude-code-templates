@@ -84,9 +84,32 @@ checkouts.
 
 ## Where the other skills come from
 
-`opentofu`, `playwright-suite`, `gcp-secret-manager` and `gcp-pubsub` were written for this plugin
-from the official documentation of each product, where the vendored skills are thin or absent. Thirteen skills are the copies in daily use on the
-author's machine. They started as the skills of
-the same name under `cli-tool/components/skills` and were edited since (shorter descriptions,
-corrected examples, current image and runtime names). Their original licenses have not been
-re-checked one by one; five carry a `source:` line naming the collection they came from.
+Six skills were written for this plugin from the official documentation of each product:
+`opentofu`, `playwright-suite`, `gcp-secret-manager`, `gcp-pubsub`, and, since 0.3.1,
+`docker-expert` (docs.docker.com) and `nextjs-best-practices` (nextjs.org/docs, Next.js 16). The
+last two replace copies whose author and license could not be established; they keep the name and
+nothing else.
+
+The other eleven are the copies in daily use on the author's machine. They started as the skills
+of the same name under `cli-tool/components/skills` and were edited since (shorter descriptions,
+corrected examples, current image and runtime names).
+
+Four of them were traced to their repository on 2026-11-26 by comparing the catalog copy with the
+upstream file. Both repositories are MIT; the license texts are in `inherited-licenses/`.
+
+| Source | License | Skills | Evidence |
+|---|---|---|---|
+| [vudovn/antigravity-kit](https://github.com/vudovn/antigravity-kit), `.agents/skills/<name>` | MIT, Copyright (c) 2026 VUDOVN | `nodejs-best-practices`, `python-patterns`, `server-management` | catalog copy differs from upstream (head `549ba3dc`) in 23, 10 and 2 lines |
+| [softaworks/agent-toolkit](https://github.com/softaworks/agent-toolkit), `skills/qa-test-planner` | MIT, Copyright (c) 2026 Leonardo Flores | `qa-test-planner` | catalog copy identical to upstream (`3027f20f`) |
+
+These four are not managed by `scripts/vendor_dev_toolbox.py`: the copies here were edited by hand
+and are not pinned to an upstream commit. Whether `vudovn/antigravity-kit` is where the three
+skills were first written was not checked; it is the repository that publishes them under a
+license.
+
+Not settled yet:
+
+- `ai-agents-architect`, `agent-tool-builder`, `aws-serverless`, `prompt-caching` and
+  `voice-ai-development` carry a `source: vibeship-spawner-skills (Apache 2.0)` line. That line is
+  the only evidence; the repository and its license text have not been checked.
+- `openai-docs` and `think-tank`: origin not checked.
