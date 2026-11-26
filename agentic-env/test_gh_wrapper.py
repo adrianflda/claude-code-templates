@@ -76,6 +76,17 @@ class GhWrapperTest(unittest.TestCase):
         out, _ = self.gh('pr', 'list', cwd=spaced)
         self.assertEqual(out, 'token=tok-work args=pr list')
 
+    def test_a_dir_rule_without_a_folder_matches_nothing(self):
+        self.rules('default me\ndir work\ndir work \n')
+        out, _ = self.gh('pr', 'list', cwd=self.client)
+        self.assertEqual(out, 'token=tok-me args=pr list')
+
+    def test_the_rules_file_can_be_named_in_the_environment(self):
+        elsewhere = self.other / 'rules.conf'
+        elsewhere.write_text('default work\n')
+        out, _ = self.gh('pr', 'list', GH_WRAPPER_CONF=str(elsewhere))
+        self.assertEqual(out, 'token=tok-work args=pr list')
+
     def test_without_rules_it_is_plain_gh(self):
         self.conf.unlink()
         out, _ = self.gh('pr', 'list', cwd=self.client)
