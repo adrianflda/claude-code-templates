@@ -129,6 +129,12 @@ only when the conditions hold.
   blocking, is one too many.
 - `hooks/prompt-injection-detector.py`: it runs on every file read and its false-alarm rate has
   not been measured. Wire it by hand to try it.
+- `extras/archify/add_archify.py <project-dir>`: adds the [Archify](https://github.com/tt-a1i/archify)
+  skill (interactive diagrams from a plan or a codebase, Apache-2.0) to one project, at a pinned
+  commit, as a skill that runs only when `/archify` is typed. It is per project and outside
+  `dev-toolbox` on purpose: about 24 MB, it runs its own Node programs, and it checks for updates
+  over the network unless `ARCHIFY_UPDATE_CHECK_DISABLED=1` is set. The script prints what to add
+  to the project's `.gitignore` and settings.
 - `extras/gh-wrapper/gh`: a wrapper that picks the GitHub account for `gh` by the folder the
   command runs in, for a machine with two accounts. `~/.config/gh-wrapper.conf` holds the rules,
   for example `default my-account` and `dir client-account /Users/me/Projects/Client`: inside
