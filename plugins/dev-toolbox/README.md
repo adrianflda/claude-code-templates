@@ -107,9 +107,17 @@ and are not pinned to an upstream commit. Whether `vudovn/antigravity-kit` is wh
 skills were first written was not checked; it is the repository that publishes them under a
 license.
 
-Not settled yet:
+The other seven were checked the same day against a clone of each repository:
 
-- `ai-agents-architect`, `agent-tool-builder`, `aws-serverless`, `prompt-caching` and
-  `voice-ai-development` carry a `source: vibeship-spawner-skills (Apache 2.0)` line. That line is
-  the only evidence; the repository and its license text have not been checked.
-- `openai-docs` and `think-tank`: origin not checked.
+| Source | License | Skills | Evidence |
+|---|---|---|---|
+| [vibeforge1111/vibeship-spawner-skills](https://github.com/vibeforge1111/vibeship-spawner-skills) | Apache-2.0, as its README and `package.json` state (the repository has no license file) | `ai-agents-architect`, `agent-tool-builder`, `aws-serverless`, `prompt-caching`, `voice-ai-development` | each exists there as a set of YAML files (head `70b2e106`); of the long lines of the copy here, 27 of 50, 8 of 23, 98 of 132, 4 of 22 and 110 of 150 appear in them |
+| [openai/skills](https://github.com/openai/skills), `skills/.curated/openai-docs` | Apache-2.0, `LICENSE.txt` inside the skill | `openai-docs` | the license file is identical to upstream (head `49f948fa`); upstream's `SKILL.md` has moved on, 17 of 32 long lines still match |
+| Contributed to the catalog by Danny Bronshtein (pull request #412 of davila7/claude-code-templates, 2026-03-17) | MIT, Copyright (c) 2026 Danny, `LICENSE.txt` inside the skill | `think-tank` | `git log` of the catalog folder |
+
+The five vibeship skills are Markdown conversions of the upstream YAML, edited since; the two with
+few matching lines (`agent-tool-builder`, `prompt-caching`) were largely rewritten here. Because
+upstream ships no license text, `inherited-licenses/vibeship-spawner-skills.txt` holds the
+standard Apache-2.0 text. Whether the `openai-docs` copy is an older upstream version or was
+shortened later was not checked. `think-tank` gained a completion gate in this fork (commit
+`c009a294`).
