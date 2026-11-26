@@ -57,6 +57,20 @@ class SecretScannerTest(unittest.TestCase):
                 self.assertEqual(r.returncode, 2, command)
                 self.assertIn('config.py:1', r.stderr, command)
 
+    def test_a_commit_in_a_clean_repository_passes_even_when_this_folder_has_a_staged_token(self):
+        self.stage_token()
+        with tempfile.TemporaryDirectory() as clean:
+            subprocess.run(['git', 'init', '-q', clean], check=True)
+            for command in (f'cd {clean} && {COMMIT}', 'git -C ' + clean + ' commit -m "feat: x"'):
+                r = self.hook(command, self.repo)
+                self.assertEqual(r.returncode, 0, command + r.stderr)
+
+    def test_a_folder_that_cannot_be_resolved_is_reported_and_not_scanned_elsewhere(self):
+        self.stage_token()
+        r = self.hook('cd "$REPO_DIR" && ' + COMMIT, self.repo)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn('NOT scanned', r.stderr)
+
     def test_a_relative_cd_starts_from_the_folder_the_tool_call_names(self):
         self.stage_token()
         nested = self.repo / 'pkg'
