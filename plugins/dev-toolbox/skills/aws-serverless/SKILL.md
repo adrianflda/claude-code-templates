@@ -33,6 +33,9 @@ exports.handler = async (event, context) => {
     const body = typeof event.body === 'string'
       ? parseJson(event.body)
       : event.body;
+    if (body == null || typeof body !== 'object') {
+      throw Object.assign(new Error('Request body is required'), { statusCode: 400 });
+    }
 
     // Business logic
     const result = await processRequest(body);
@@ -80,6 +83,9 @@ async function processRequest(data) {
     TableName: process.env.TABLE_NAME,
     Key: { id: data.id }
   }));
+  if (!result.Item) {
+    throw Object.assign(new Error('Not found'), { statusCode: 404 });
+  }
   return result.Item;
 }
 ```
@@ -104,6 +110,7 @@ Globals:
     Environment:
       Variables:
         TABLE_NAME: !Ref ItemsTable
+        ALLOWED_ORIGIN: https://app.example.com  # the handler sends it as Access-Control-Allow-Origin
 
 Resources:
   # HTTP API (recommended for simple use cases)
