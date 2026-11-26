@@ -225,7 +225,7 @@ def text_to_speech_stream(text: str):
     """Stream TTS audio chunks."""
     audio_stream = eleven.text_to_speech.convert_as_stream(
         voice_id="21m00Tcm4TlvDq8ikWAM",  # Rachel
-        model_id="eleven_turbo_v2_5",  # Fastest
+        model_id="eleven_flash_v2_5",  # Low latency; the Turbo models are deprecated. Check the current list: elevenlabs.io/docs/overview/models
         text=text,
         output_format="pcm_24000"  # Raw PCM for low latency
     )
@@ -237,7 +237,7 @@ def text_to_speech_stream(text: str):
 async def tts_websocket(text_stream):
     async with eleven.text_to_speech.stream_async(
         voice_id="21m00Tcm4TlvDq8ikWAM",
-        model_id="eleven_turbo_v2_5"
+        model_id="eleven_flash_v2_5"
     ) as tts:
         async for text_chunk in text_stream:
             audio = await tts.send(text_chunk)

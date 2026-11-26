@@ -79,6 +79,20 @@ class PluginCheckTest(unittest.TestCase):
         listed = {p['name'] for p in json.loads((REPO / '.claude-plugin' / 'marketplace.json').read_text())['plugins']}
         self.assertEqual([n for n in REQUIRED if n not in listed], [])
 
+    def test_each_plugin_manifest_agrees_with_its_marketplace_entry(self):
+        entries = {p['name']: p for p in json.loads((REPO / '.claude-plugin' / 'marketplace.json').read_text())['plugins']}
+        for name in REQUIRED:
+            plugin = json.loads((REPO / 'plugins' / name / '.claude-plugin' / 'plugin.json').read_text())
+            self.assertEqual(plugin['name'], name)
+            self.assertEqual(plugin['version'], entries[name]['version'], f'{name}: plugin.json and marketplace.json versions')
+
+    def test_the_bundle_depends_on_every_other_required_plugin_and_on_nothing_unlisted(self):
+        listed = {p['name'] for p in json.loads((REPO / '.claude-plugin' / 'marketplace.json').read_text())['plugins']}
+        bundle = json.loads((REPO / 'plugins' / 'dev-toolbox' / '.claude-plugin' / 'plugin.json').read_text())
+        deps = [d if isinstance(d, str) else d['name'] for d in bundle['dependencies']]
+        self.assertEqual(sorted(deps), sorted(n for n in REQUIRED if n != 'dev-toolbox'))
+        self.assertEqual([d for d in deps if d.split('@')[0] not in listed], [])
+
     def test_every_plugin_from_this_marketplace_has_no_plugin_drift(self):
         _, lines = self.check(ours(*REQUIRED))
         self.assertEqual(lines, [])

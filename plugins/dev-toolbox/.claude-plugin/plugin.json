@@ -1,6 +1,6 @@
 {
   "name": "dev-toolbox",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "One install for daily software work: bundles quality-kernel, pre-push-review, usage-guard, the two guards and agent-skills, and adds curated stack skills (TypeScript, React, Next.js, Python, Docker, AWS serverless, Google Cloud, Terraform/OpenTofu, Playwright, interface design and motion, LLM agents and MCP).",
   "author": {
     "name": "adrianflda"
