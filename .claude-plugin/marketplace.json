@@ -78,6 +78,14 @@
       "version": "0.6.18",
       "category": "engineering-skills",
       "keywords": ["skills", "debugging", "api-design", "security", "migrations", "performance", "observability", "vendored"]
+    },
+    {
+      "name": "dev-toolbox",
+      "source": "./plugins/dev-toolbox",
+      "description": "One install for daily software work: bundles quality-kernel, pre-push-review, usage-guard, the two guards and agent-skills, and adds curated stack skills (TypeScript, React, Next.js, Python, Docker, AWS serverless, Google Cloud, Terraform/OpenTofu, Playwright, interface design and motion, LLM agents and MCP).",
+      "version": "0.2.0",
+      "category": "bundle",
+      "keywords": ["bundle", "fullstack", "typescript", "aws", "python", "docker", "llm-agents", "testing"]
     }
   ]
 }
