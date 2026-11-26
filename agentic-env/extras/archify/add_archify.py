@@ -78,10 +78,35 @@ def make_user_only(skill_md):
     skill_md.write_text(f'---\n{front}\ndisable-model-invocation: true\n---\n{text[m.end():]}', encoding='utf-8')
 
 
+def install(fresh, target):
+    """Put `fresh` at `target`. The old copy is removed only after the new one is complete beside it."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    incoming, outgoing = target.with_name('archify.incoming'), target.with_name('archify.outgoing')
+    for leftover in (incoming, outgoing):
+        if leftover.exists():
+            shutil.rmtree(leftover)
+    try:
+        shutil.copytree(fresh, incoming)
+        if target.exists():
+            target.rename(outgoing)
+        incoming.rename(target)
+    except OSError:
+        if outgoing.exists() and not target.exists():
+            outgoing.rename(target)
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise
+    shutil.rmtree(outgoing, ignore_errors=True)
+
+
 def main(argv):
     args = [a for a in argv if not a.startswith('--')]
-    source = argv[argv.index('--from') + 1] if '--from' in argv else None
-    if source in args:
+    source = None
+    if '--from' in argv:
+        at = argv.index('--from')
+        if at + 1 >= len(argv) or argv[at + 1].startswith('--'):
+            print('error: --from needs the path of an archive', file=sys.stderr)
+            return 2
+        source = argv[at + 1]
         args.remove(source)
     if len(args) != 1:
         print(__doc__)
@@ -100,10 +125,7 @@ def main(argv):
             count = extract_skill(read_archive(source), fresh)
             make_user_only(fresh / 'SKILL.md')
             (fresh / 'VENDORED.txt').write_text(f'https://github.com/{REPO} at {COMMIT}\nApache-2.0; see LICENSE in this folder if present, and the repository.\n')
-            if target.exists():
-                shutil.rmtree(target)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(fresh, target)
+            install(fresh, target)
     except (AddError, OSError, tarfile.TarError) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1

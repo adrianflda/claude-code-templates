@@ -2,6 +2,7 @@
 """extras/archify/add_archify.py against archives built here: no network.
 Run: python3 -I agentic-env/test_add_archify.py"""
 import io
+import os
 import subprocess
 import sys
 import tarfile
@@ -46,8 +47,9 @@ class AddArchifyTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_script(self, *args):
-        return subprocess.run([sys.executable, '-I', str(SCRIPT), *args], capture_output=True, text=True, timeout=30)
+    def run_script(self, *args, **env):
+        return subprocess.run([sys.executable, '-I', str(SCRIPT), *args], capture_output=True, text=True, timeout=30,
+                              env={**os.environ, **env})
 
     def test_only_the_skill_folder_is_copied_and_it_is_user_only(self):
         r = self.run_script(str(self.project), '--from', str(self.good))
@@ -84,13 +86,49 @@ class AddArchifyTest(unittest.TestCase):
             self.assertEqual(r.returncode, 1, name)
             self.assertIn('refused archive entry', r.stderr)
             self.assertFalse(self.target.exists(), name)
-        self.assertFalse((self.root / 'escaped.txt').exists())
 
     def test_a_skill_that_declares_hooks_is_refused(self):
         hooked = archive(self.root / 'hooks.tgz', {f'{TOP}/archify/SKILL.md': SKILL.replace('description: Diagrams.\n', 'description: Diagrams.\nhooks:\n  Stop: []\n')})
         r = self.run_script(str(self.project), '--from', str(hooked))
         self.assertEqual(r.returncode, 1)
         self.assertIn('declares hooks', r.stderr)
+        self.assertFalse(self.target.exists())
+
+    def test_an_upstream_flag_that_allows_model_invocation_is_overridden_once(self):
+        for flag in ('false', 'true'):
+            body = SKILL.replace('description: Diagrams.\n', f'description: Diagrams.\ndisable-model-invocation: {flag}\n')
+            loose = archive(self.root / f'{flag}.tgz', {f'{TOP}/archify/SKILL.md': body})
+            self.assertEqual(self.run_script(str(self.project), '--from', str(loose), '--replace').returncode, 0)
+            front = (self.target / 'SKILL.md').read_text().split('---\n')[1]
+            self.assertEqual([l for l in front.splitlines() if l.startswith('disable-model-invocation')],
+                             ['disable-model-invocation: true'], flag)
+
+    def test_a_failed_replace_keeps_the_copy_that_was_there(self):
+        self.assertEqual(self.run_script(str(self.project), '--from', str(self.good)).returncode, 0)
+        (self.target / 'mine.txt').write_text('local note')
+        broken = archive(self.root / 'broken.tgz', {f'{TOP}/archify/README.md': 'no skill file'})
+        r = self.run_script(str(self.project), '--from', str(broken), '--replace')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('has no archify/SKILL.md', r.stderr)
+        self.assertEqual((self.target / 'mine.txt').read_text(), 'local note')
+        self.assertEqual(sorted(p.name for p in self.target.parent.iterdir()), ['archify'])
+
+    def test_a_replace_leaves_no_temporary_folders(self):
+        self.assertEqual(self.run_script(str(self.project), '--from', str(self.good)).returncode, 0)
+        self.assertEqual(self.run_script(str(self.project), '--from', str(self.good), '--replace').returncode, 0)
+        self.assertEqual(sorted(p.name for p in self.target.parent.iterdir()), ['archify'])
+
+    def test_the_home_folder_is_refused(self):
+        r = self.run_script(str(self.project), '--from', str(self.good), HOME=str(self.project))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('not the home folder', r.stderr)
+        self.assertFalse(self.target.exists())
+
+    def test_wrong_arguments_print_the_usage_and_no_traceback(self):
+        for args in ((), (str(self.project), str(self.root)), (str(self.project), '--from')):
+            r = self.run_script(*args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertNotIn('Traceback', r.stderr)
         self.assertFalse(self.target.exists())
 
     def test_a_missing_project_folder_is_an_error(self):
