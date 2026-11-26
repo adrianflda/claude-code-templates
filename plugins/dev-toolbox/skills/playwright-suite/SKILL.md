@@ -70,7 +70,8 @@ Add Firefox and WebKit projects only when the product supports them: each one mu
 
 ## A flaky test
 
-1. Reproduce it: `npx playwright test path/to.spec.ts:LINE --repeat-each=20`.
+1. Reproduce it with a trace: `npx playwright test path/to.spec.ts:LINE --repeat-each=20 --trace on`.
+   The configured `on-first-retry` records nothing locally, where retries are 0.
 2. Open the trace of a failed run (`npx playwright show-report`, then the trace icon).
 3. Fix the cause. The usual ones: an assertion that does not wait, state left by another test, a
    real race in the application, a fixed `waitForTimeout`.

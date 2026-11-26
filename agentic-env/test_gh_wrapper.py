@@ -10,8 +10,11 @@ from pathlib import Path
 
 WRAPPER = Path(__file__).resolve().parent / 'extras' / 'gh-wrapper' / 'gh'
 # Prints what the wrapper handed over: the token it would use and the arguments.
+# The stored token belongs to the account `ana`; any other request gets the active account's.
 FAKE_GH = '''#!/bin/sh
 if [ "$1" = auth ] && [ "$2" = token ]; then
+  # Like gh: without --user it answers with the active account's token.
+  [ "$3" = --user ] && [ "$4" = ana ] || { echo tok-active; exit 0; }
   [ -n "$FAKE_STORED_TOKEN" ] || exit 1
   echo "$FAKE_STORED_TOKEN"; exit 0
 fi
