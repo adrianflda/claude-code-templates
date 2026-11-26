@@ -8,7 +8,8 @@
 #     <tool> <label> <name>         the account <tool> uses inside the folders of <label>
 #     <tool> default <name>         the account <tool> uses everywhere else
 # <tool> is gcloud (also read by gsutil and bq) or aws. <name> is a gcloud configuration or an
-# AWS profile. Lines that start with # are ignored.
+# AWS profile. Lines that start with # are ignored. A folder line without an absolute path, or a
+# line of this tool without a name, stops the command: a typo must not select the wrong account.
 #
 # What it does with the name, for that one command only:
 #     gcloud, gsutil, bq   CLOUDSDK_ACTIVE_CONFIG_NAME=<name>
@@ -55,7 +56,15 @@ if [ -z "$real" ]; then
   exit 127
 fi
 
-[ -r "$conf" ] || exec "$real" "$@"
+# No rules file at the default place means the wrapper is not set up: plain tool. A file that was
+# named or exists but cannot be read is a mistake, and running with the stored account would hide it.
+if [ ! -r "$conf" ]; then
+  if [ -n "${CLI_BY_FOLDER_CONF:-}" ] || [ -e "$conf" ]; then
+    echo "cli-by-folder: cannot read the rules file $conf" >&2
+    exit 2
+  fi
+  exec "$real" "$@"
+fi
 
 # The caller already chose.
 case "$family" in
@@ -73,19 +82,31 @@ for arg in "$@"; do
   case "$arg" in "$flag" | "$flag"=*) exec "$real" "$@" ;; esac
 done
 
+refuse_line() {
+  echo "cli-by-folder: bad line in $conf: '$1' ($2)" >&2
+  exit 2
+}
+
+# Both sides are compared as physical paths, so a rule written through a symlink still matches.
 here="$(pwd -P)/"
 label=
 while read -r kind first rest || [ -n "$kind" ]; do
-  if [ "$kind" = folder ] && [ -z "$label" ] && [ -n "$rest" ]; then
-    case "$here" in "${rest%/}"/*) label="$first" ;; esac
-  fi
+  [ "$kind" = folder ] || continue
+  case "$rest" in
+    /*) ;;
+    *) refuse_line "$kind $first $rest" "a folder line is: folder <label> <absolute path>" ;;
+  esac
+  [ -z "$label" ] || continue
+  path=$(cd "${rest%/}" 2>/dev/null && pwd -P) || path=${rest%/}
+  case "$here" in "$path"/*) label="$first" ;; esac
 done < "$conf"
 
 name=
 fallback=
 has_rules=
 while read -r kind first rest || [ -n "$kind" ]; do
-  [ "$kind" = "$family" ] && [ -n "$first" ] && [ -n "$rest" ] || continue
+  [ "$kind" = "$family" ] || continue
+  [ -n "$first" ] && [ -n "$rest" ] || refuse_line "$kind $first" "a tool line is: $family <label|default> <name>"
   has_rules=1
   if [ "$first" = default ]; then
     [ -n "$fallback" ] || fallback="$rest"

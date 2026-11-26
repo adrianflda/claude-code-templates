@@ -146,9 +146,40 @@ class CliByFolderTest(unittest.TestCase):
 
     def test_the_rules_file_is_data_and_is_never_executed(self):
         marker = self.other / 'ran'
-        self.rules(f'gcloud default me\ntouch {marker}\n$(touch {marker})\nfolder work $(touch {marker})\n')
+        self.rules(f'gcloud default me\ntouch {marker}\n$(touch {marker})\ngcloud work $(touch {marker})\n')
         self.assertIn('gcloud=me', self.out('gcloud', 'info'))
+        self.rules(f'gcloud default me\nfolder work $(touch {marker})\n')
+        self.assertEqual(self.run_tool('gcloud', 'info')[2], 2)
         self.assertFalse(marker.exists())
+
+    def test_a_rules_file_that_was_named_or_exists_but_cannot_be_read_stops_the_command(self):
+        out, err, code = self.run_tool('gcloud', 'info', cwd=self.client, CLI_BY_FOLDER_CONF=str(self.other / 'typo.conf'))
+        self.assertEqual((out, code), ('', 2))
+        self.assertIn('cannot read the rules file', err)
+        self.conf.chmod(0)
+        try:
+            out, err, code = self.run_tool('gcloud', 'info', cwd=self.client)
+        finally:
+            self.conf.chmod(0o600)
+        self.assertEqual((out, code), ('', 2))
+        self.assertIn('cannot read the rules file', err)
+
+    def test_a_folder_rule_written_through_a_symlink_still_matches(self):
+        link = self.other / 'link-to-client'
+        link.symlink_to(self.client)
+        self.rules(f'folder work {link}\ngcloud default me\ngcloud work client\n')
+        self.assertIn('gcloud=client', self.out('gcloud', 'info', cwd=self.client / 'app'))
+        self.assertIn('gcloud=client', self.out('gcloud', 'info', cwd=link))
+
+    def test_a_malformed_line_stops_the_command_instead_of_picking_the_default(self):
+        for bad in ('folder work', 'folder work ~/Projects/Client', 'folder work relative/path', 'gcloud work', 'gcloud'):
+            self.rules(f'gcloud default me\n{bad}\n')
+            out, err, code = self.run_tool('gcloud', 'info')
+            self.assertEqual((out, code), ('', 2), bad)
+            self.assertIn('bad line', err, bad)
+        # A line of another tool is not this tool's business.
+        self.rules('gcloud default me\naws work\n')
+        self.assertIn('gcloud=me', self.out('gcloud', 'info'))
 
     def test_a_name_that_is_not_a_plain_name_is_refused(self):
         for bad in ('me;rm', '-x', 'a b'):

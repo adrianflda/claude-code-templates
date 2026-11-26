@@ -161,7 +161,8 @@ only when the conditions hold.
   (`CLOUDSDK_ACTIVE_CONFIG_NAME`, `AWS_PROFILE`) and never changes the tool's stored default. It
   steps aside when the caller already chose (`--configuration`, `--profile`, the variable or a
   credential in the environment). Inside a labelled folder a tool that has rules but none for
-  that label is refused, not run with the default account. An AWS profile listed in
+  that label is refused, not run with the default account; so is any command when the rules
+  file cannot be read or has a malformed line. An AWS profile listed in
   `AWS_ADMIN_GUARD_PROFILES` is never picked by folder, so `aws-admin-guard` keeps seeing it.
   To install: copy the script to `~/bin/cli-by-folder`, link each tool to it
   (`ln -s cli-by-folder ~/bin/gcloud`, the same for `gsutil`, `bq`, `aws`), make sure `~/bin`
