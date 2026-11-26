@@ -17,6 +17,9 @@ import subprocess
 import os
 import fnmatch
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from shell_words import shell_script, simple_commands, unwrap  # noqa: E402
+
 # Secret detection patterns with descriptions
 SECRET_PATTERNS = [
     # AWS Keys
@@ -357,6 +360,40 @@ def print_findings(findings):
     print('     • Add the path as a glob pattern to .secret-scanner-ignore at the repo root', file=sys.stderr)
     print('', file=sys.stderr)
 
+GIT_OPTIONS_WITH_VALUE = {'-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path'}
+
+
+def commit_dir(command, start):
+    """The folder the command's first `git commit` runs in, or None when it runs no commit.
+
+    Follows `cd <dir>` in the command line and `git -C <dir>`; a `bash -c "<script>"` is read too.
+    Words in quotes, in a pattern or in a heredoc body are text, not a commit."""
+    here = start
+    for argv in simple_commands(command):
+        argv = unwrap(argv)
+        if not argv:
+            continue
+        script = shell_script(argv)
+        if script is not None:
+            found = commit_dir(script, here)
+            if found is not None:
+                return found
+            continue
+        if argv[0] == 'cd' and len(argv) > 1:
+            here = os.path.join(here, os.path.expanduser(argv[1]))
+            continue
+        if os.path.basename(argv[0]) != 'git':
+            continue
+        where, i = here, 1
+        while i < len(argv) and argv[i].startswith('-'):
+            if argv[i] == '-C' and i + 1 < len(argv):
+                where = os.path.join(where, os.path.expanduser(argv[i + 1]))
+            i += 2 if argv[i] in GIT_OPTIONS_WITH_VALUE else 1
+        if i < len(argv) and argv[i] == 'commit':
+            return where
+    return None
+
+
 def main():
     # Read hook input from stdin (Claude Code passes JSON via stdin)
     try:
@@ -368,8 +405,17 @@ def main():
     # Only act on git commit commands
     tool_input = input_data.get('tool_input', {})
     command = tool_input.get('command', '')
-    if not re.search(r'git\s+commit', command):
+    where = commit_dir(command, input_data.get('cwd') or os.getcwd())
+    if where is None:
         sys.exit(0)
+    # The commit may run in another folder than this process (`cd <repo> && git commit`,
+    # `git -C <repo> commit`): everything below reads the repository of the commit.
+    if os.path.isdir(where):
+        os.chdir(where)
+    # Staged paths are relative to the top of the repository, wherever inside it the commit runs.
+    top = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
+    if top.returncode == 0 and top.stdout.strip():
+        os.chdir(top.stdout.strip())
 
     # Get staged files
     staged_files = get_staged_files()

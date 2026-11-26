@@ -35,8 +35,42 @@ class SecretScannerTest(unittest.TestCase):
             path.write_text(text)
             if stage:
                 subprocess.run(['git', '-C', str(self.repo), 'add', name], check=True)
-        return subprocess.run([sys.executable, str(HOOK)], cwd=self.repo, text=True, capture_output=True,
-                              input=json.dumps({'tool_name': 'Bash', 'tool_input': {'command': command}}))
+        return self.hook(command, self.repo)
+
+    def hook(self, command, run_in, **extra):
+        return subprocess.run([sys.executable, str(HOOK)], cwd=run_in, text=True, capture_output=True,
+                              input=json.dumps({'tool_name': 'Bash', 'tool_input': {'command': command}, **extra}))
+
+    def stage_token(self):
+        (self.repo / 'config.py').write_text(f'TOKEN = "{GITHUB}"\n')
+        subprocess.run(['git', '-C', str(self.repo), 'add', 'config.py'], check=True)
+
+    def test_a_commit_in_another_folder_is_scanned_there(self):
+        self.stage_token()
+        with tempfile.TemporaryDirectory() as elsewhere:
+            for command in (f'cd {self.repo} && {COMMIT}',
+                            f'cd "{self.repo}" && git add -u; {COMMIT}',
+                            'git -C ' + str(self.repo) + ' commit -m "feat: x"',
+                            f'cd / && git -C {self.repo} -c user.name=x ' + 'commit -q -F msg.txt',
+                            f"bash -c 'cd {self.repo} && {COMMIT}'"):
+                r = self.hook(command, elsewhere)
+                self.assertEqual(r.returncode, 2, command)
+                self.assertIn('config.py:1', r.stderr, command)
+
+    def test_a_relative_cd_starts_from_the_folder_the_tool_call_names(self):
+        self.stage_token()
+        nested = self.repo / 'pkg'
+        nested.mkdir()
+        with tempfile.TemporaryDirectory() as elsewhere:
+            r = self.hook(f'cd pkg && {COMMIT}', elsewhere, cwd=str(self.repo))
+            self.assertEqual(r.returncode, 2, r.stderr)
+            r = self.hook(COMMIT, elsewhere, cwd=str(self.repo))
+            self.assertEqual(r.returncode, 2, r.stderr)
+
+    def test_the_word_commit_in_text_is_not_a_commit(self):
+        self.stage_token()
+        for command in ('echo "git commit later"', 'grep -r "git commit" docs', 'git log --grep commit', 'git commit-tree abc'):
+            self.assertEqual(self.hook(command, self.repo).returncode, 0, command)
 
     def test_a_staged_token_blocks_the_commit_and_is_never_printed(self):
         r = self.scan({'src/config.py': f'TOKEN = "{GITHUB}"\n'})
