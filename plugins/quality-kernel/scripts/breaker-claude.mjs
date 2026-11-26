@@ -39,7 +39,10 @@ export const PREAMBLE =
   "<15 min; report residual risk first.";
 
 const BLIND_KEYS = new Set(["qaProcedure", "invariants", "probeCmd", "systemUrl"]);
-const ENV_KEYS = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "TERM", "CLAUDE_CONFIG_DIR"]);
+// CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS is a behaviour switch, not a credential: an organization that
+// forbids experimental betas rejects every request of a session started without it (HTTP 400).
+const ENV_KEYS = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "TERM", "CLAUDE_CONFIG_DIR",
+  "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"]);
 const ENV_PREFIXES = ["ANTHROPIC_", "CLAUDE_CODE_USE_"];
 // Cloud credentials reach the author session only for the provider in use.
 const PROVIDER_PREFIXES = {
