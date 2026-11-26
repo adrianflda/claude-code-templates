@@ -1,389 +1,249 @@
 ---
 name: docker-expert
-description: Docker containerization expert with deep knowledge of multi-stage builds, image optimization, container security, Docker Compose orchestration, and production deployment patterns. Use PROACTIVELY for Dockerfile optimization, container issues, image size problems, security hardening, networking, and orchestration challenges.
-category: devops
-color: blue
-displayName: Docker Expert
+description: Dockerfile and Compose decisions (multi-stage builds, build cache, build secrets, non-root images, health checks, image size, local development with Compose). Use when writing, reviewing or debugging a Dockerfile or a compose file. Not for Kubernetes, CI pipelines or cloud container services.
 ---
 
-# Docker Expert
+# Docker
 
-You are an advanced Docker containerization expert with comprehensive, practical knowledge of container optimization, security hardening, multi-stage builds, orchestration patterns, and production deployment strategies based on current industry best practices.
+Written for this plugin from the official Docker documentation (docs.docker.com: "Building best
+practices", "Build secrets", "Build cache", the Dockerfile reference and the Compose file
+reference). Image tags and tool versions move: before pinning one, look it up (the `library-docs`
+skill, library `/docker/docs`).
 
-## When invoked:
+## Start from what the project has
 
-0. If the problem is mainly outside Docker (Kubernetes, CI pipelines, cloud-specific container services), say so and suggest the devops-engineer agent.
+1. Read the existing `Dockerfile*`, `compose*.y*ml` and `.dockerignore` before proposing anything.
+   Keep the base image family, the stage names and the Compose layout unless one of them is the
+   problem.
+2. A project with no Dockerfile: `docker init` writes a Dockerfile, a `compose.yaml` and a
+   `.dockerignore` for the detected stack. Start from its output and edit.
+3. State which case this is: build is slow, image is large, container fails at start, container
+   is unsafe, or services do not reach each other. Each has its own section below.
 
-1. Analyze container setup comprehensively:
-   
-   **Use internal tools first (Read, Grep, Glob) for better performance. Shell commands are fallbacks.**
-   
-   ```bash
-   # Docker environment detection
-   docker --version 2>/dev/null || echo "No Docker installed"
-   docker info | grep -E "Server Version|Storage Driver|Container Runtime" 2>/dev/null
-   docker context ls 2>/dev/null | head -3
-   
-   # Project structure analysis
-   find . -name "Dockerfile*" -type f | head -10
-   find . -name "*compose*.yml" -o -name "*compose*.yaml" -type f | head -5
-   find . -name ".dockerignore" -type f | head -3
-   
-   # Container status if running
-   docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" 2>/dev/null | head -10
-   docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" 2>/dev/null | head -10
-   ```
-   
-   **After detection, adapt approach:**
-   - Match existing Dockerfile patterns and base images
-   - Respect multi-stage build conventions
-   - Consider development vs production environments
-   - Account for existing orchestration setup (Compose/Swarm)
+## Dockerfile
 
-2. Identify the specific problem category and complexity level
-
-3. Apply the appropriate solution strategy from my expertise
-
-4. Validate thoroughly:
-   ```bash
-   # Build and security validation
-   docker build --no-cache -t test-build . 2>/dev/null && echo "Build successful"
-   docker history test-build --no-trunc 2>/dev/null | head -5
-   docker scout quickview test-build 2>/dev/null || echo "No Docker Scout"
-   
-   # Runtime validation
-   docker run --rm -d --name validation-test test-build 2>/dev/null
-   docker exec validation-test ps aux 2>/dev/null | head -3
-   docker stop validation-test 2>/dev/null
-   
-   # Compose validation
-   docker compose config 2>/dev/null && echo "Compose config valid"
-   ```
-
-## Core Expertise Areas
-
-### 1. Dockerfile Optimization & Multi-Stage Builds
-
-**High-priority patterns I address:**
-- **Layer caching optimization**: Separate dependency installation from source code copying
-- **Multi-stage builds**: Minimize production image size while keeping build flexibility
-- **Build context efficiency**: Comprehensive .dockerignore and build context management
-- **Base image selection**: Alpine vs distroless vs scratch image strategies
-
-**Key techniques:**
 ```dockerfile
-# Optimized multi-stage pattern
-FROM node:24-alpine AS deps
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+# syntax=docker/dockerfile:1
 
-FROM node:24-alpine AS build
+FROM node:24-alpine AS base
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+
+FROM base AS deps
+# Bind mounts keep the manifests out of the layer; the cache mount keeps npm's download cache
+# between builds without putting it in the image.
+RUN --mount=type=bind,source=package.json,target=package.json \
+    --mount=type=bind,source=package-lock.json,target=package-lock.json \
+    --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev
+
+FROM base AS build
+RUN --mount=type=bind,source=package.json,target=package.json \
+    --mount=type=bind,source=package-lock.json,target=package-lock.json \
+    --mount=type=cache,target=/root/.npm \
+    npm ci
 COPY . .
-RUN npm run build && npm prune --production
+RUN npm run build
 
-FROM node:24-alpine AS runtime
-RUN addgroup -g 1001 -S nodejs && adduser -S app -u 1001
-WORKDIR /app
-COPY --from=deps --chown=app:nodejs /app/node_modules ./node_modules
-COPY --from=build --chown=app:nodejs /app/dist ./dist
-COPY --from=build --chown=app:nodejs /app/package*.json ./
-USER app
+FROM base AS runtime
+ENV NODE_ENV=production
+# The official Node image ships an unprivileged user called node.
+USER node
+COPY --chown=node:node package.json .
+COPY --from=deps --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
 CMD ["node", "dist/index.js"]
 ```
 
-### 2. Container Security Hardening
+Rules behind that file:
 
-**Security focus areas:**
-- **Non-root user configuration**: Proper user creation with specific UID/GID
-- **Secrets management**: Docker secrets, build-time secrets, avoiding env vars
-- **Base image security**: Regular updates, minimal attack surface
-- **Runtime security**: Capability restrictions, resource limits
+- **Order by how often things change.** Dependency manifests and the install step come before the
+  source copy, so a source edit does not reinstall dependencies.
+- **One stage per job.** Build tools and dev dependencies stay in the build stage; the final stage
+  copies only what runs. `docker build --target build` gives a stage for tests or development.
+- **`.dockerignore` is part of the Dockerfile.** At least `node_modules`, `.git`, build output,
+  `.env*` and local secrets. A large build context is the usual cause of a slow "transferring
+  context" step.
+- **Exec-form `CMD`** (`["node", "dist/index.js"]`), not `npm start` and not the shell form: the
+  process must be PID 1 to receive `SIGTERM` on stop. A process that does not reap children or
+  handle signals gets `docker run --init` / `init: true` in Compose.
+- **Pin the base image.** A tag is enough for most projects; pinning by digest
+  (`FROM alpine:3.21@sha256:...`) guarantees the same image even if the tag moves, and also opts
+  out of automatic security fixes, so pair it with a tool that updates the digest.
+- **Run the build checks:** `docker build --check .` reports Dockerfile problems (for example a
+  secret passed through `ARG` or `ENV`) without building.
 
-**Security patterns:**
+### Build secrets
+
+Never pass a credential through `ARG`, `ENV` or a `COPY`: it stays in the image history. Use a
+secret mount, which exists only during that `RUN`:
+
 ```dockerfile
-# Security-hardened container
-FROM node:24-alpine
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -S appuser -u 1001 -G appgroup
-WORKDIR /app
-COPY --chown=appuser:appgroup package*.json ./
-RUN npm ci --omit=dev
-COPY --chown=appuser:appgroup . .
-USER 1001
-# Drop capabilities, set read-only root filesystem
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc npm ci
+# or as an environment variable for that one command
+RUN --mount=type=secret,id=aws_key_id,env=AWS_ACCESS_KEY_ID \
+    --mount=type=secret,id=aws_secret_key,env=AWS_SECRET_ACCESS_KEY \
+    aws s3 cp s3://my-bucket/file .
 ```
 
-### 3. Docker Compose Orchestration
+```bash
+docker build --secret id=npmrc,src=$HOME/.npmrc .
+```
 
-**Orchestration expertise:**
-- **Service dependency management**: Health checks, startup ordering
-- **Network configuration**: Custom networks, service discovery
-- **Environment management**: Dev/staging/prod configurations
-- **Volume strategies**: Named volumes, bind mounts, data persistence
+For a private Git repository over SSH use `--mount=type=ssh` with `docker build --ssh default`.
 
-**Production-ready compose pattern:**
+### Smaller and safer final images
+
+| Choice | When |
+|---|---|
+| `-alpine` or `-slim` tag of the official image | default; has a shell and a package manager for debugging |
+| Distroless (`gcr.io/distroless/nodejs24-debian13:nonroot`) | production image with no shell and no package manager; the entrypoint is already `node`, so `CMD ["dist/index.js"]` |
+| Docker Hardened Images (`dhi.io/...`) | when the organization uses them; a `-dev` variant builds, the plain variant runs |
+| `scratch` | a single static binary (Go, Rust) |
+
+- The final stage runs as a non-root user: `USER node`, the `:nonroot` distroless tag, or a user
+  created with a fixed UID. Check with `docker run --rm IMAGE id`.
+- An image without `curl` cannot use a `curl` health check. Use the runtime itself:
+
+  ```dockerfile
+  HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+  ```
+
+  In a distroless image the binary is `/nodejs/bin/node` and only the exec form works.
+- Scan what was built: `docker scout quickview IMAGE`, then `docker scout cves IMAGE`.
+- At run time, drop what the process does not need: `--read-only` with a `tmpfs` for scratch
+  space, `--cap-drop=ALL`, `--security-opt no-new-privileges`, and memory and CPU limits.
+
+## Compose
+
+The file is `compose.yaml`; the top-level `version:` key is obsolete and should be removed.
+
 ```yaml
 services:
   app:
     build:
       context: .
-      target: production
+      target: runtime
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PASSWORD_FILE: /run/secrets/db-password
+    secrets:
+      - db-password
     depends_on:
       db:
         condition: service_healthy
-    networks:
-      - frontend
-      - backend
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.5'
+          cpus: "1.0"
           memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
 
   db:
-    image: postgres:15-alpine
+    image: postgres:18
     environment:
-      POSTGRES_DB_FILE: /run/secrets/db_name
-      POSTGRES_USER_FILE: /run/secrets/db_user
-      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
     secrets:
-      - db_name
-      - db_user
-      - db_password
+      - db-password
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - backend
+      # postgres 18 and later keep data under /var/lib/postgresql; 17 and earlier use
+      # /var/lib/postgresql/data. Check the image's documentation before changing versions.
+      - db-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD", "pg_isready", "-U", "postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-networks:
-  frontend:
-    driver: bridge
-  backend:
-    driver: bridge
-    internal: true
+    expose:
+      - "5432"
 
 volumes:
-  postgres_data:
+  db-data:
 
 secrets:
-  db_name:
-    external: true
-  db_user:
-    external: true  
-  db_password:
-    external: true
+  db-password:
+    file: ./secrets/db-password.txt
 ```
 
-### 4. Image Size Optimization
+- **Start order is `depends_on` plus a health check.** `condition: service_healthy` waits for the
+  dependency's `healthcheck`; a bare `depends_on` waits only for the container to start.
+  `service_completed_successfully` is for one-shot jobs such as migrations.
+- **Secrets are files under `/run/secrets/`**, not environment variables in the compose file. Keep
+  the secret file out of Git and out of the build context.
+- **Services reach each other by service name** on the project's default network. Publish
+  (`ports:`) only what the host must reach; `expose:` documents a port for other services. Put a
+  database on a network marked `internal: true` when nothing outside should reach it.
+- **Named volumes for data, bind mounts for source code in development.** Never a bind mount for a
+  production database.
+- **Per-environment differences go in a second file** (`compose.override.yaml` is merged
+  automatically; `-f compose.yaml -f compose.prod.yaml` otherwise) or in `profiles:`, not in
+  copies of the whole file.
+- Validate with `docker compose config`: it prints the merged file or the error.
 
-**Size reduction strategies:**
-- **Distroless images**: Minimal runtime environments
-- **Build artifact optimization**: Remove build tools and cache
-- **Layer consolidation**: Combine RUN commands strategically
-- **Multi-stage artifact copying**: Only copy necessary files
+### Local development: watch instead of bind-mount tricks
 
-**Optimization techniques:**
-```dockerfile
-# Minimal production image
-# The nonroot tag runs as an unprivileged user; pin by digest in production
-FROM gcr.io/distroless/nodejs24-debian13:nonroot
-COPY --from=build /app/dist /app
-COPY --from=build /app/node_modules /app/node_modules
-WORKDIR /app
-EXPOSE 3000
-CMD ["index.js"]
-```
-
-### 5. Development Workflow Integration
-
-**Development patterns:**
-- **Hot reloading setup**: Volume mounting and file watching
-- **Debug configuration**: Port exposure and debugging tools
-- **Testing integration**: Test-specific containers and environments
-- **Development containers**: Remote development container support via CLI tools
-
-**Development workflow:**
 ```yaml
-# Development override
 services:
   app:
     build:
       context: .
-      target: development
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/dist
-    environment:
-      - NODE_ENV=development
-      - DEBUG=app:*
-    ports:
-      - "9229:9229"  # Debug port
+      target: build
     command: npm run dev
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+          ignore:
+            - node_modules/
+        - action: rebuild
+          path: package.json
 ```
 
-### 6. Performance & Resource Management
+`docker compose up --watch` copies changed files into the container (`sync`), restarts it after a
+copy (`sync+restart`) or rebuilds the image (`rebuild`). It replaces the anonymous-volume trick
+for `node_modules`.
 
-**Performance optimization:**
-- **Resource limits**: CPU, memory constraints for stability
-- **Build performance**: Parallel builds, cache utilization
-- **Runtime performance**: Process management, signal handling
-- **Monitoring integration**: Health checks, metrics exposure
+## Diagnosing
 
-**Resource management:**
-```yaml
-services:
-  app:
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
-```
+| Symptom | Look at | Usual cause |
+|---|---|---|
+| Every build reinstalls dependencies | which step first shows no `CACHED` | source copied before the install step; no `.dockerignore`, so any file change invalidates `COPY . .` |
+| Slow build in CI only | builder cache | no cache between runs: export it (`--cache-to` / `--cache-from` with `type=gha` or `type=registry`) |
+| Image is large | `docker history IMAGE`, `docker image ls` | single stage; dev dependencies or build tools in the final stage; package cache left in a layer |
+| Container exits at once | `docker logs NAME`, `docker inspect --format '{{.State.ExitCode}}' NAME` | wrong `CMD` path after a multi-stage copy; file not readable by the non-root user |
+| Stops only after 10 s | `docker stop` timing | shell-form `CMD` or `npm start`: the app never gets `SIGTERM` |
+| Service cannot reach another | `docker compose ps`, `docker compose exec app getent hosts db` | using `localhost` instead of the service name; services on different networks; dependency not healthy yet |
+| "exec format error" | `docker image inspect --format '{{.Architecture}}' IMAGE` | image built for another CPU: `docker buildx build --platform linux/amd64,linux/arm64 --push .` |
+| Permission denied on a volume | `id` inside the container, owner of the mount | files owned by root, process runs as non-root: `COPY --chown`, or fix the volume's owner |
 
-## Advanced Problem-Solving Patterns
+Run a command that changes state on the user's machine (`docker system prune`, removing volumes,
+`docker compose down -v`) only when the user asked for it: volumes hold data.
 
-### Cross-Platform Builds
-```bash
-# Multi-architecture builds
-docker buildx create --name multiarch-builder --use
-docker buildx build --platform linux/amd64,linux/arm64 \
-  -t myapp:latest --push .
-```
+## Review checklist
 
-### Build Cache Optimization
-```dockerfile
-# Mount build cache for package managers
-FROM node:24-alpine AS deps
-WORKDIR /app
-COPY package*.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev
-```
+- [ ] Dependency install comes before the source copy; `.dockerignore` exists and excludes
+      `.git`, dependencies, build output and env files
+- [ ] Multi-stage; the final stage has no compiler, no dev dependencies, no package cache
+- [ ] No credential in `ARG`, `ENV`, `COPY` or the compose file; build secrets use
+      `--mount=type=secret`
+- [ ] Final image runs as a non-root user and has a pinned base image
+- [ ] `CMD` in exec form; the process handles `SIGTERM` or runs under an init
+- [ ] A health check that works with the tools the image has
+- [ ] Compose: `depends_on` with `condition: service_healthy`, secrets as files, named volumes for
+      data, only the needed ports published, resource limits set
+- [ ] `docker build --check .` and `docker compose config` pass
 
-### Secrets Management
-```dockerfile
-# Build-time secrets (BuildKit)
-FROM alpine
-RUN --mount=type=secret,id=api_key \
-    API_KEY=$(cat /run/secrets/api_key) && \
-    # Use API_KEY for build process
-```
-
-### Health Check Strategies
-```dockerfile
-# Sophisticated health monitoring
-COPY health-check.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/health-check.sh
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD ["/usr/local/bin/health-check.sh"]
-```
-
-## Code Review Checklist
-
-When reviewing Docker configurations, focus on:
-
-### Dockerfile Optimization & Multi-Stage Builds
-- [ ] Dependencies copied before source code for optimal layer caching
-- [ ] Multi-stage builds separate build and runtime environments
-- [ ] Production stage only includes necessary artifacts
-- [ ] Build context optimized with comprehensive .dockerignore
-- [ ] Base image selection appropriate (Alpine vs distroless vs scratch)
-- [ ] RUN commands consolidated to minimize layers where beneficial
-
-### Container Security Hardening
-- [ ] Non-root user created with specific UID/GID (not default)
-- [ ] Container runs as non-root user (USER directive)
-- [ ] Secrets managed properly (not in ENV vars or layers)
-- [ ] Base images kept up-to-date and scanned for vulnerabilities
-- [ ] Minimal attack surface (only necessary packages installed)
-- [ ] Health checks implemented for container monitoring
-
-### Docker Compose & Orchestration
-- [ ] Service dependencies properly defined with health checks
-- [ ] Custom networks configured for service isolation
-- [ ] Environment-specific configurations separated (dev/prod)
-- [ ] Volume strategies appropriate for data persistence needs
-- [ ] Resource limits defined to prevent resource exhaustion
-- [ ] Restart policies configured for production resilience
-
-### Image Size & Performance
-- [ ] Final image size optimized (avoid unnecessary files/tools)
-- [ ] Build cache optimization implemented
-- [ ] Multi-architecture builds considered if needed
-- [ ] Artifact copying selective (only required files)
-- [ ] Package manager cache cleaned in same RUN layer
-
-### Development Workflow Integration
-- [ ] Development targets separate from production
-- [ ] Hot reloading configured properly with volume mounts
-- [ ] Debug ports exposed when needed
-- [ ] Environment variables properly configured for different stages
-- [ ] Testing containers isolated from production builds
-
-### Networking & Service Discovery
-- [ ] Port exposure limited to necessary services
-- [ ] Service naming follows conventions for discovery
-- [ ] Network security implemented (internal networks for backend)
-- [ ] Load balancing considerations addressed
-- [ ] Health check endpoints implemented and tested
-
-## Common Issue Diagnostics
-
-### Build Performance Issues
-**Symptoms**: Slow builds (10+ minutes), frequent cache invalidation
-**Root causes**: Poor layer ordering, large build context, no caching strategy
-**Solutions**: Multi-stage builds, .dockerignore optimization, dependency caching
-
-### Security Vulnerabilities  
-**Symptoms**: Security scan failures, exposed secrets, root execution
-**Root causes**: Outdated base images, hardcoded secrets, default user
-**Solutions**: Regular base updates, secrets management, non-root configuration
-
-### Image Size Problems
-**Symptoms**: Images over 1GB, deployment slowness
-**Root causes**: Unnecessary files, build tools in production, poor base selection
-**Solutions**: Distroless images, multi-stage optimization, artifact selection
-
-### Networking Issues
-**Symptoms**: Service communication failures, DNS resolution errors
-**Root causes**: Missing networks, port conflicts, service naming
-**Solutions**: Custom networks, health checks, proper service discovery
-
-### Development Workflow Problems
-**Symptoms**: Hot reload failures, debugging difficulties, slow iteration
-**Root causes**: Volume mounting issues, port configuration, environment mismatch
-**Solutions**: Development-specific targets, proper volume strategy, debug configuration
-
-## Handoff
-
-For Kubernetes, CI/CD, or cloud infrastructure beyond the container itself, suggest the devops-engineer agent.
+For Kubernetes, CI pipelines or cloud infrastructure beyond the container, say so and suggest the
+devops-engineer agent.
