@@ -1,0 +1,119 @@
+#!/bin/sh
+# cli-by-folder: one wrapper that picks the account of a command-line tool by the folder the
+# command runs in. Link it under the tool's name (gcloud, gsutil, bq, aws) in a folder that comes
+# before the real tool on PATH.
+#
+# Rules come from ~/.config/cli-by-folder.conf (or $CLI_BY_FOLDER_CONF), one per line:
+#     folder <label> <path>         commands run inside <path> belong to <label> (the first match wins)
+#     <tool> <label> <name>         the account <tool> uses inside the folders of <label>
+#     <tool> default <name>         the account <tool> uses everywhere else
+# <tool> is gcloud (also read by gsutil and bq) or aws. <name> is a gcloud configuration or an
+# AWS profile. Lines that start with # are ignored.
+#
+# What it does with the name, for that one command only:
+#     gcloud, gsutil, bq   CLOUDSDK_ACTIVE_CONFIG_NAME=<name>
+#     aws                  AWS_PROFILE=<name>
+# The tool's own stored default is never changed. The file is read as data, never executed.
+#
+# It steps aside (runs the plain tool) when the caller already chose: the variable above or a
+# credential is in the environment, --configuration / --profile is on the command line, or the
+# command is `gcloud config configurations ...`. It also steps aside for a tool with no rule.
+#
+# It refuses (exit 2) inside a labelled folder when the tool has rules but none for that label:
+# falling back to the default account there is the mistake this wrapper exists to prevent. It also
+# refuses to pick an AWS profile listed in AWS_ADMIN_GUARD_PROFILES (default: admin): that choice
+# stays an explicit --profile so the aws-admin-guard hook sees it.
+#
+# Not covered: Google's Application Default Credentials are one file for all configurations, and a
+# program that is not one of the linked tools (Terraform, an SDK) never passes here.
+#
+# The real tool is the next one of the same name on PATH. To undo: delete the links.
+tool=$(basename "$0")
+self=$(cd "$(dirname "$0")" && pwd -P)
+conf="${CLI_BY_FOLDER_CONF:-$HOME/.config/cli-by-folder.conf}"
+
+case "$tool" in
+  gcloud | gsutil | bq) family=gcloud ;;
+  aws) family=aws ;;
+  *)
+    echo "cli-by-folder: link this script as gcloud, gsutil, bq or aws; '$tool' is not supported" >&2
+    exit 2 ;;
+esac
+
+real=
+old_ifs=$IFS
+IFS=:
+for dir in $PATH; do
+  [ -n "$dir" ] && [ -x "$dir/$tool" ] || continue
+  [ "$(cd "$dir" && pwd -P)" = "$self" ] && continue
+  real="$dir/$tool"
+  break
+done
+IFS=$old_ifs
+if [ -z "$real" ]; then
+  echo "cli-by-folder: no $tool found on PATH besides this wrapper" >&2
+  exit 127
+fi
+
+[ -r "$conf" ] || exec "$real" "$@"
+
+# The caller already chose.
+case "$family" in
+  gcloud)
+    [ -z "${CLOUDSDK_ACTIVE_CONFIG_NAME:-}${CLOUDSDK_CONFIG:-}" ] || exec "$real" "$@"
+    if [ "$tool" = gcloud ] && [ "${1:-}" = config ] && [ "${2:-}" = configurations ]; then
+      exec "$real" "$@"
+    fi
+    flag=--configuration ;;
+  aws)
+    [ -z "${AWS_PROFILE:-}${AWS_DEFAULT_PROFILE:-}${AWS_ACCESS_KEY_ID:-}${AWS_SESSION_TOKEN:-}" ] || exec "$real" "$@"
+    flag=--profile ;;
+esac
+for arg in "$@"; do
+  case "$arg" in "$flag" | "$flag"=*) exec "$real" "$@" ;; esac
+done
+
+here="$(pwd -P)/"
+label=
+while read -r kind first rest || [ -n "$kind" ]; do
+  if [ "$kind" = folder ] && [ -z "$label" ] && [ -n "$rest" ]; then
+    case "$here" in "${rest%/}"/*) label="$first" ;; esac
+  fi
+done < "$conf"
+
+name=
+fallback=
+has_rules=
+while read -r kind first rest || [ -n "$kind" ]; do
+  [ "$kind" = "$family" ] && [ -n "$first" ] && [ -n "$rest" ] || continue
+  has_rules=1
+  if [ "$first" = default ]; then
+    [ -n "$fallback" ] || fallback="$rest"
+  elif [ -n "$label" ] && [ "$first" = "$label" ]; then
+    [ -n "$name" ] || name="$rest"
+  fi
+done < "$conf"
+
+[ -n "$has_rules" ] || exec "$real" "$@"
+if [ -n "$label" ] && [ -z "$name" ]; then
+  echo "cli-by-folder: this folder is '$label' and $conf has no '$family $label <name>' line; refusing to use another account here" >&2
+  exit 2
+fi
+[ -n "$name" ] || name="$fallback"
+[ -n "$name" ] || exec "$real" "$@"
+
+case "$name" in
+  *[!A-Za-z0-9._-]* | -*)
+    echo "cli-by-folder: '$name' in $conf is not a valid name (letters, digits, dot, underscore, hyphen)" >&2
+    exit 2 ;;
+esac
+
+if [ "$family" = aws ]; then
+  case ",${AWS_ADMIN_GUARD_PROFILES:-admin}," in
+    *,"$name",*)
+      echo "cli-by-folder: '$name' is a guarded AWS profile and is never picked by folder; pass --profile $name yourself" >&2
+      exit 2 ;;
+  esac
+  AWS_PROFILE="$name" exec "$real" "$@"
+fi
+CLOUDSDK_ACTIVE_CONFIG_NAME="$name" exec "$real" "$@"
