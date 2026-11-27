@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-11-26T03:09:51.369596+00:00",
-  "totalJobs": 109,
+  "lastUpdated": "2026-11-27T03:09:58.603763+00:00",
+  "totalJobs": 110,
   "sources": [
     "Anthropic",
     "HackerNews",
@@ -8,6 +8,79 @@
     "WeWorkRemotely"
   ],
   "jobs": [
+    {
+      "id": "rok-remote-lifecycle-marketing-manager-lifeforce-1138144",
+      "company": "Lifeforce",
+      "position": "Lifecycle Marketing Manager",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Employment type: Full-time Experience: 4+ years Reports to: Chris Stella, VP Growth About Lifeforce We are in the early stages of a generational shift in how people approach their health. No longer satisfied with the reactive, fragmented care offered by the traditional healthcare system, millions...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-lifecycle-marketing-manager-lifeforce-1138144",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-lifecycle-marketing-manager-lifeforce-1138144",
+      "postedAt": "2026-11-25T13:40:34+00:00",
+      "tags": [
+        "React"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-paid-media-specialist-kinsta-1138126",
+      "company": "Kinsta",
+      "position": "Paid Media Specialist",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Kinsta is one of the top providers of managed hosting for WordPress, with a growing club of 230,000+ businesses including startups, universities, and Fortune 500 firms. We're motivated by excellent quality and proud to have received a 97% satisfaction rating from our customers. That's because, to...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-paid-media-specialist-kinsta-1138126",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-paid-media-specialist-kinsta-1138126",
+      "postedAt": "2026-11-25T10:40:30+00:00",
+      "tags": [
+        "JavaScript",
+        "AWS"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-senior-implementation-consultant-pharmacovigilance-reporting-remote-veeva-systems-1138115",
+      "company": "Veeva Systems",
+      "position": "Senior Implementation Consultant - Pharmacovigilance Reporting (Remote)",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "Veeva Systems is a mission-driven organization and pioneer in industry cloud, helping life sciences companies bring therapies to patients faster. As one of the fastest-growing SaaS companies in history, we surpassed $3B in revenue in our last fiscal year with extensive growth potential ahead. At...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-implementation-consultant-pharmacovigilance-reporting-remote-veeva-systems-1138115",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-implementation-consultant-pharmacovigilance-reporting-remote-veeva-systems-1138115",
+      "postedAt": "2026-11-25T09:00:28+00:00",
+      "tags": [
+        "AWS"
+      ],
+      "companyIcon": ""
+    },
+    {
+      "id": "rok-remote-knowledge-engineer-jobgether-1138105",
+      "company": "Jobgether",
+      "position": "Knowledge Engineer",
+      "location": "Remote",
+      "remote": true,
+      "salary": "",
+      "description": "This position is listed on behalf of a partner company, which manages all applications and next steps. Our partner is looking for a Knowledge Engineer based in the United States. The Knowledge Engineer will play a pivotal role in building the knowledge infrastructure and AI-powered systems that...",
+      "applyUrl": "https://remoteOK.com/remote-jobs/remote-knowledge-engineer-jobgether-1138105",
+      "source": "RemoteOK",
+      "sourceUrl": "https://remoteok.com/remote-jobs/remote-knowledge-engineer-jobgether-1138105",
+      "postedAt": "2026-11-25T07:28:47+00:00",
+      "tags": [
+        "JavaScript",
+        "Python",
+        "Rust",
+        "AWS",
+        "Rails"
+      ],
+      "companyIcon": ""
+    },
     {
       "id": "rok-remote-senior-executive-assistant-office-of-the-cro-est-cst-gitlab-1138103",
       "company": "GitLab",
@@ -63,65 +136,6 @@
         "Cursor",
         "Flask",
         "Vue.js"
-      ],
-      "companyIcon": ""
-    },
-    {
-      "id": "rok-remote-enterprise-performance-lead-clover-health-1137944",
-      "company": "Clover Health",
-      "position": "Enterprise Performance Lead",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Clover is reinventing health insurance by working to keep people healthier. The Actuarial Strategic Operations team serves as the operational and financial nerve center for Clover's Medicare Advantage business. Embedded within the Actuarial and Finance organization, the team combines deep business...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-enterprise-performance-lead-clover-health-1137944",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-enterprise-performance-lead-clover-health-1137944",
-      "postedAt": "2026-11-21T04:40:04+00:00",
-      "tags": [
-        "Python",
-        "Rust"
-      ],
-      "companyIcon": ""
-    },
-    {
-      "id": "rok-remote-senior-staff-machine-learning-engineer-ads-ranking-reddit-1137932",
-      "company": "Reddit",
-      "position": "Senior Staff Machine Learning Engineer, Ads Ranking",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Reddit is a community of communities. It’s built on shared interests, passion, and trust, and is home to the most open and authentic conversations on the internet. Every day, Reddit users submit, vote, and comment on the topics they care most about. With 100,000+ active communities and...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-senior-staff-machine-learning-engineer-ads-ranking-reddit-1137932",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-senior-staff-machine-learning-engineer-ads-ranking-reddit-1137932",
-      "postedAt": "2026-11-21T02:40:04+00:00",
-      "tags": [
-        "Python",
-        "Rust",
-        "Go",
-        "Cursor"
-      ],
-      "companyIcon": ""
-    },
-    {
-      "id": "rok-remote-advisory-solutions-architect-msp-new-product-intro-rubrik-job-board-1137896",
-      "company": "Rubrik Job Board",
-      "position": "Advisory Solutions Architect, MSP (New Product Intro)",
-      "location": "Remote",
-      "remote": true,
-      "salary": "",
-      "description": "Help shape how Rubrik partners with leading service providers to deliver cyber resilience at scale. The New Product Introduction (NPI) & Service Creation Solution Architect is a new function in the MSP Solution Architecture Team. You will design, package and enable new managed service offerings...",
-      "applyUrl": "https://remoteOK.com/remote-jobs/remote-advisory-solutions-architect-msp-new-product-intro-rubrik-job-board-1137896",
-      "source": "RemoteOK",
-      "sourceUrl": "https://remoteok.com/remote-jobs/remote-advisory-solutions-architect-msp-new-product-intro-rubrik-job-board-1137896",
-      "postedAt": "2026-11-20T07:20:36+00:00",
-      "tags": [
-        "Rust",
-        "AWS",
-        "GCP",
-        "Azure",
-        "Claude Code"
       ],
       "companyIcon": ""
     },

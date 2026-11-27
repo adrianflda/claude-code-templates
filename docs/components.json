@@ -49965,8 +49965,8 @@
       "language": "javascript-typescript",
       "description": "Angular-App with Javascript-Typescript",
       "files": [
-        ".claude/commands/components.md",
-        ".claude/commands/services.md"
+        ".claude/commands/services.md",
+        ".claude/commands/components.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=angular-app --yes",
       "downloads": 0
@@ -49980,10 +49980,10 @@
       "description": "Common project template",
       "files": [
         "CLAUDE.md",
-        "README.md",
-        ".claude/commands/git-workflow.md",
+        ".mcp.json",
         ".claude/commands/project-setup.md",
-        ".mcp.json"
+        ".claude/commands/git-workflow.md",
+        "README.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=common --yes",
       "downloads": 0
@@ -49999,8 +49999,8 @@
       "files": [
         "CLAUDE.md",
         ".claude/commands/admin.md",
-        ".claude/commands/views.md",
-        ".claude/commands/django-model.md"
+        ".claude/commands/django-model.md",
+        ".claude/commands/views.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=django-app --yes",
       "downloads": 0
@@ -50015,10 +50015,10 @@
       "description": "Fastapi-App with Python",
       "files": [
         "CLAUDE.md",
-        ".claude/commands/deployment.md",
-        ".claude/commands/database.md",
-        ".claude/commands/auth.md",
         ".claude/commands/api-endpoints.md",
+        ".claude/commands/database.md",
+        ".claude/commands/deployment.md",
+        ".claude/commands/auth.md",
         ".claude/commands/testing.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=fastapi-app --yes",
@@ -50034,12 +50034,12 @@
       "description": "Flask-App with Python",
       "files": [
         "CLAUDE.md",
-        ".claude/commands/deployment.md",
-        ".claude/commands/app-factory.md",
         ".claude/commands/database.md",
-        ".claude/commands/flask-route.md",
+        ".claude/commands/deployment.md",
         ".claude/commands/blueprint.md",
-        ".claude/commands/testing.md"
+        ".claude/commands/testing.md",
+        ".claude/commands/app-factory.md",
+        ".claude/commands/flask-route.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=flask-app --yes",
       "downloads": 0
@@ -50052,8 +50052,8 @@
       "category": "languages",
       "description": "Go project template",
       "files": [
-        "README.md",
-        ".mcp.json"
+        ".mcp.json",
+        "README.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=go --yes",
       "downloads": 0
@@ -50067,16 +50067,16 @@
       "description": "Javascript-Typescript project template",
       "files": [
         "CLAUDE.md",
-        "README.md",
+        ".mcp.json",
         ".claude/settings.json",
-        ".claude/commands/debug.md",
-        ".claude/commands/npm-scripts.md",
         ".claude/commands/api-endpoint.md",
-        ".claude/commands/test.md",
         ".claude/commands/refactor.md",
-        ".claude/commands/lint.md",
         ".claude/commands/typescript-migrate.md",
-        ".mcp.json"
+        ".claude/commands/debug.md",
+        ".claude/commands/lint.md",
+        ".claude/commands/npm-scripts.md",
+        ".claude/commands/test.md",
+        "README.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=javascript-typescript --yes",
       "downloads": 0
@@ -50091,9 +50091,9 @@
       "description": "Node-Api with Javascript-Typescript",
       "files": [
         "CLAUDE.md",
-        ".claude/commands/route.md",
-        ".claude/commands/database.md",
         ".claude/commands/api-endpoint.md",
+        ".claude/commands/database.md",
+        ".claude/commands/route.md",
         ".claude/commands/middleware.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=node-api --yes",
@@ -50108,10 +50108,10 @@
       "description": "Python project template",
       "files": [
         "CLAUDE.md",
+        ".mcp.json",
         ".claude/settings.json",
-        ".claude/commands/test.md",
         ".claude/commands/lint.md",
-        ".mcp.json"
+        ".claude/commands/test.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=python --yes",
       "downloads": 0
@@ -50141,9 +50141,9 @@
       "description": "React-App with Javascript-Typescript",
       "files": [
         "CLAUDE.md",
+        ".claude/commands/hooks.md",
         ".claude/commands/component.md",
-        ".claude/commands/state-management.md",
-        ".claude/commands/hooks.md"
+        ".claude/commands/state-management.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=react-app --yes",
       "downloads": 0
@@ -50157,10 +50157,10 @@
       "description": "Ruby project template",
       "files": [
         "CLAUDE.md",
+        ".mcp.json",
         ".claude/settings.json",
-        ".claude/commands/test.md",
         ".claude/commands/model.md",
-        ".mcp.json"
+        ".claude/commands/test.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=ruby --yes",
       "downloads": 0
@@ -50173,8 +50173,8 @@
       "category": "languages",
       "description": "Rust project template",
       "files": [
-        "README.md",
-        ".mcp.json"
+        ".mcp.json",
+        "README.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=rust --yes",
       "downloads": 0
@@ -50188,8 +50188,8 @@
       "language": "javascript-typescript",
       "description": "Vue-App with Javascript-Typescript",
       "files": [
-        ".claude/commands/components.md",
-        ".claude/commands/composables.md"
+        ".claude/commands/composables.md",
+        ".claude/commands/components.md"
       ],
       "installCommand": "npx claude-code-templates@latest --template=vue-app --yes",
       "downloads": 0
@@ -50276,7 +50276,7 @@
       "id": "dev-toolbox",
       "type": "plugin",
       "description": "One install for daily software work: bundles quality-kernel, pre-push-review, usage-guard, the two guards and agent-skills, and adds curated stack skills (TypeScript, React, Next.js, Python, Docker, AWS serverless, Google Cloud, Terraform/OpenTofu, Playwright, interface design and motion, LLM agents and MCP).",
-      "version": "0.3.0",
+      "version": "0.3.2",
       "keywords": [
         "bundle",
         "fullstack",
@@ -50375,7 +50375,7 @@
       "id": "quality-kernel",
       "type": "plugin",
       "description": "A quality-assurance kernel for agentic development: a seven-agent SwarmForge-style engine (specifier -> designer -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-      "version": "0.14.0",
+      "version": "0.14.1",
       "keywords": [
         "quality-gate",
         "multi-agent",
@@ -50479,7 +50479,7 @@
         "name": "quality-kernel",
         "source": "./plugins/quality-kernel",
         "description": "A quality-assurance kernel for agentic development: a seven-agent SwarmForge-style engine (specifier -> designer -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-        "version": "0.14.0",
+        "version": "0.14.1",
         "category": "quality-gates",
         "keywords": [
           "quality-gate",
@@ -50609,7 +50609,7 @@
         "name": "dev-toolbox",
         "source": "./plugins/dev-toolbox",
         "description": "One install for daily software work: bundles quality-kernel, pre-push-review, usage-guard, the two guards and agent-skills, and adds curated stack skills (TypeScript, React, Next.js, Python, Docker, AWS serverless, Google Cloud, Terraform/OpenTofu, Playwright, interface design and motion, LLM agents and MCP).",
-        "version": "0.3.0",
+        "version": "0.3.2",
         "category": "bundle",
         "keywords": [
           "bundle",
