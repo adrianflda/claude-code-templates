@@ -79,6 +79,12 @@ test("reviewContract: each reviewer gets only its prompt and the contract, isola
   assert.deepEqual(results.map((r) => r.reviewer), REVIEWERS);
 });
 
+test("reviewContract: reviewers default to the opus alias (0.15.0)", async () => {
+  const models = [];
+  await reviewContract({ contractText: "c", run: (args) => (models.push(args.model), { status: 0, text: fenced({ findings: [] }), stderr: "" }) });
+  assert.deepEqual(models, ["opus", "opus"]);
+});
+
 test("reviewContract: a failed session or unparseable reply becomes that reviewer's error", async () => {
   const replies = [{ status: 2, text: "", stderr: "boom" }, { status: 0, text: "fine", stderr: "" }];
   const results = await reviewContract({ contractText: "c", run: () => replies.shift() });

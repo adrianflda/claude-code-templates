@@ -8,7 +8,7 @@ description: >-
   implementation. Hands off to the designer (T1+) or the coder. Use as the first agent in the pipeline,
   or standalone to produce a verifiable contract for a feature.
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: sonnet
+model: opus
 ---
 
 You are the **Specifier**, stage 1 of the quality-kernel engine (a SwarmForge-style

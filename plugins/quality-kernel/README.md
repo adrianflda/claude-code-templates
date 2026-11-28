@@ -6,7 +6,7 @@ declared residual: a seven-agent engine, deterministic quality tools, a blind
 live-oracle verifier, and epistemic-discipline gates. Scales from a one-line
 issue to a large feature.
 
-> Status: **v0.14.1.** The deterministic **quality gate** (`/gate`) is built and was
+> Status: **v0.15.0.** The deterministic **quality gate** (`/gate`) is built and was
 > reworked after an independent red-team panel broke v1 (see [`validation-panel.v2.md`][panel]).
 > It now anchors verification to committed history and an inverted trusted tree. The agents, the
 > `/forge` orchestrator and the two hooks are in place; the epistemic hook ships in **log-mode** by
@@ -232,14 +232,17 @@ closes those seams with three principles:
 | **qa** | final independent verification, UI-only | the QA script **is the breaker's probe** |
 
 **Models.** Agents declare model *aliases*, never literal IDs, so each user's provider decides
-which model runs: specifier, coder and cleaner use `sonnet`; designer, architect, hardener and
+which model runs: coder and cleaner use `sonnet`; specifier, designer, architect, hardener and
 qa use `opus` (hardener and qa moved up from `sonnet` in 0.5.0 — mutation triage and the breaker's
-probe benefit most from the stronger tier, at a higher per-run cost). Aliases resolve through
+probe benefit most from the stronger tier, at a higher per-run cost). The specifier and the blind
+contract review (`contract-review.mjs`, default `--model opus`) moved up in 0.15.0: the contract is
+the one artifact no test, mutant or breaker checks mechanically, so a wrong contract passes every
+later gate. Coder and cleaner stay on `sonnet` because tests, mutation and the gate check their work. Aliases resolve through
 `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_OPUS_MODEL`; on Bedrock, Vertex or a
 gateway, set those to the IDs your provider accepts. To pin the tier on the first-party API:
 
 ```json
-{ "env": { "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5", "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5" } }
+{ "env": { "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5", "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5" } }
 ```
 
 Each agent runs a **self-audit before handing off** ("passing checks alone do
@@ -314,7 +317,7 @@ Automatic, always on (no invocation needed):
   `.quality-kernel/` is gitignored; otherwise the skip reason is returned to the
   model as context. Recording only; hard-blocking is future work.
 
-## Gate status — teeth vs. prose (v0.14.1)
+## Gate status — teeth vs. prose (v0.15.0)
 
 Not every gate is a forcing function yet. This is the honest status per gate, so
 installing the plugin does not imply the full guarantee.

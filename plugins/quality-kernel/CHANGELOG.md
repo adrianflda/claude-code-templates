@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-27
+
+### Changed
+
+- The specifier agent and the blind contract review (`contract-review.mjs`, default `--model`)
+  now use the `opus` alias instead of `sonnet`. The contract is the only artifact that nothing
+  downstream checks mechanically: tests, mutation and the breaker all verify against it, so a
+  wrong or ambiguous contract passes every later gate. Coder and cleaner stay on `sonnet`.
+  Cost: specifier runs cost about twice as much in plan quota; pass `--model sonnet` to the
+  contract review to keep the old behavior.
+- README: the pinning example uses `claude-sonnet-5-5`.
+
 ## [0.14.1] - 2026-11-26
 
 ### Fixed
