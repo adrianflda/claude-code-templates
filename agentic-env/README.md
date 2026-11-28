@@ -58,11 +58,12 @@ Behaviour:
   to run; neither removes it, since the installer never deletes anything.
 - **Partial install.** `--no-plugins` skips the `claude plugin` and git steps. `--no-tools` skips
   the external tools. With both, it installs only the files and the hook wiring.
-- **Agent model pins survive updates.** An installed agent whose frontmatter has a `model:` line
-  keeps that line when the installer updates it, and a pin alone is not drift. To pin every agent
-  on a new machine, pass `--agent-model <id or alias>` (for example `--agent-model claude-opus-5-5`);
-  it overrides the kept lines. `--help` prints the options; any other unknown option is an error
-  and nothing is installed.
+- **Pinning the agents' model.** `--agent-model <id or alias>` (for example
+  `--agent-model claude-opus-5-5`) writes that `model:` line into every agent and records it in
+  `~/.claude/agentic-env.json`; later runs reuse it, so an update never undoes the pin and a pinned
+  agent is not drift. `--agent-model repo` forgets it. Without a recorded pin, agents take the
+  repo's `model:` line, so a model edited by hand in `~/.claude/agents/` is drift and is reverted.
+  `--help` prints the options; any other unknown option is an error and nothing is installed.
 - **External tools are pinned.** A tool at another version than the manifest's is drift, and the
   installer replaces it with the pinned one. It never downloads a Python: when `uv` or the Python
   the tool needs is missing it prints `skip` with the `brew` command and exits 2. The pin is the
