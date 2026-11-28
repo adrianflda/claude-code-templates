@@ -204,6 +204,28 @@ class InstallTest(unittest.TestCase):
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
         self.assertIn('no frontmatter', r.stdout)
+        # end to end: one unpinnable agent among the files means nothing is recorded or written
+        code = ('import sys; sys.path.insert(0, sys.argv[1]); import install; from pathlib import Path\n'
+                'pairs = install.files_to_copy()\n'
+                'install.files_to_copy = lambda: pairs + [(Path(sys.argv[2]), install.CLAUDE / "agents" / "plain.md")]\n'
+                'sys.exit(install.main(["--no-plugins", "--no-tools", "--agent-model", "opus"]))')
+        r = subprocess.run([sys.executable, '-I', '-c', code, str(INSTALL.parent), str(src)],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn('no frontmatter', r.stderr)
+        self.assertFalse((self.home / '.claude' / 'agentic-env.json').exists(), 'no pin recorded')
+        self.assertFalse((self.home / '.claude' / 'agents').exists(), 'no agent written')
+
+    def test_a_corrupt_pin_record_is_an_error_and_is_left_alone(self):
+        record = self.home / '.claude' / 'agentic-env.json'
+        for raw, message in (('not json', 'is not valid JSON'), ('[]', 'must hold a JSON object')):
+            record.write_text(raw)
+            for args in (('--check',), ()):
+                r = run(self.home, *args)
+                self.assertEqual(r.returncode, 2, (raw, args))
+                self.assertIn(message, r.stderr, (raw, args))
+            self.assertEqual(record.read_text(), raw, 'never overwritten')
+        self.assertFalse((self.home / '.claude' / 'agents').exists())
 
 
 if __name__ == '__main__':
