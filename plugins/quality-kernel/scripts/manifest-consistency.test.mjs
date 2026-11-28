@@ -18,7 +18,7 @@ const version = JSON.parse(read('.claude-plugin/plugin.json')).version;
 // The contract: stage -> model alias. Literal model IDs are not allowed (they override the
 // user's ANTHROPIC_DEFAULT_*_MODEL and break Bedrock/Vertex/gateway users — see README "Models").
 const EXPECTED_MODELS = {
-  specifier: 'sonnet',
+  specifier: 'opus',
   designer: 'opus',
   coder: 'sonnet',
   cleaner: 'sonnet',
