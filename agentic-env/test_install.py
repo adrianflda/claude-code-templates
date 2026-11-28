@@ -2,6 +2,7 @@
 """install.py against a throwaway HOME (no `claude`/git steps: --no-plugins; no uv: --no-tools). Run: python3 -I agentic-env/test_install.py"""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -112,6 +113,55 @@ class InstallTest(unittest.TestCase):
                                input=json.dumps({'tool_name': 'Bash', 'tool_input': {'command': 'ls'}}),
                                capture_output=True)
         self.assertEqual((block.returncode, allow.returncode), (2, 0))
+
+    def test_help_prints_usage_and_an_unknown_option_installs_nothing(self):
+        for flag in ('--help', '-h'):
+            r = run(self.home, flag)
+            self.assertEqual(r.returncode, 0, flag)
+            self.assertIn('--agent-model', r.stdout, flag)
+        r = run(self.home, '--bogus')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('unknown option: --bogus', r.stderr)
+        self.assertFalse((self.home / '.claude' / 'agents').exists(), 'neither --help nor a typo may install')
+
+    def test_an_agent_keeps_the_model_it_was_pinned_to(self):
+        run(self.home)
+        agent = self.home / '.claude' / 'agents' / 'backend-developer.md'
+        unpinned = self.home / '.claude' / 'agents' / 'researcher.md'
+        pin = 'model: claude-opus-5-5  # local pin'
+        # pinned the way a person does it: edit the model line in place (sed), or add one if absent
+        text = agent.read_text()
+        self.assertRegex(text, r'(?m)^model: sonnet$', 'fixture: backend-developer ships a model line')
+        agent.write_text(re.sub(r'(?m)^model:.*$', pin, text, count=1))
+        text = unpinned.read_text()
+        self.assertNotRegex(text, r'(?m)^model:', 'fixture: researcher ships no model line')
+        end = text.index('\n---', 4)
+        unpinned.write_text(text[:end] + '\n' + pin + text[end:])
+        r = run(self.home, '--check')
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'OK: in sync with the repo'), 'a pin alone is not drift')
+        agent.write_text(agent.read_text() + '\nlocal edit\n')
+        r = run(self.home, '--check')
+        self.assertIn('differs   ' + str(agent), r.stdout)
+        r = run(self.home)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('kept      model: claude-opus-5-5  # local pin  in ' + str(agent), r.stdout)
+        text = agent.read_text()
+        self.assertNotIn('local edit', text, 'the body comes from the repo')
+        self.assertEqual(re.findall(r'^model:.*$', text, re.M), ['model: claude-opus-5-5  # local pin'])
+        self.assertIn('model: claude-opus-5-5  # local pin', unpinned.read_text())
+
+    def test_agent_model_pins_every_agent_and_rejects_a_bad_value(self):
+        r = run(self.home, '--agent-model', 'claude-opus-5-5')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        agents = self.home / '.claude' / 'agents'
+        for rel in MANIFEST['agents']:
+            text = (agents / Path(rel).name).read_text()
+            head = text[:text.index('\n---', 4)]
+            self.assertEqual(re.findall(r'^model:.*$', head, re.M), ['model: claude-opus-5-5'], rel)
+        self.assertEqual(run(self.home, '--check').returncode, 0, 'the pin survives a plain check')
+        for bad in (['--agent-model'], ['--agent-model', 'opus\ntools: Bash'], ['--agent-model', '--check']):
+            r = run(self.home, *bad)
+            self.assertEqual(r.returncode, 2, bad)
 
 
 if __name__ == '__main__':

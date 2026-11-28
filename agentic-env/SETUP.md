@@ -40,6 +40,8 @@ python3 -I agentic-env/install.py --check
 ```
 
 Show the user the list. It names every file, hook, plugin and tool that is missing or differs.
+Ask whether the agents should run on one model (for example `claude-opus-5-5`); if so, add
+`--agent-model <that id>` to the install command. Agents already pinned keep their model either way.
 Then:
 
 ```bash

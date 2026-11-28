@@ -5,6 +5,11 @@
   python3 -I agentic-env/install.py --check    report drift only, change nothing
   --no-plugins                                 skip the `claude plugin` and git-gate steps
   --no-tools                                   skip the external command-line tools (`uv tool install`)
+  --agent-model MODEL                          write `model: MODEL` into every agent it installs
+  -h, --help                                   print this text; any other option is an error
+
+An agent already installed with a `model:` line keeps that line on update (a pin is not drift);
+--agent-model overrides it. Every other file is copied byte for byte.
 
 What it installs is listed in agentic-env/manifest.json: agents, skills and commands from
 cli-tool/components, the hooks the manifest names in agentic-env/hooks (wired into
@@ -15,7 +20,6 @@ It never deletes anything and never writes anything that is not in the manifest.
 
 Exit: 0 everything in place · 1 drift found (--check) · 2 a step failed.
 """
-import filecmp
 import json
 import os
 import re
@@ -45,6 +49,45 @@ def files_to_copy():
     for name in sorted({e['file'] for e in MANIFEST['hooks']} | set(MANIFEST.get('hookSupport', []))):
         pairs.append((hooks / name, CLAUDE / 'hooks' / name))
     return pairs
+
+
+MODEL_LINE = re.compile(r'^model:.*$', re.M)
+MODEL_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._\[\]-]*')
+
+
+def frontmatter_end(text):
+    """-> index of the newline before the closing `---` of the frontmatter, or -1."""
+    return text.find('\n---', 4) if text.startswith('---\n') else -1
+
+
+def model_line(text):
+    """-> the agent's `model:` frontmatter line as written (comment included), or None."""
+    end = frontmatter_end(text)
+    m = MODEL_LINE.search(text, 0, end) if end != -1 else None
+    return m.group(0) if m else None
+
+
+def with_model_line(text, line):
+    """-> text whose frontmatter `model:` line is `line`: replaced, or added before the closing ---."""
+    end = frontmatter_end(text)
+    if end == -1:
+        return text
+    head, rest = text[:end], text[end:]
+    head = MODEL_LINE.sub(lambda _: line, head, count=1) if MODEL_LINE.search(head) else head + '\n' + line
+    return head + rest
+
+
+def wanted(src, dst, agent_model):
+    """-> (bytes dst should hold, the model line written over the repo's or None).
+    An agent takes --agent-model, else keeps the model line its installed copy already has."""
+    data = src.read_bytes()
+    if dst.parent != CLAUDE / 'agents':
+        return data, None
+    line = f'model: {agent_model}' if agent_model else (model_line(dst.read_text()) if dst.exists() else None)
+    text = data.decode()
+    if line is None or line == model_line(text):
+        return data, None
+    return with_model_line(text, line).encode(), line
 
 
 def hook_command(entry):
@@ -185,12 +228,12 @@ def install_tools():
              + (['--force'] if have else []) + [f"{t['package']}=={t['version']}"])
 
 
-def check(with_plugins, with_tools):
+def check(with_plugins, with_tools, agent_model=None):
     drift = []
     for src, dst in files_to_copy():
         if not dst.exists():
             drift.append(f'missing   {dst}')
-        elif not filecmp.cmp(src, dst, shallow=False):
+        elif dst.read_bytes() != wanted(src, dst, agent_model)[0]:
             drift.append(f'differs   {dst}  (repo: {src.relative_to(REPO)})')
     sp = CLAUDE / 'settings.json'
     settings = json.loads(sp.read_text()) if sp.exists() else {}
@@ -217,15 +260,19 @@ def check(with_plugins, with_tools):
     return drift
 
 
-def install(with_plugins, with_tools):
+def install(with_plugins, with_tools, agent_model=None):
     copied = 0
     for src, dst in files_to_copy():
-        if dst.exists() and filecmp.cmp(src, dst, shallow=False):
+        data, line = wanted(src, dst, agent_model)
+        if dst.exists() and dst.read_bytes() == data:
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         copied += 1
         print(f'copied    {dst}')
+        if line:
+            dst.write_bytes(data)
+            print(f"{'pinned' if agent_model else 'kept':9s} {line}  in {dst}")
     sp = CLAUDE / 'settings.json'
     settings = json.loads(sp.read_text()) if sp.exists() else {}
     todo = missing_hooks(settings)
@@ -266,18 +313,44 @@ def step(cmd):
         raise RuntimeError(f"{' '.join(cmd)} failed ({r.returncode}): {(r.stderr or r.stdout).strip()}")
 
 
+def parse_args(argv):
+    """-> options; an unknown option or a bad --agent-model value raises before anything runs."""
+    opts = {'help': False, 'check': False, 'plugins': True, 'tools': True, 'agent_model': None}
+    args = iter(argv)
+    for a in args:
+        if a in ('-h', '--help'):
+            opts['help'] = True
+        elif a == '--check':
+            opts['check'] = True
+        elif a == '--no-plugins':
+            opts['plugins'] = False
+        elif a == '--no-tools':
+            opts['tools'] = False
+        elif a == '--agent-model':
+            value = next(args, '')
+            if not MODEL_ID.fullmatch(value):
+                raise ValueError(f'--agent-model needs a model id or alias, got {value!r}')
+            opts['agent_model'] = value
+        else:
+            raise ValueError(f'unknown option: {a} (see --help)')
+    return opts
+
+
 def main(argv):
-    with_plugins = '--no-plugins' not in argv
-    with_tools = '--no-tools' not in argv
     try:
-        if '--check' in argv:
-            drift = check(with_plugins, with_tools)
+        opts = parse_args(argv)
+        if opts['help']:
+            print(__doc__)
+            return 0
+        with_plugins, with_tools, agent_model = opts['plugins'], opts['tools'], opts['agent_model']
+        if opts['check']:
+            drift = check(with_plugins, with_tools, agent_model)
             for d in drift:
                 print(d)
             print('OK: in sync with the repo' if not drift else f'DRIFT: {len(drift)} item(s)')
             return 1 if drift else 0
-        install(with_plugins, with_tools)
-        drift = check(with_plugins, with_tools)
+        install(with_plugins, with_tools, agent_model)
+        drift = check(with_plugins, with_tools, agent_model)
         for d in drift:
             print(d)
         return 2 if drift else 0
