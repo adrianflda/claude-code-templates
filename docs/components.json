@@ -50375,7 +50375,7 @@
       "id": "quality-kernel",
       "type": "plugin",
       "description": "A quality-assurance kernel for agentic development: a seven-agent SwarmForge-style engine (specifier -> designer -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "keywords": [
         "quality-gate",
         "multi-agent",
@@ -50479,7 +50479,7 @@
         "name": "quality-kernel",
         "source": "./plugins/quality-kernel",
         "description": "A quality-assurance kernel for agentic development: a seven-agent SwarmForge-style engine (specifier -> designer -> coder -> cleaner -> architect -> hardener -> QA) with deterministic quality tools, a blind live-oracle verifier, epistemic-discipline gates, and a deterministic quality gate (/gate).",
-        "version": "0.14.1",
+        "version": "0.15.0",
         "category": "quality-gates",
         "keywords": [
           "quality-gate",
