@@ -5,17 +5,24 @@
   python3 -I agentic-env/install.py --check    report drift only, change nothing
   --no-plugins                                 skip the `claude plugin` and git-gate steps
   --no-tools                                   skip the external command-line tools (`uv tool install`)
+  --agent-model MODEL                          pin every agent to MODEL and remember it
+  --agent-model repo                           forget the pin: agents take the repo's model again
+  -h, --help                                   print this text; any other option is an error
+
+The pin is recorded in ~/.claude/agentic-env.json and reused by every later run, so an update
+never undoes it and a pinned agent is not drift. Without a recorded pin, agents take the repo's
+`model:` line, and a repo model change reaches the machine. Every other file is copied byte for byte.
 
 What it installs is listed in agentic-env/manifest.json: agents, skills and commands from
 cli-tool/components, the hooks the manifest names in agentic-env/hooks (wired into
 ~/.claude/settings.json; their tests and the opt-in hooks stay in the repo), the
 plugins of this repo's marketplace, the pre-push review gate in the global git config, and the
 external command-line tools the skills call, each at one pinned version.
-It never deletes anything and never writes anything that is not in the manifest.
+It never deletes anything and never writes anything that is not in the manifest, apart from
+the pin record above.
 
 Exit: 0 everything in place · 1 drift found (--check) · 2 a step failed.
 """
-import filecmp
 import json
 import os
 import re
@@ -45,6 +52,82 @@ def files_to_copy():
     for name in sorted({e['file'] for e in MANIFEST['hooks']} | set(MANIFEST.get('hookSupport', []))):
         pairs.append((hooks / name, CLAUDE / 'hooks' / name))
     return pairs
+
+
+MODEL_LINE = re.compile(r'^model:.*$', re.M)
+MODEL_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._\[\]-]*')
+
+
+def frontmatter_end(text):
+    """-> index of the newline before the closing `---` of the frontmatter, or -1."""
+    return text.find('\n---', 4) if text.startswith('---\n') else -1
+
+
+def model_line(text):
+    """-> the agent's `model:` frontmatter line as written (comment included), or None."""
+    end = frontmatter_end(text)
+    m = MODEL_LINE.search(text, 0, end) if end != -1 else None
+    return m.group(0) if m else None
+
+
+def with_model_line(text, line):
+    """-> text whose frontmatter `model:` line is `line`: replaced, or added before the closing ---."""
+    end = frontmatter_end(text)
+    if end == -1:
+        return text
+    head, rest = text[:end], text[end:]
+    head = MODEL_LINE.sub(lambda _: line, head, count=1) if MODEL_LINE.search(head) else head + '\n' + line
+    return head + rest
+
+
+def wanted(src, dst, agent_model):
+    """-> (bytes dst should hold, the model line written over the repo's or None).
+    Only an agent with a pinned model differs from the repo file, and only in its `model:` line."""
+    data = src.read_bytes()
+    if not agent_model or dst.parent != CLAUDE / 'agents':
+        return data, None
+    text = data.decode()
+    if frontmatter_end(text) == -1:
+        raise ValueError(f'{src} has no frontmatter: cannot pin its model')
+    line = f'model: {agent_model}'
+    if line == model_line(text):
+        return data, None
+    return with_model_line(text, line).encode(), line
+
+
+STATE = CLAUDE / 'agentic-env.json'
+
+
+def read_state():
+    try:
+        state = json.loads(STATE.read_text())
+    except FileNotFoundError:
+        return {}
+    except ValueError as e:
+        raise ValueError(f'{STATE} is not valid JSON: {e}') from e
+    if not isinstance(state, dict):
+        raise ValueError(f'{STATE} must hold a JSON object')
+    return state
+
+
+def recorded_agent_model():
+    """-> the pinned agent model from the record, or None; a malformed value is an error."""
+    model = read_state().get('agentModel')
+    if model is not None and not (isinstance(model, str) and MODEL_ID.fullmatch(model)):
+        raise ValueError(f'{STATE}: agentModel {model!r} is not a model id or alias')
+    return model
+
+
+def record_agent_model(model):
+    state = read_state()
+    if model is None:
+        state.pop('agentModel', None)
+    else:
+        state['agentModel'] = model
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STATE.with_name(STATE.name + '.tmp')
+    tmp.write_text(json.dumps(state, indent=2) + '\n')
+    os.replace(tmp, STATE)
 
 
 def hook_command(entry):
@@ -185,12 +268,12 @@ def install_tools():
              + (['--force'] if have else []) + [f"{t['package']}=={t['version']}"])
 
 
-def check(with_plugins, with_tools):
+def check(with_plugins, with_tools, agent_model=None):
     drift = []
     for src, dst in files_to_copy():
         if not dst.exists():
             drift.append(f'missing   {dst}')
-        elif not filecmp.cmp(src, dst, shallow=False):
+        elif dst.read_bytes() != wanted(src, dst, agent_model)[0]:
             drift.append(f'differs   {dst}  (repo: {src.relative_to(REPO)})')
     sp = CLAUDE / 'settings.json'
     settings = json.loads(sp.read_text()) if sp.exists() else {}
@@ -217,15 +300,25 @@ def check(with_plugins, with_tools):
     return drift
 
 
-def install(with_plugins, with_tools):
+def install(with_plugins, with_tools, agent_model=None):
     copied = 0
     for src, dst in files_to_copy():
-        if dst.exists() and filecmp.cmp(src, dst, shallow=False):
+        data, line = wanted(src, dst, agent_model)
+        if dst.exists() and dst.read_bytes() == data:
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
+        if line:
+            # one atomic write of the pinned bytes: never a moment with the repo's model line
+            tmp = dst.with_name(dst.name + '.tmp')
+            tmp.write_bytes(data)
+            shutil.copystat(src, tmp)
+            os.replace(tmp, dst)
+        else:
+            shutil.copy2(src, dst)
         copied += 1
         print(f'copied    {dst}')
+        if line:
+            print(f'pinned    {line}  in {dst}')
     sp = CLAUDE / 'settings.json'
     settings = json.loads(sp.read_text()) if sp.exists() else {}
     todo = missing_hooks(settings)
@@ -266,18 +359,50 @@ def step(cmd):
         raise RuntimeError(f"{' '.join(cmd)} failed ({r.returncode}): {(r.stderr or r.stdout).strip()}")
 
 
+def parse_args(argv):
+    """-> options; an unknown option or a bad --agent-model value raises before anything runs."""
+    opts = {'help': False, 'check': False, 'plugins': True, 'tools': True, 'agent_model': None}
+    args = iter(argv)
+    for a in args:
+        if a in ('-h', '--help'):
+            opts['help'] = True
+        elif a == '--check':
+            opts['check'] = True
+        elif a == '--no-plugins':
+            opts['plugins'] = False
+        elif a == '--no-tools':
+            opts['tools'] = False
+        elif a == '--agent-model':
+            value = next(args, '')
+            if value != 'repo' and not MODEL_ID.fullmatch(value):
+                raise ValueError(f'--agent-model needs a model id or alias, got {value!r}')
+            opts['agent_model'] = value
+        else:
+            raise ValueError(f'unknown option: {a} (see --help)')
+    return opts
+
+
 def main(argv):
-    with_plugins = '--no-plugins' not in argv
-    with_tools = '--no-tools' not in argv
     try:
-        if '--check' in argv:
-            drift = check(with_plugins, with_tools)
+        opts = parse_args(argv)
+        if opts['help']:
+            print(__doc__)
+            return 0
+        with_plugins, with_tools, requested = opts['plugins'], opts['tools'], opts['agent_model']
+        agent_model = recorded_agent_model() if requested is None else (None if requested == 'repo' else requested)
+        if opts['check']:
+            drift = check(with_plugins, with_tools, agent_model)
             for d in drift:
                 print(d)
             print('OK: in sync with the repo' if not drift else f'DRIFT: {len(drift)} item(s)')
             return 1 if drift else 0
-        install(with_plugins, with_tools)
-        drift = check(with_plugins, with_tools)
+        if requested is not None:
+            for src, dst in files_to_copy():
+                wanted(src, dst, agent_model)  # every agent can take the pin, or nothing is recorded
+            record_agent_model(agent_model)
+            print(f"recorded  agent model: {agent_model or 'the repo default'} in {STATE}")
+        install(with_plugins, with_tools, agent_model)
+        drift = check(with_plugins, with_tools, agent_model)
         for d in drift:
             print(d)
         return 2 if drift else 0
